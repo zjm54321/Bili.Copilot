@@ -66,6 +66,8 @@ public sealed partial class PgcConnectorViewModel
 
     private void InitializeSections()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
         if (Sections?.Count > 0)
         {
             return;
@@ -78,12 +80,24 @@ public sealed partial class PgcConnectorViewModel
 
         if (_view.Episodes?.Count > 1)
         {
-            sections.Add(new PgcPlayerEpisodeSectionDetailViewModel(_view.Episodes, _episode.Identifier.Id, ChangeEpisode));
+            sections.Add(new PgcPlayerEpisodeSectionDetailViewModel(_view.Episodes, _episode.Identifier.Id, episode =>
+            {
+                if (IsRequestCurrent(generation, cancellationToken))
+                {
+                    ChangeEpisode(episode);
+                }
+            }));
         }
 
         if (_view.Seasons?.Count > 1)
         {
-            sections.Add(new PgcPlayerSeasonSectionDetailViewModel(_view.Seasons, _view.Information.Identifier.Id, ChangeSeason));
+            sections.Add(new PgcPlayerSeasonSectionDetailViewModel(_view.Seasons, _view.Information.Identifier.Id, season =>
+            {
+                if (IsRequestCurrent(generation, cancellationToken))
+                {
+                    ChangeSeason(season);
+                }
+            }));
         }
 
         sections.Add(_comments);
@@ -175,7 +189,7 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private void SelectSection(IPlayerSectionDetailViewModel section)
     {
-        if (section is null || section == SelectedSection)
+        if (!IsRequestCurrent(_requestGeneration, _initializationCancellation) || section is null || section == SelectedSection || Sections?.Contains(section) != true)
         {
             return;
         }

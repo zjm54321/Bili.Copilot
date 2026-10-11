@@ -44,55 +44,100 @@ public sealed partial class StartupPageViewModel : ViewModelBase
     [RelayCommand]
     private async Task ReloadQRCodeAsync()
     {
-        if (_cancellationTokenSource is not null)
+        if (_isExiting)
         {
-            await _cancellationTokenSource.CancelAsync();
-            _cancellationTokenSource.Dispose();
-            _cancellationTokenSource = null;
+            return;
         }
 
-        _cancellationTokenSource = new CancellationTokenSource();
+        var previousAttempt = _loginAttempt;
+        var attempt = new StartupLoginAttempt(ex => _logger.LogInformation(ex, "取消登录时出现异常."));
+        var cancellationToken = attempt.Token;
+        _loginAttempt = attempt;
+        previousAttempt?.Cancel();
         try
         {
             IsQRCodeLoading = true;
-            await _authenticationService.SignInAsync(cancellationToken: _cancellationTokenSource.Token);
-            var isSignedIn = await CheckAuthorizeStatusAsync();
+            ErrorTip = string.Empty;
+            await _authenticationService.SignInAsync(cancellationToken: cancellationToken);
+            if (!IsCurrentAttempt(attempt))
+            {
+                return;
+            }
+
+            var isSignedIn = await CheckAuthorizeStatusAsync(cancellationToken);
+            if (!IsCurrentAttempt(attempt))
+            {
+                return;
+            }
+
             if (isSignedIn)
             {
-                ExitCommand.Execute(true);
+                await ExitAsync(true);
             }
             else
             {
                 _logger.LogWarning("未能成功获取授权信息，扫码可能出现了异常.");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Both a normal return and an exception are valid cancellation outcomes.
+        }
         catch (Exception ex)
         {
-            IsQRCodeLoading = false;
-            ErrorTip = ex.Message;
+            if (IsCurrentAttempt(attempt))
+            {
+                ErrorTip = ex.Message;
+            }
+
             _logger.LogInformation(ex, "登录过程中出现异常.");
+        }
+        finally
+        {
+            if (ReferenceEquals(_loginAttempt, attempt))
+            {
+                if (IsCurrentAttempt(attempt))
+                {
+                    IsQRCodeLoading = false;
+                }
+
+                _loginAttempt = null;
+            }
+
+            attempt.Complete();
         }
     }
 
     [RelayCommand]
-    private async Task ExitAsync(bool shouldRestart)
+    private Task ExitAsync(bool shouldRestart)
     {
-        if (_cancellationTokenSource is not null)
+        if (_isExiting)
         {
-            await _cancellationTokenSource.CancelAsync();
-            _cancellationTokenSource.Dispose();
-            _cancellationTokenSource = null;
+            return Task.CompletedTask;
         }
+
+        _isExiting = true;
+        var attempt = _loginAttempt;
+        _loginAttempt = null;
+        attempt?.Cancel();
 
         if (shouldRestart)
         {
             this.Get<AppViewModel>().RestartCommand.Execute(default);
         }
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
     private void RenderQRCode(byte[] imageData)
     {
+        var attempt = _loginAttempt;
+        if (attempt is null || !IsCurrentAttempt(attempt))
+        {
+            return;
+        }
+
         if (QRCodeImage is null)
         {
             throw new InvalidOperationException("二维码图片控件尚未就绪，请初始化模块.");
@@ -100,21 +145,44 @@ public sealed partial class StartupPageViewModel : ViewModelBase
 
         _dispatcherQueue.TryEnqueue(async () =>
         {
+            if (!IsCurrentAttempt(attempt))
+            {
+                return;
+            }
+
             using var stream = new MemoryStream(imageData);
             var bitmap = new BitmapImage();
             await bitmap.SetSourceAsync(stream.AsRandomAccessStream()).AsTask();
+            if (!IsCurrentAttempt(attempt))
+            {
+                return;
+            }
+
             QRCodeImage.Source = bitmap;
             IsQRCodeLoading = false;
         });
     }
 
-    private async Task<bool> CheckAuthorizeStatusAsync()
+    private bool IsCurrentAttempt(StartupLoginAttempt attempt)
+        => !_isExiting && ReferenceEquals(_loginAttempt, attempt) && !attempt.Token.IsCancellationRequested;
+
+    private async Task<bool> CheckAuthorizeStatusAsync(CancellationToken cancellationToken)
     {
-        var tokenResolver = this.Get<IAuthenticationService>();
         try
         {
-            await tokenResolver.EnsureTokenAsync(_cancellationTokenSource?.Token ?? default).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (this.Get<IBiliTokenResolver>().GetToken() is null)
+            {
+                return false;
+            }
+
+            await _authenticationService.EnsureTokenAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

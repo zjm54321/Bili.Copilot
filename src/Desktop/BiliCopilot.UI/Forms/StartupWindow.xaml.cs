@@ -7,7 +7,6 @@ using BiliCopilot.UI.ViewModels.Core;
 using BiliCopilot.UI.ViewModels.View;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Media.Animation;
-using Richasy.BiliKernel.Bili.Authorization;
 using Richasy.WinUIKernel.Share.Base;
 using WinUIEx;
 
@@ -49,11 +48,7 @@ public sealed partial class StartupWindow : WindowBase
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
-        var localToken = this.Get<IBiliTokenResolver>().GetToken();
-        if (localToken is null)
-        {
-            this.Get<StartupPageViewModel>().ExitCommand.Execute(default);
-        }
+        this.Get<StartupPageViewModel>().ExitCommand.Execute(false);
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)

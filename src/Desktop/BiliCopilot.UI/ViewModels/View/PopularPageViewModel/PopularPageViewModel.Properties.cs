@@ -19,6 +19,8 @@ public sealed partial class PopularPageViewModel
 
     private long _recommendOffset;
     private long _hotOffset;
+    private long _videoGeneration;
+    private IPopularSectionItemViewModel? _displayedSection;
 
     [ObservableProperty]
     private bool _isPartitionLoading;

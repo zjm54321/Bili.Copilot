@@ -9,10 +9,12 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <ScrollView
-        x:Name="View"
-        Padding="20,0"
-        Style="{StaticResource PageScrollViewStyle}">
-        <ContentPresenter Content="{x:Bind Element}" />
-    </ScrollView>
+    <Grid x:Name="Root">
+        <ScrollViewer
+            x:Name="View"
+            Padding="20,0"
+            Style="{StaticResource PageScrollViewerStyle}">
+            <ContentPresenter Content="{x:Bind Element}" />
+        </ScrollViewer>
+    </Grid>
 </base:LayoutUserControlBase>

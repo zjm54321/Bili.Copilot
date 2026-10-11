@@ -24,5 +24,5 @@ public interface IMomentSectionDetailViewModel : INotifyPropertyChanged
     /// <summary>
     /// 刷新命令.
     /// </summary>
-    IRelayCommand RefreshCommand { get; }
+    IAsyncRelayCommand RefreshCommand { get; }
 }

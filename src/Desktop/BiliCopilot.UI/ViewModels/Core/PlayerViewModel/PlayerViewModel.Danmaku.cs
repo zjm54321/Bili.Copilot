@@ -12,8 +12,14 @@ namespace BiliCopilot.UI.ViewModels.Core;
 public sealed partial class PlayerViewModel
 {
     [RelayCommand]
-    private async Task InitializeDanmakuAsync()
+    private Task InitializeDanmakuAsync()
+        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(InitializeDanmakuCoreAsync());
+
+    private async Task InitializeDanmakuCoreAsync()
     {
+        var version = _mediaVersion;
+        var token = _activeMediaToken;
+        if (!IsCurrentPlayback(version)) return;
         SettingsToolkit.DeleteLocalSetting(Models.Constants.SettingNames.IsDanmakuEnabled);
         IsDanmakuEnabled = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.IsDanmakuEnabled, true);
         IsDanmakuControlVisible = IsDanmakuEnabled;
@@ -24,7 +30,7 @@ public sealed partial class PlayerViewModel
 
         IsDanmakuLoading = true;
         // 使用限流器，最多同时请求 6 个分段弹幕.
-        var semaphore = new SemaphoreSlim(6, 6);
+        using var semaphore = new SemaphoreSlim(6, 6);
         var danmakus = new List<DanmakuInformation>();
         try
         {
@@ -63,25 +69,32 @@ public sealed partial class PlayerViewModel
                 await Task.WhenAll(tasks);
             }
 
+            if (!IsCurrentPlayback(version)) return;
             Danmaku.DanmakuCountText = danmakus.Count > 0
                 ? string.Format(ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.DanmakuCountTemplate), danmakus.Count.ToString("N0"))
                 : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.DanmakuEmpty);
             Danmaku.Initialize(danmakus);
             IsDanmakuLoading = false;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to initialize danmaku.");
+            if (!IsCurrentPlayback(version)) return;
             IsDanmakuLoading = false;
             IsDanmakuControlVisible = false;
         }
 
         async Task GetDanmakuAsync(int index, string aid, string cid)
         {
+            var entered = false;
             try
             {
-                await semaphore.WaitAsync();
-                var danmaku = await this.Get<IDanmakuService>().GetSegmentDanmakusWithGrpcAsync(aid, cid, index);
+                await semaphore.WaitAsync(token);
+                entered = true;
+                token.ThrowIfCancellationRequested();
+                var danmaku = await this.Get<IDanmakuService>().GetSegmentDanmakusWithGrpcAsync(aid, cid, index, token);
+                token.ThrowIfCancellationRequested();
                 lock (danmakus)
                 {
                     if (danmaku?.Count > 0)
@@ -90,12 +103,13 @@ public sealed partial class PlayerViewModel
                     }
                 }
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             catch (Exception ex)
             {
                 logger.LogError(ex, $"获取弹幕分片失败： {index}");
             }
 
-            semaphore.Release();
+            finally { if (entered) semaphore.Release(); }
         }
     }
 

@@ -52,6 +52,11 @@ public sealed partial class LiveItemViewModel : ViewModelBase<LiveInformation>
     [RelayCommand]
     private async Task PlayAsync()
     {
+        if (await this.Get<AppViewModel>().TryOpenClassicAsync(Data))
+        {
+            return;
+        }
+
         await Launcher.LaunchUriAsync(new Uri(GetWebUrl()));
     }
 

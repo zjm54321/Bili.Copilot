@@ -11,6 +11,7 @@
     xmlns:ic="using:FluentIcons.WinUI"
     xmlns:local="using:BiliCopilot.UI.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:player="using:BiliCopilot.UI.Controls.Player"
     xmlns:viewmodels="using:Richasy.WinUIKernel.Share.ViewModels"
     mc:Ignorable="d">
 
@@ -19,18 +20,20 @@
             <base:AppNavigationViewItem
                 Content="{x:Bind Title}"
                 IsSelected="{x:Bind IsSelected, Mode=TwoWay}"
+                Loaded="OnNavigationItemLoaded"
                 SelectsOnInvoked="True"
-                ShowUnread="{x:Bind ShowUnread, Mode=OneWay}"
+                ShowUnread="{x:Bind local:RootLayout.ShowNonMessageUnread(PageKey, ShowUnread), Mode=OneWay}"
                 Style="{StaticResource MainNavigationViewItemStyle}"
                 Symbol="{x:Bind Symbol}"
                 Tag="{x:Bind}"
+                Unloaded="OnNavigationItemUnloaded"
                 Visibility="{x:Bind IsVisible, Mode=OneWay}" />
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid>
+    <Grid x:Name="LayoutGrid">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48" />
+            <RowDefinition Height="Auto" />
             <RowDefinition />
         </Grid.RowDefinitions>
 
@@ -38,7 +41,8 @@
             x:Name="MainTitleBar"
             Title="{ext:Locale Name=AppName}"
             BackRequested="OnBackRequested"
-            IsBackButtonVisible="{x:Bind ViewModel.IsOverlayOpen, Mode=OneWay}"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0"
             IsBackEnabled="True">
             <base:AppTitleBar.IconElement>
                 <ImageIcon Source="ms-appx:///Assets/StoreLogo.png" />
@@ -46,13 +50,13 @@
 
             <base:AppTitleBar.Header>
                 <StackPanel
+                    x:Name="HeaderHost"
                     Margin="8,0,0,0"
                     VerticalAlignment="Center"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     CornerRadius="{StaticResource ControlCornerRadius}"
                     Orientation="Horizontal"
-                    Spacing="2"
-                    Visibility="{x:Bind ViewModel.IsTopNavBarShown, Mode=OneWay}">
+                    Spacing="2">
                     <components:TopNavigationItem
                         Click="OnFavoriteButtonClick"
                         IsSelected="{x:Bind ViewModel.IsFavoritesPage, Mode=OneWay}"
@@ -80,7 +84,7 @@
                 VerticalAlignment="Center" />
 
             <base:AppTitleBar.Footer>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel x:Name="FooterHost" Orientation="Horizontal">
                     <local:Pinner Margin="0,0,16,0" VerticalAlignment="Center" />
                     <components:HeaderAccountControl />
                 </StackPanel>
@@ -98,8 +102,11 @@
             Style="{StaticResource MainNavigationViewStyle}">
             <Grid x:Name="MainGrid">
                 <Grid Visibility="{x:Bind _appViewModel.IsInitialLoading, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}">
-                    <local:MainFrame x:Name="MainFrame" Visibility="{x:Bind ViewModel.IsOverlayOpen, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
-                    <local:OverlayFrame x:Name="OverlayFrame" Visibility="{x:Bind ViewModel.IsOverlayOpen, Mode=OneWay}" />
+                    <Grid x:Name="NavigationContentHost">
+                        <local:MainFrame x:Name="MainFrame" Visibility="{x:Bind ViewModel.IsOverlayOpen, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
+                        <local:OverlayFrame x:Name="OverlayFrame" Visibility="{x:Bind ViewModel.IsOverlayOpen, Mode=OneWay}" />
+                    </Grid>
+                    <player:EmbeddedPlayerView x:Name="EmbeddedPlayerHost" Visibility="Collapsed" />
                 </Grid>
             </Grid>
         </NavigationView>
@@ -136,8 +143,12 @@
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="MainTitleBar.Title" Value="" />
-                        <Setter Target="MainTitleBar.Subtitle" Value="" />
+                        <!--
+                            Title/Subtitle are intentionally NOT cleared here: the single persistent
+                            title bar also carries the FullWindow/CompactOverlay secondary title in the
+                            narrow CompactOverlay window. Narrow title suppression is applied in code
+                            for the Normal presentation only.
+                        -->
                         <Setter Target="SearchBox.Margin" Value="40,0,20,0" />
                         <Setter Target="SearchBox.MinWidth" Value="100" />
                     </VisualState.Setters>

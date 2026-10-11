@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.Classic.Views.ClassicPlayerView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:classic="using:BiliCopilot.UI.Classic"
+    xmlns:converters="using:BiliCopilot.UI.Classic.Views"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.Classic.Views"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:media="using:Richasy.BiliKernel.Models.Media"
+    Loaded="OnLoaded"
+    Unloaded="OnUnloaded"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Classic/Styles/ClassicPlayerStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <converters:ClassicCapabilityConverter x:Key="CapabilityConverter" />
+            <converters:ClassicBackendSelfControlConverter x:Key="SelfControlConverter" />
+            <converters:ClassicBackendSelfControlTextConverter x:Key="SelfControlTextConverter" />
+            <converters:ClassicPlaybackStateConverter x:Key="StateConverter" />
+            <converters:ClassicPlaybackStateVisibilityConverter x:Key="PlayingVisibilityConverter" State="Playing" />
+            <converters:ClassicPlaybackStateVisibilityConverter
+                x:Key="NotPlayingVisibilityConverter"
+                IsReverse="True"
+                State="Playing" />
+            <converters:ClassicBoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+            <converters:ClassicMediaItemTitleConverter x:Key="MediaTitleConverter" />
+
+            <DataTemplate x:Key="ClassicQualityTemplate" x:DataType="media:PlayerFormatInformation">
+                <ItemContainer>
+                    <TextBlock Margin="8,4" Text="{x:Bind Description}" />
+                </ItemContainer>
+            </DataTemplate>
+            <DataTemplate x:Key="ClassicPartTemplate" x:DataType="media:VideoPart">
+                <ItemContainer>
+                    <TextBlock Margin="8,4" Text="{x:Bind Identifier.Title}" />
+                </ItemContainer>
+            </DataTemplate>
+            <DataTemplate x:Key="ClassicEpisodeTemplate" x:DataType="media:EpisodeInformation">
+                <ItemContainer>
+                    <TextBlock Margin="8,4" Text="{x:Bind Identifier.Title}" />
+                </ItemContainer>
+            </DataTemplate>
+            <DataTemplate x:Key="ClassicPlaylistTemplate" x:DataType="local:ClassicPlaylistEntry">
+                <ItemContainer>
+                    <TextBlock Margin="8,4" Text="{x:Bind Item, Converter={StaticResource MediaTitleConverter}}" />
+                </ItemContainer>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid
+        x:Name="LayoutRoot"
+        Padding="12"
+        RowSpacing="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition />
+            <ColumnDefinition x:Name="SidePanelColumn" Width="320" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition />
+        </Grid.RowDefinitions>
+
+        <!--  页眉：常规布局下随控制栏显隐，全窗口隐藏  -->
+        <Grid
+            Grid.ColumnSpan="2"
+            ColumnSpacing="8"
+            Visibility="{x:Bind ShowHeader, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <base:TrimTextBlock
+                    FontWeight="SemiBold"
+                    MaxLines="1"
+                    Text="{x:Bind Session.Title, Mode=OneWay}" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind Session.State, Mode=OneWay, Converter={StaticResource StateConverter}}" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Command="{x:Bind Session.CloseCommand, Mode=OneWay}"
+                ToolTipService.ToolTip="关闭">
+                <ic:SymbolIcon Symbol="Dismiss" />
+            </Button>
+        </Grid>
+
+        <StackPanel
+            Grid.Row="1"
+            Grid.ColumnSpan="2"
+            Spacing="4">
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind Session.ErrorMessage, Mode=OneWay, Converter={StaticResource ObjectToBoolConverter}}"
+                Message="{x:Bind Session.ErrorMessage, Mode=OneWay}"
+                Severity="Error"
+                Title="播放错误" />
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind Session.Backend, Mode=OneWay, Converter={StaticResource SelfControlConverter}}"
+                Message="{x:Bind Session.Backend, Mode=OneWay, Converter={StaticResource SelfControlTextConverter}}"
+                Severity="Informational"
+                Title="播放器自行控制" />
+        </StackPanel>
+
+        <Grid Grid.Row="2" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <!--  播放画面由所选后端承载；宿主把表面放入 VideoHost。岛式为原生子窗口（airspace），本视图不在该槽内叠加控件  -->
+            <Border
+                x:Name="VideoHost"
+                MinHeight="240"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                CornerRadius="8">
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Text="播放画面由所选后端承载" />
+            </Border>
+
+            <!--  传输条位于视频槽之外，airspace 下始终可见；隐藏时仅降低不透明度并保留布局占位，避免视频表面尺寸跳动  -->
+            <StackPanel
+                Grid.Row="1"
+                IsHitTestVisible="{x:Bind IsTransportInteractive, Mode=OneWay}"
+                Opacity="{x:Bind TransportOpacity, Mode=OneWay}"
+                Spacing="6">
+                <StackPanel
+                    Orientation="Horizontal"
+                    Opacity="{x:Bind PreviewOpacity, Mode=OneWay}"
+                    Spacing="8">
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="预览" />
+                    <TextBlock
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Text="{x:Bind PreviewText, Mode=OneWay}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock VerticalAlignment="Center" Text="{x:Bind PositionText, Mode=OneWay}" />
+                    <Slider
+                        x:Name="SeekSlider"
+                        MinWidth="240"
+                        VerticalAlignment="Center"
+                        IsEnabled="{x:Bind Session.Capabilities, Mode=OneWay, Converter={StaticResource CapabilityConverter}, ConverterParameter=Seek}"
+                        Maximum="{x:Bind Session.DurationSeconds, Mode=OneWay}"
+                        Minimum="0"
+                        StepFrequency="1"
+                        ValueChanged="OnSeekValueChanged" />
+                    <TextBlock VerticalAlignment="Center" Text="{x:Bind DurationText, Mode=OneWay}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button
+                        Command="{x:Bind Session.PreviousCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind Session.CanGoPrevious, Mode=OneWay}"
+                        Style="{StaticResource ClassicTransportButtonStyle}"
+                        ToolTipService.ToolTip="上一个">
+                        <ic:SymbolIcon Symbol="Previous" />
+                    </Button>
+                    <Button
+                        Command="{x:Bind Session.PlayCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind Session.Capabilities, Mode=OneWay, Converter={StaticResource CapabilityConverter}, ConverterParameter=Transport}"
+                        Style="{StaticResource ClassicTransportButtonStyle}"
+                        ToolTipService.ToolTip="播放"
+                        Visibility="{x:Bind Session.State, Mode=OneWay, Converter={StaticResource NotPlayingVisibilityConverter}}">
+                        <ic:SymbolIcon Symbol="PlayCircle" />
+                    </Button>
+                    <Button
+                        Command="{x:Bind Session.PauseCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind Session.Capabilities, Mode=OneWay, Converter={StaticResource CapabilityConverter}, ConverterParameter=Transport}"
+                        Style="{StaticResource ClassicTransportButtonStyle}"
+                        ToolTipService.ToolTip="暂停"
+                        Visibility="{x:Bind Session.State, Mode=OneWay, Converter={StaticResource PlayingVisibilityConverter}}">
+                        <ic:SymbolIcon Symbol="PauseCircle" />
+                    </Button>
+                    <Button
+                        Command="{x:Bind Session.NextCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind Session.CanGoNext, Mode=OneWay}"
+                        Style="{StaticResource ClassicTransportButtonStyle}"
+                        ToolTipService.ToolTip="下一个">
+                        <ic:SymbolIcon Symbol="Next" />
+                    </Button>
+                    <ic:SymbolIcon
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Symbol="Speaker2" />
+                    <Slider
+                        x:Name="VolumeSlider"
+                        Width="120"
+                        VerticalAlignment="Center"
+                        IsEnabled="{x:Bind Session.Capabilities, Mode=OneWay, Converter={StaticResource CapabilityConverter}, ConverterParameter=Volume}"
+                        Maximum="1"
+                        Minimum="0"
+                        StepFrequency="0.01"
+                        ValueChanged="OnVolumeValueChanged" />
+                    <TextBlock VerticalAlignment="Center" Text="{x:Bind VolumeText, Mode=OneWay}" />
+                    <ComboBox
+                        x:Name="SpeedSelector"
+                        MinWidth="96"
+                        VerticalAlignment="Center"
+                        IsEnabled="{x:Bind Session.Capabilities, Mode=OneWay, Converter={StaticResource CapabilityConverter}, ConverterParameter=Speed}"
+                        SelectionChanged="OnSpeedSelectionChanged" />
+                    <!--  全窗口下侧栏隐藏，以弹出层提供同等选集入口（弹出层不在视频槽内叠加）  -->
+                    <Button
+                        Style="{StaticResource ClassicTransportButtonStyle}"
+                        ToolTipService.ToolTip="选集"
+                        Visibility="{x:Bind IsFullWindow, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Button.Content>
+                            <ic:SymbolIcon Symbol="TextBulletList" />
+                        </Button.Content>
+                        <Button.Flyout>
+                            <Flyout Closed="OnListsFlyoutClosed" Opened="OnListsFlyoutOpened">
+                                <StackPanel Width="300" Spacing="6">
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="清晰度" />
+                                    <ItemsView
+                                        MaxHeight="160"
+                                        ItemTemplate="{StaticResource ClassicQualityTemplate}"
+                                        ItemsSource="{x:Bind Session.Qualities, Mode=OneWay}"
+                                        SelectionChanged="OnQualitySelectionChanged"
+                                        SelectionMode="Single" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="分P" />
+                                    <ItemsView
+                                        MaxHeight="160"
+                                        ItemTemplate="{StaticResource ClassicPartTemplate}"
+                                        ItemsSource="{x:Bind Session.Parts, Mode=OneWay}"
+                                        SelectionChanged="OnPartSelectionChanged"
+                                        SelectionMode="Single" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="剧集" />
+                                    <ItemsView
+                                        MaxHeight="160"
+                                        ItemTemplate="{StaticResource ClassicEpisodeTemplate}"
+                                        ItemsSource="{x:Bind Session.Episodes, Mode=OneWay}"
+                                        SelectionChanged="OnEpisodeSelectionChanged"
+                                        SelectionMode="Single" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="播放列表" />
+                                    <ItemsView
+                                        MaxHeight="160"
+                                        ItemTemplate="{StaticResource ClassicPlaylistTemplate}"
+                                        ItemsSource="{x:Bind PlaylistEntries, Mode=OneWay}"
+                                        SelectionChanged="OnPlaylistSelectionChanged"
+                                        SelectionMode="Single" />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!--  侧栏：常规布局下随控制栏显隐，全窗口隐藏  -->
+        <StackPanel
+            Grid.Row="2"
+            Grid.Column="1"
+            Margin="12,0,0,0"
+            Spacing="4"
+            Visibility="{x:Bind ShowSidePanel, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+            <TextBlock
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="清晰度" />
+            <ItemsView
+                MaxHeight="140"
+                ItemTemplate="{StaticResource ClassicQualityTemplate}"
+                ItemsSource="{x:Bind Session.Qualities, Mode=OneWay}"
+                SelectionChanged="OnQualitySelectionChanged"
+                SelectionMode="Single" />
+
+            <TextBlock
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="分P" />
+            <ItemsView
+                MaxHeight="140"
+                ItemTemplate="{StaticResource ClassicPartTemplate}"
+                ItemsSource="{x:Bind Session.Parts, Mode=OneWay}"
+                SelectionChanged="OnPartSelectionChanged"
+                SelectionMode="Single" />
+
+            <TextBlock
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="剧集" />
+            <ItemsView
+                MaxHeight="140"
+                ItemTemplate="{StaticResource ClassicEpisodeTemplate}"
+                ItemsSource="{x:Bind Session.Episodes, Mode=OneWay}"
+                SelectionChanged="OnEpisodeSelectionChanged"
+                SelectionMode="Single" />
+
+            <TextBlock
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="播放列表" />
+            <ItemsView
+                x:Name="PlaylistItemsView"
+                MaxHeight="140"
+                ItemTemplate="{StaticResource ClassicPlaylistTemplate}"
+                ItemsSource="{x:Bind PlaylistEntries, Mode=OneWay}"
+                SelectionChanged="OnPlaylistSelectionChanged"
+                SelectionMode="Single" />
+        </StackPanel>
+    </Grid>
+</UserControl>

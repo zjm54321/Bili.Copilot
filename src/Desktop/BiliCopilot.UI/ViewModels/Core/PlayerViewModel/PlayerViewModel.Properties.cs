@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
-using BiliCopilot.UI.Forms;
+using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Models;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Resolvers;
@@ -26,19 +26,13 @@ public sealed partial class PlayerViewModel
     private IMpvMediaHistoryResolver? _historyResolver;
     private bool _uiElementSetted;
     private bool _isDanmakuInitialized;
-    private double _lastSpeed;
-    private double? _continuePosition;
     private Windows.Media.Playback.MediaPlayer? _nativeMp;
     private SystemMediaTransportControls? _smtc;
     private double _verticalSubtitlePosition = 100;
     private double _horizontalSubtitlePosition = 100;
-    private bool _isRightKeyTripleSpeed;
-    private DispatcherQueueTimer? _rightKeyLongPressTimer;
     private DispatcherQueueTimer? _tripleTimer;
     private DateTimeOffset _lastPlayNextOrPrevTime = DateTimeOffset.MinValue;
 
-    private const int RightKeyLongPressDelay = 500;
-    private bool _isRightKeyDown;
     private bool _isTlsFailed;
     private double _prevPosition;
     private bool _isBroken;
@@ -52,7 +46,16 @@ public sealed partial class PlayerViewModel
 
     public MpvClient? Client { get; private set; }
 
-    public PlayerWindow? Window { get; private set; }
+    public IPlayerHost? Window { get; private set; }
+
+    private bool _isEmbedded;
+    internal PreferDecodeType? DecodeOverride { get; set; }
+    public bool IsEmbedded => _isEmbedded || Window?.IsEmbedded == true;
+    public PlayerPresentationMode Presentation => Window?.Presentation ?? PlayerPresentationMode.Normal;
+    public bool IsFullScreen => Presentation == PlayerPresentationMode.FullScreen;
+    public long MediaGeneration => _mediaVersion;
+
+    internal void MarkEmbedded() => _isEmbedded = true;
 
     public bool IsNextTipShown { get; set; }
 

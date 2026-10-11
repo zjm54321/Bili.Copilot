@@ -1,4 +1,4 @@
-﻿// Copyright (c) Bili Copilot. All rights reserved.
+// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.Components;
 
@@ -10,6 +10,8 @@ internal sealed partial class MessageSectionTemplateSelector : DataTemplateSelec
 
     public DataTemplate ChatTemplate { get; set; }
 
+    public DataTemplate SystemTemplate { get; set; }
+
     protected override DataTemplate SelectTemplateCore(object item, DependencyObject container)
     {
         if (item is NotifyMessageSectionDetailViewModel)
@@ -19,6 +21,10 @@ internal sealed partial class MessageSectionTemplateSelector : DataTemplateSelec
         else if (item is ChatMessageSectionDetailViewModel)
         {
             return ChatTemplate;
+        }
+        else if (item is SystemMessageSectionDetailViewModel)
+        {
+            return SystemTemplate;
         }
 
         return default;

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<local:SystemMessageControlBase
+    x:Class="BiliCopilot.UI.Controls.Message.SystemMessageBody"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:local="using:BiliCopilot.UI.Controls.Message"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:messages="using:BiliCopilot.UI.Services.Messages"
+    xmlns:repeater="using:Richasy.WinUIKernel.Share.Base.Repeater"
+    mc:Ignorable="d">
+
+    <Grid>
+        <ScrollViewer
+            x:Name="SystemMessageView"
+            Padding="20,0"
+            Style="{StaticResource PageScrollViewerStyle}">
+            <Grid Margin="0,16">
+                <repeater:AppRepeater MaxWidth="1000" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}">
+                    <repeater:AppRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="messages:SystemMessageRow">
+                            <Border
+                                Margin="0,0,0,4"
+                                Padding="12"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                Loaded="OnRowLoaded"
+                                Tag="{x:Bind}"
+                                Unloaded="OnRowUnloaded">
+                                <Grid RowSpacing="8">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock
+                                            FontWeight="Bold"
+                                            Text="{x:Bind Title}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind TimeAt}" />
+                                    </Grid>
+                                    <TextBlock
+                                        Grid.Row="1"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        IsTextSelectionEnabled="True"
+                                        Text="{x:Bind Content}"
+                                        TextWrapping="Wrap" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </repeater:AppRepeater.ItemTemplate>
+                    <repeater:AppRepeater.Layout>
+                        <StackLayout Spacing="8" />
+                    </repeater:AppRepeater.Layout>
+                </repeater:AppRepeater>
+            </Grid>
+        </ScrollViewer>
+
+        <base:EmptyHolder
+            Description="{ext:Locale Name=NoSystemNotification}"
+            Emoji="&#x1F4EC;"
+            Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+        <base:LoadingWidget Text="{ext:Locale Name=LoadingAndWait}" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}" />
+
+        <InfoBar
+            Margin="20,12"
+            VerticalAlignment="Top"
+            IsClosable="False"
+            IsIconVisible="True"
+            IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+            Severity="Error">
+            <InfoBar.ActionButton>
+                <HyperlinkButton Command="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}" Content="{ext:Locale Name=Refresh}" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+    </Grid>
+</local:SystemMessageControlBase>

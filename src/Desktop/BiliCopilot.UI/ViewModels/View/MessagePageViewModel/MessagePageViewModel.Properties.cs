@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.Items;
+using BiliCopilot.UI.ViewModels.Components;
+using BiliCopilot.UI.Services.Messages;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.User;
@@ -15,12 +17,21 @@ public sealed partial class MessagePageViewModel
 {
     private readonly IMessageService _service;
     private readonly ILogger<MessagePageViewModel> _logger;
+    private readonly AccountViewModel _account;
+    private readonly IMessageNotificationService _notifications;
+    private readonly ILogger<SystemMessageSectionDetailViewModel> _systemLogger;
+    private long _pageGeneration;
+    private bool _isActive;
+
+    public AccountViewModel Account => _account;
+    public SystemMessageSectionDetailViewModel? SystemSection => Sections.OfType<SystemMessageSectionDetailViewModel>().FirstOrDefault();
+    public bool IsActive => _isActive;
 
     private bool _preventLoadMore;
     private long? _chatSessionOffset;
 
     [ObservableProperty]
-    private IMessageSectionDetailViewModel _currentSection;
+    private IMessageSectionDetailViewModel? _currentSection;
 
     [ObservableProperty]
     private bool _isLoading;

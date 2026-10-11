@@ -5,7 +5,6 @@ using BiliCopilot.UI.ViewModels.Items;
 using BiliCopilot.UI.ViewModels.View;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
 using Richasy.BiliKernel.Bili.Moment;
 using Richasy.WinUIKernel.Share.ViewModels;
 
@@ -27,40 +26,102 @@ public sealed partial class VideoMomentSectionDetailViewModel : ViewModelBase, I
     }
 
     [RelayCommand]
-    private async Task InitializeAsync()
+    private Task InitializeAsync()
     {
-        if (Items.Count > 0 || _preventLoadMore)
+        if (!_loadTask.IsCompleted)
         {
-            return;
+            // Join the prepublished load/refresh owner, including ID saving; this caller holds no gate and is not its prerequisite.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
         }
 
-        await LoadItemsAsync();
-        SaveLastTenMomentIds();
+        if (Items.Count > 0 || IsEmpty || _preventLoadMore)
+        {
+            return Task.CompletedTask;
+        }
+
+        return StartLoad(refresh: false, saveIds: true);
     }
 
     [RelayCommand]
-    private void Refresh()
-    {
-        _offset = default;
-        _baseline = default;
-        IsEmpty = false;
-        _preventLoadMore = false;
-        Items.Clear();
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
-        {
-            await LoadItemsAsync();
-            SaveLastTenMomentIds();
-        });
-    }
+    private Task RefreshAsync()
+        => !_refreshTask.IsCompleted ? _refreshTask : StartLoad(refresh: true, saveIds: true);
 
     [RelayCommand]
-    private async Task LoadItemsAsync()
+    private Task LoadItemsAsync()
     {
-        if (IsEmpty || IsLoading || _preventLoadMore)
+        if (!_loadTask.IsCompleted)
         {
-            return;
+            // Paging joins the full prepublished refresh instead of overtaking it; no gate or owner dependency is introduced.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
         }
 
+        return IsEmpty || _preventLoadMore
+            ? Task.CompletedTask
+            : StartLoad(refresh: false, saveIds: false);
+    }
+
+    private Task StartLoad(bool refresh, bool saveIds)
+    {
+        var previousLoad = _loadTask;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // UI-thread commands reserve the slot before notifications can re-enter.
+        // Pagination/initialization join a pending refresh instead of overtaking it.
+        _loadTask = completion.Task;
+        if (refresh)
+        {
+            _refreshTask = completion.Task;
+        }
+
+        _ = CompleteLoadAsync(previousLoad, completion, refresh, saveIds);
+        return completion.Task;
+    }
+
+    private async Task CompleteLoadAsync(Task previousLoad, TaskCompletionSource completion, bool refresh, bool saveIds)
+    {
+        try
+        {
+            try
+            {
+                // The predecessor was captured before publishing this slot; hold no gate and drain it before reset/new-page work.
+#pragma warning disable VSTHRD003
+                await previousLoad;
+#pragma warning restore VSTHRD003
+            }
+            catch
+            {
+                // Prior callers observe their failure; refreshing must remain retryable.
+            }
+
+            if (refresh)
+            {
+                _offset = default;
+                _baseline = default;
+                IsEmpty = false;
+                _preventLoadMore = false;
+                Items.Clear();
+            }
+
+            await LoadItemsCoreAsync();
+            if (saveIds)
+            {
+                SaveLastTenMomentIds();
+            }
+
+            completion.SetResult();
+        }
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+    }
+
+    private async Task LoadItemsCoreAsync()
+    {
         try
         {
             IsLoading = true;

@@ -16,7 +16,8 @@ public sealed partial class StartupPageViewModel
     private readonly IAuthenticationService _authenticationService;
     private readonly DispatcherQueue _dispatcherQueue;
 
-    private CancellationTokenSource? _cancellationTokenSource;
+    private StartupLoginAttempt? _loginAttempt;
+    private bool _isExiting;
 
     [ObservableProperty]
     private string _version;

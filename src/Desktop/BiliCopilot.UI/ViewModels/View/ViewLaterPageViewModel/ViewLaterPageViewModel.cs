@@ -27,34 +27,102 @@ public sealed partial class ViewLaterPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task InitializeAsync()
+    private Task InitializeAsync()
     {
+        if (!_loadTask.IsCompleted)
+        {
+            // Join the prepublished owner through the real refresh request and finally; hold no gate and add no owner dependency.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
+        }
+
         if (Videos.Count > 0 || IsEmpty)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        await LoadVideosAsync();
+        return LoadVideosAsync();
     }
 
     [RelayCommand]
-    private async Task RefreshAsync()
+    private Task RefreshAsync()
     {
-        IsEmpty = false;
-        _pageNumber = 0;
-        TotalCount = 0;
-        Videos.Clear();
-        await InitializeAsync();
+        return !_refreshTask.IsCompleted ? _refreshTask : StartLoad(refresh: true);
     }
 
     [RelayCommand]
-    private async Task LoadVideosAsync()
+    private Task LoadVideosAsync()
     {
-        if (IsLoading || IsEmpty || (Videos.Count >= TotalCount && Videos.Count > 0))
+        if (!_loadTask.IsCompleted)
         {
-            return;
+            // Paging joins the full pending refresh rather than passing it; this caller holds no gate and is not its prerequisite.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
         }
 
+        if (IsEmpty || (Videos.Count >= TotalCount && Videos.Count > 0))
+        {
+            return Task.CompletedTask;
+        }
+
+        return StartLoad(refresh: false);
+    }
+
+    private Task StartLoad(bool refresh)
+    {
+        var previousLoad = _loadTask;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Publish before any property/collection notifications can re-enter a command.
+        // A pending refresh owns the load slot, so incremental loads cannot pass it.
+        _loadTask = completion.Task;
+        if (refresh)
+        {
+            _refreshTask = completion.Task;
+        }
+
+        _ = CompleteLoadAsync(previousLoad, completion, refresh);
+        return completion.Task;
+    }
+
+    private async Task CompleteLoadAsync(Task previousLoad, TaskCompletionSource completion, bool refresh)
+    {
+        try
+        {
+            try
+            {
+                // Drain the captured predecessor, never the slot now owned by this load.
+                // Captured before successor publication; no gate is held, and old paging finishes before reset and the new first page.
+#pragma warning disable VSTHRD003
+                await previousLoad;
+#pragma warning restore VSTHRD003
+            }
+            catch
+            {
+                // Its callers observe the failure; a new refresh must still be able to retry.
+            }
+
+            if (refresh)
+            {
+                IsEmpty = false;
+                _pageNumber = 0;
+                TotalCount = 0;
+                Videos.Clear();
+            }
+
+            await LoadVideosCoreAsync();
+            completion.SetResult();
+        }
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+    }
+
+    private async Task LoadVideosCoreAsync()
+    {
         IsLoading = true;
         try
         {

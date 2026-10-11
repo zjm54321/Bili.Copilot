@@ -15,10 +15,10 @@
     mc:Ignorable="d">
 
     <Grid>
-        <ScrollView
+        <ScrollViewer
             x:Name="View"
             Padding="16,0"
-            Style="{StaticResource PageScrollViewStyle}">
+            Style="{StaticResource PageScrollViewerStyle}">
             <Grid Margin="0,16">
                 <repeater:AppRepeater
                     x:Name="SeasonRepeater"
@@ -31,7 +31,7 @@
                     </repeater:AppRepeater.ItemTemplate>
                 </repeater:AppRepeater>
             </Grid>
-        </ScrollView>
+        </ScrollViewer>
 
         <base:EmptyHolder
             Description="{ext:Locale Name=TimelineHasNoVideo}"

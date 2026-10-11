@@ -5,7 +5,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:ext="using:BiliCopilot.UI.Extensions"
-    xmlns:ic="using:FluentIcons.WinUI"
     xmlns:local="using:BiliCopilot.UI.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:settings="using:BiliCopilot.UI.Controls.Settings"
@@ -24,24 +23,15 @@
             Style="{StaticResource BodyStrongTextBlockStyle}"
             Text="{ext:Locale Name=Settings}" />
 
-        <SelectorBar
-            x:Name="SectionSelector"
-            HorizontalAlignment="Center"
-            SelectionChanged="OnSectionSelectorChangedAsync">
-            <SelectorBarItem Tag="0" Text="{ext:Locale Name=App}" />
-            <SelectorBarItem Tag="1" Text="{ext:Locale Name=AIService}" />
-        </SelectorBar>
-
         <Border
             Grid.Row="1"
             Height="1"
             HorizontalAlignment="Stretch"
             Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-        <ScrollView
-            x:Name="GenericContainer"
+        <ScrollViewer
             Grid.Row="2"
             Padding="16,0"
-            Style="{StaticResource PageScrollViewStyle}">
+            Style="{StaticResource PageScrollViewerStyle}">
             <StackPanel Margin="0,12" Spacing="4">
                 <StackPanel.ChildrenTransitions>
                     <RepositionThemeTransition IsStaggeringEnabled="False" />
@@ -63,7 +53,6 @@
                 <settings:LayoutSettingSection />
                 <settings:CacheSettingControl />
                 <settings:NavigationSettingControl />
-                <settings:ScrollSettingControl />
                 <settings:SearchRecommendSettingSection />
                 <!--<settings:CloseBehaviorSettingControl />-->
                 <settings:NotificationSettingControl />
@@ -79,29 +68,6 @@
                     Spacing="4">
                     <HyperlinkButton
                         Padding="8,4"
-                        HorizontalAlignment="Left"
-                        Click="OnJoinGroupButtonClick"
-                        Content="{ext:Locale Name=JoinQQGroup}">
-                        <FlyoutBase.AttachedFlyout>
-                            <Flyout>
-                                <Flyout.FlyoutPresenterStyle>
-                                    <Style BasedOn="{StaticResource DefaultFlyoutPresenterStyle}" TargetType="FlyoutPresenter">
-                                        <Setter Property="Padding" Value="0" />
-                                    </Style>
-                                </Flyout.FlyoutPresenterStyle>
-                                <Image
-                                    MaxWidth="240"
-                                    Source="{ThemeResource QQGroup}"
-                                    Stretch="Uniform" />
-                            </Flyout>
-                        </FlyoutBase.AttachedFlyout>
-                    </HyperlinkButton>
-                    <StackPanel
-                        Width="1"
-                        Height="16"
-                        Background="{ThemeResource ControlStrokeColorDefaultBrush}" />
-                    <HyperlinkButton
-                        Padding="8,4"
                         Content="{ext:Locale Name=SendFeedback}"
                         NavigateUri="https://github.com/Richasy/Bili.Copilot/issues/new/choose" />
                     <StackPanel
@@ -114,40 +80,6 @@
                         NavigateUri="https://bili.richasy.net" />
                 </StackPanel>
             </StackPanel>
-        </ScrollView>
-        <ScrollView
-            x:Name="AIContainer"
-            Grid.Row="2"
-            Padding="16,0"
-            Style="{StaticResource PageScrollViewStyle}"
-            Visibility="Collapsed">
-            <StackPanel Margin="0,12">
-                <StackPanel.ChildrenTransitions>
-                    <RepositionThemeTransition IsStaggeringEnabled="False" />
-                </StackPanel.ChildrenTransitions>
-                <InfoBar
-                    Title="{ext:Locale Name=AISettingHeaderTitle}"
-                    Margin="0,0,0,8"
-                    HorizontalAlignment="Stretch"
-                    IsClosable="False"
-                    IsOpen="True"
-                    Message="{ext:Locale Name=AISettingHeaderDescription}"
-                    Severity="Informational">
-                    <InfoBar.IconSource>
-                        <ic:SymbolIconSource Symbol="Sparkle" />
-                    </InfoBar.IconSource>
-                    <InfoBar.ActionButton>
-                        <HyperlinkButton Content="{ext:Locale Name=SeeDetail}" NavigateUri="https://agent.richasy.net/chat-config" />
-                    </InfoBar.ActionButton>
-                </InfoBar>
-                <settings:AIResponseSettingControl Margin="0,0,0,4" />
-                <settings:PromptTemplateSettingControl Margin="0,0,0,4" />
-                <StackPanel x:Name="AIPanel" Spacing="4">
-                    <StackPanel.ChildrenTransitions>
-                        <RepositionThemeTransition IsStaggeringEnabled="False" />
-                    </StackPanel.ChildrenTransitions>
-                </StackPanel>
-            </StackPanel>
-        </ScrollView>
+        </ScrollViewer>
     </Grid>
 </local:SettingsPageBase>

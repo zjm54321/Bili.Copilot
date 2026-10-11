@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<core:PlayerControlBase
+    x:Class="BiliCopilot.UI.Controls.Player.StoreIsland.IslandSubtitleButton"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:core="using:BiliCopilot.UI.Controls.Core"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:items="using:BiliCopilot.UI.ViewModels.Items"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <core:PlayerControlBase.Resources>
+        <ResourceDictionary>
+            <!--  源 PlayerResources.xaml 的 TransportButtonFlyoutPresenterStyle（原值 12,10）局部化  -->
+            <Style
+                x:Key="TransportButtonFlyoutPresenterStyle"
+                BasedOn="{StaticResource DefaultFlyoutPresenterStyle}"
+                TargetType="FlyoutPresenter">
+                <Setter Property="Padding" Value="12,10" />
+            </Style>
+        </ResourceDictionary>
+    </core:PlayerControlBase.Resources>
+
+    <!--  Store 源 Controls/Player/SubtitleButton.xaml：ClosedCaption 图标、字幕开关、ItemsView 字幕列表；Margin 8,0,0,0 原样保留  -->
+    <Grid Margin="8,0,0,0" Visibility="{x:Bind ViewModel.IsSubtitleEmpty, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}">
+        <Button
+            VerticalAlignment="Center"
+            Style="{StaticResource CircleIconButtonStyle}"
+            ToolTipService.ToolTip="{ext:Locale Name=Subtitle}">
+            <ic:SymbolIcon FontSize="14" Symbol="ClosedCaption" />
+            <Button.Flyout>
+                <Flyout
+                    x:Name="SubtitleFlyout"
+                    FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
+                    Opened="OnFlyoutOpened">
+                    <StackPanel Width="200" Spacing="4">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center" Text="{ext:Locale Name=SubtitleEnabled}" />
+                            <ToggleSwitch
+                                Grid.Column="1"
+                                MinWidth="0"
+                                MinHeight="0"
+                                VerticalAlignment="Center"
+                                IsOn="{x:Bind ViewModel.IsSubtitleEnabled, Mode=TwoWay}"
+                                OffContent=""
+                                OnContent="" />
+                        </Grid>
+                        <ItemsView
+                            x:Name="SubtitleView"
+                            IsItemInvokedEnabled="True"
+                            ItemInvoked="OnSubtitleItemInvoked">
+                            <ItemsView.ItemTemplate>
+                                <DataTemplate x:DataType="items:SubtitleItemViewModel">
+                                    <ItemContainer Style="{StaticResource AppItemContainerStyle}">
+                                        <Grid Padding="12,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                            <base:TrimTextBlock MaxLines="1" Text="{x:Bind Name}" />
+                                        </Grid>
+                                    </ItemContainer>
+                                </DataTemplate>
+                            </ItemsView.ItemTemplate>
+                            <ItemsView.Layout>
+                                <StackLayout Spacing="4" />
+                            </ItemsView.Layout>
+                        </ItemsView>
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+        </Button>
+    </Grid>
+</core:PlayerControlBase>

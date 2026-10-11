@@ -48,10 +48,10 @@
             PreferredPlacement="Right"
             Subtitle="{ext:Locale Name=FavoriteTip}"
             Target="{x:Bind Btn}">
-            <ScrollView
+            <ScrollViewer
                 MaxHeight="360"
                 Margin="0,8"
-                Style="{StaticResource PageScrollViewStyle}">
+                Style="{StaticResource PageScrollViewerStyle}">
                 <repeater:AppRepeater x:Name="FavoriteRepeater" ItemsSource="{x:Bind ItemsSource, Mode=OneWay}">
                     <repeater:AppRepeater.ItemTemplate>
                         <DataTemplate x:DataType="items:PlayerFavoriteFolderViewModel">
@@ -83,7 +83,7 @@
                         <StackLayout Spacing="8" />
                     </repeater:AppRepeater.Layout>
                 </repeater:AppRepeater>
-            </ScrollView>
+            </ScrollViewer>
         </TeachingTip>
     </Grid>
 </base:LayoutUserControlBase>

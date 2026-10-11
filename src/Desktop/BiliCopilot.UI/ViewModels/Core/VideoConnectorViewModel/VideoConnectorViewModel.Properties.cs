@@ -113,21 +113,10 @@ public sealed partial class VideoConnectorViewModel
     [ObservableProperty]
     public partial List<IPlayerSectionDetailViewModel>? Sections { get; set; }
 
-    [ObservableProperty]
-    public partial bool IsAISectionPanelVisible { get; set; }
-
-    [ObservableProperty]
-    public partial bool IsAISectionPanelLoaded { get; set; }
-
     /// <summary>
     /// 下载视图模型.
     /// </summary>
     public DownloadViewModel Downloader { get; }
-
-    /// <summary>
-    /// AI 视图模型.
-    /// </summary>
-    public AIViewModel AI { get; }
 
     /// <summary>
     /// 播放视图模型.

@@ -6,8 +6,6 @@ using BiliCopilot.UI.Models;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Resolvers;
 using BiliCopilot.UI.Toolkits;
-using BiliCopilot.UI.ViewModels.Items;
-using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
@@ -24,17 +22,28 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
 {
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
+        => await CloseAsync();
+
+    private async Task DisposeCoreAsync()
     {
+        await DrainPlayerWorkAsync();
+        // Decide cancellation failure before any native/host teardown, registry release or CTS disposal.
+        if (_closeCancellationErrors.Count > 0)
+            throw new AggregateException("Player cancellation failed; ownership retained.", _closeCancellationErrors);
+
+        if (_playerOverlay is not null)
+        {
+            _playerOverlay.KeyDown -= OnPlayerKeyDown;
+            _playerOverlay.RemoveHandler(UIElement.KeyUpEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler(OnPlayerKeyUp));
+            _playerOverlay.LostFocus -= OnPlayerInputLostFocus;
+            _playerOverlay = null;
+        }
+
+        Window?.SetActiveAction(null);
+        RequestHideNextTip?.Invoke(this, EventArgs.Empty);
         Danmaku.ClearAll();
         _nativeMp?.Dispose();
         _nativeMp = null;
-
-        if (_rightKeyLongPressTimer != null)
-        {
-            _rightKeyLongPressTimer.Tick -= OnRightKeyLongPressTimerTick;
-            _rightKeyLongPressTimer.Stop();
-            _rightKeyLongPressTimer = null;
-        }
 
         if (_tripleTimer != null)
         {
@@ -61,7 +70,6 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
         {
             Client.ErrorOccurred -= OnClientErrorOccurred;
             Client.CacheStateChanged -= OnClientCacheStateChanged;
-            await Client.DisposeAsync();
         }
 
         if (Player is not null)
@@ -69,25 +77,63 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
             Player.PropertyChanged -= OnPlayerPropertyChanged;
             await Player.DisposeAsync();
         }
+        else if (Client?.IsDisposed == false)
+        {
+            // MpvPlayer owns Client whenever it exists. Only partial initialization owns it here.
+            await Client.DisposeAsync();
+        }
+
+        if (!IsEmbedded && Window is not null)
+        {
+            var app = this.Get<AppViewModel>();
+            var hideMain = SettingsToolkit.ReadLocalSetting(SettingNames.HideMainWindowOnPlay, true);
+            if ((hideMain && !UseIntegrationOperation) ||
+                (app.Players.Count <= 1 && !app.IsMainWindowVisible() && !app.IsClosed && !(hideMain && UseIntegrationOperation)))
+                ShowMainWindow();
+        }
 
         if (Window?.IsDisposed == false)
         {
             Window.SizeChanged -= OnWindowSizeChanged;
-            Window.GetWindow().Destroying -= OnWindowDestroying;
+            Window.CloseRequested -= OnHostCloseRequested;
+            Window.PresentationChanged -= OnHostPresentationChanged;
+            if (_pointerSource is not null) _pointerSource.PointerReleased -= OnWindowPointerReleased;
             await Window.DisposeAsync();
         }
 
-        this.Get<AppViewModel>().Players.Remove(this);
+        this.Get<AppViewModel>().ReleasePlayer(this);
+        _mediaCancellation?.Dispose();
+        foreach (var retired in _retiredMediaCancellations) retired.Dispose();
+        _retiredMediaCancellations.Clear();
+        _lifetime.Dispose();
+        if (!IsEmbedded && UseIntegrationOperation && _independentInitializationCompleted)
+            this.Get<AppViewModel>().Windows.OfType<MainWindow>().FirstOrDefault()?.Close();
     }
 
-    [RelayCommand]
-    internal async Task InitializeAsync(MediaSnapshot snapshot)
+    private async Task DrainPlayerWorkAsync()
     {
+        Exception? inputError = null;
+        try { await CancelPlayerInputAsync(); }
+        catch (Exception ex) { inputError = ex; }
+        // A failed input restoration or cancellation callback cannot make live work disappear.
+        while (_ownedWork.Count > 0)
+        {
+            try { await Task.WhenAll(_ownedWork.ToArray()); }
+            catch (Exception ex) { logger.LogWarning(ex, "Owned player operation ended while closing."); }
+            _ownedWork.RemoveWhere(task => task.IsCompleted);
+        }
+
+        await DrainTransportCommandsAsync();
+        if (inputError is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inputError).Throw();
+    }
+
+    private async Task InitializeMediaAsync(MediaSnapshot snapshot)
+    {
+        CheckMediaAdmission();
         _snapshot = snapshot;
         ErrorMessage = default;
         CacheSpeedText = default;
         ShowPlayerWindow();
-        IsConnecting = true;
         IsSourceSelectable = false;
         IsDanmakuEnabled = false;
         IsDanmakuLoading = false;
@@ -101,32 +147,29 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
         Danmaku.ClearAll();
         Chapters.Clear();
         IsChapterVisible = SettingsToolkit.ReadLocalSetting(SettingNames.IsChapterVisible, true);
-        UseIntegrationOperation = SettingsToolkit.ReadLocalSetting(SettingNames.HideMainWindowOnPlay, true)
+        UseIntegrationOperation = !IsEmbedded && SettingsToolkit.ReadLocalSetting(SettingNames.HideMainWindowOnPlay, true)
             && SettingsToolkit.ReadLocalSetting(SettingNames.UseIntegrationWhenSinglePlayWindow, true);
         BackwardTip = string.Format(ResourceToolkit.GetLocalizedString(StringNames.BackwardTemplate), SettingsToolkit.ReadLocalSetting(SettingNames.StepBackwardSecond, 10d));
         ForwardTip = string.Format(ResourceToolkit.GetLocalizedString(StringNames.ForwardTemplate), SettingsToolkit.ReadLocalSetting(SettingNames.StepForwardSecond, 30d));
         RequestHideNextTip?.Invoke(this, EventArgs.Empty);
         if (Client != null)
         {
-            try
-            {
-                await Client.PauseAsync();
-                await Client.StopAsync();
-            }
-            catch
-            {
-            }
+            await Client.PauseAsync();
+            CheckMediaAdmission();
+
+            await Client.StopAsync();
         }
 
+        CheckMediaAdmission();
+
         await InitializeInternalAsync();
+        CheckMediaAdmission();
+
         if (Connector != null)
         {
             System.Diagnostics.Debug.WriteLine($"Player initialized with connector: {Connector.GetType().Name}");
-            await Connector.InitializeAsync(_snapshot, default);
-            if (Window.IsClosed)
-            {
-                return;
-            }
+            await Connector.InitializeAsync(_snapshot, default, _activeMediaToken);
+            CheckMediaAdmission();
         }
 
         Title = Connector switch
@@ -161,11 +204,13 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
                 break;
         }
 
-        _sourceResolver.WindowHandle = Window!.Handle;
+        _sourceResolver.SetInitializationCancellation(_activeMediaToken);
+        _sourceResolver.WindowHandle = Window!.RenderHwnd;
 
         if (_historyResolver != null && Player != null)
         {
             await _historyResolver.SaveHistoryAsync(Player.Position, Player.Duration, Richasy.MpvKernel.Core.Enums.MpvPlayerState.End, true);
+            CheckMediaAdmission();
         }
 
         // TODO: 创建历史记录处理器
@@ -193,10 +238,7 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
                 break;
         }
 
-        if (Window.IsClosed)
-        {
-            return;
-        }
+        CheckMediaAdmission();
 
         if (Player is null)
         {
@@ -208,62 +250,33 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
             Player.UpdateResolvers(_sourceResolver, _historyResolver);
         }
 
-        try
-        {
-            await Player.InitializeAsync();
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
+        await Player.InitializeAsync();
 
-        if (Window.IsClosed)
-        {
-            return;
-        }
+        CheckMediaAdmission();
 
         await ResetPlayerPresenterModeAsync();
-        if (Window.IsClosed)
-        {
-            return;
-        }
+        CheckMediaAdmission();
 
         CheckFullScreen();
         CheckCompactOverlay();
         ProgressChanged?.Invoke(this, 0);
         await LoadSourcesAsync();
-        await LoadSubtitlesAsync();
-        if (Window.IsClosed)
-        {
-            return;
-        }
+        CheckMediaAdmission();
 
-        IsConnecting = false;
+        await LoadSubtitlesAsync();
     }
 
     public void UpdateTheme(ElementTheme theme)
         => Window?.SetTheme(theme);
 
-    /// <summary>
-    /// 关闭播放器.
-    /// </summary>
-    public void Close()
-        => Window?.Close();
-
     private void ShowPlayerWindow()
     {
-        if (Window?.IsDisposed != false)
+        if (!_hostReady || Window is null || Window.RenderHwnd == IntPtr.Zero)
+            throw new InvalidOperationException("The owned player host must be ready before media initialization.");
+        if (IsEmbedded)
         {
-            Window = new PlayerWindow();
-            Window.SetActiveAction(isActive => queue.TryEnqueue(DispatcherQueuePriority.Low, () => IsWindowDeactivated = !isActive));
-            Window.GetWindow().Destroying += OnWindowDestroying;
-            Window.SizeChanged += OnWindowSizeChanged;
-            var pointerSource = InputPointerSource.GetForIsland(Window.XamlRoot?.ContentIsland);
-            pointerSource.PointerReleased += OnWindowPointerReleased;
-            var keyboardSource = InputKeyboardSource.GetForIsland(Window.XamlRoot?.ContentIsland);
-            keyboardSource.KeyDown += OnWindowKeyDown;
-            keyboardSource.KeyUp += OnWindowKeyUp;
+            BindHost();
+            return;
         }
 
         var hideMainWindowOnPlay = SettingsToolkit.ReadLocalSetting(SettingNames.HideMainWindowOnPlay, true);
@@ -273,16 +286,8 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
             Window!.Show(Player == null && !hideMainWindowOnPlay);
         }
 
-        var isFirstLoad = !_uiElementSetted;
-        if (!_uiElementSetted)
-        {
-            var overlay = new PlayerOverlay { ViewModel = this };
-            Window!.SetUIElement(overlay);
-            _uiElementSetted = true;
-
-            var currentTheme = SettingsToolkit.ReadLocalSetting(SettingNames.AppTheme, ElementTheme.Default);
-            Window.SetTheme(currentTheme);
-        }
+        var isFirstLoad = !_independentWindowShown;
+        BindHost();
 
         if (hideMainWindowOnPlay && isFirstLoad)
         {
@@ -321,31 +326,34 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
             ? Window.GetWindow().Size.Height > Window.GetWindow().Size.Width
             : Window.GetWindow().Size.Height >= Window.GetWindow().Size.Width;
         CheckBlackBackgroundVisible();
+        _independentWindowShown = true;
     }
 
-    private async Task SelectSourceAsync(SourceItemViewModel source)
+    private bool _independentWindowShown;
+    private InputPointerSource? _pointerSource;
+
+    private void BindHost()
     {
-        if (source is null)
+        if (_uiElementSetted) return;
+        Window!.SetActiveAction(OnPlayerWindowActiveChanged);
+        Window.SizeChanged += OnWindowSizeChanged;
+        Window.CloseRequested += OnHostCloseRequested;
+        Window.PresentationChanged += OnHostPresentationChanged;
+        var overlay = new PlayerOverlay { ViewModel = this, IsTabStop = true };
+        _playerOverlay = overlay;
+        overlay.KeyDown += OnPlayerKeyDown;
+        overlay.AddHandler(UIElement.KeyUpEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler(OnPlayerKeyUp), true);
+        overlay.LostFocus += OnPlayerInputLostFocus;
+        Window.SetUIElement(overlay);
+        if (Window.XamlRoot?.ContentIsland is { } island)
         {
-            return;
+            _pointerSource = InputPointerSource.GetForIsland(island);
+            _pointerSource.PointerReleased += OnWindowPointerReleased;
         }
-
-        foreach (var item in Sources)
-        {
-            item.IsSelected = item.Equals(source);
-        }
-
-        var selected = Sources.FirstOrDefault(s => s.IsSelected);
-        SelectedSource = selected;
-        _continuePosition = Player?.Position;
-        if (_sourceResolver is VideoMediaSourceResolver videoResolver)
-        {
-            _snapshot.PreferQuality = selected.Data.Quality;
-            videoResolver.ResetSnapshot(_snapshot);
-            await Player.ReplayAsync(Player.Position);
-        }
-
-        await Task.CompletedTask;
+        Window.SetTheme(SettingsToolkit.ReadLocalSetting(SettingNames.AppTheme, ElementTheme.Default));
+        Window.ResetFocus();
+        _uiElementSetted = true;
+        OnHostPresentationChanged(Window, EventArgs.Empty);
     }
 
     private void CheckBottomProgressBarVisible()

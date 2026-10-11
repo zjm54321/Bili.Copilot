@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<core:PlayerControlBase
+    x:Class="BiliCopilot.UI.Controls.Player.StoreIsland.IslandFormatButton"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:core="using:BiliCopilot.UI.Controls.Core"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:items="using:BiliCopilot.UI.ViewModels.Items"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <core:PlayerControlBase.Resources>
+        <ResourceDictionary>
+            <!--  源 PlayerResources.xaml 的 TransportButtonFlyoutPresenterStyle（原值 12,10）局部化  -->
+            <Style
+                x:Key="TransportButtonFlyoutPresenterStyle"
+                BasedOn="{StaticResource DefaultFlyoutPresenterStyle}"
+                TargetType="FlyoutPresenter">
+                <Setter Property="Padding" Value="12,10" />
+            </Style>
+        </ResourceDictionary>
+    </core:PlayerControlBase.Resources>
+
+    <!--  Store 源 Controls/Player/VideoPlayerFormatButton.xaml：Hd 图标、Quality 提示、ItemsView(220) 清晰度列表原样保留  -->
+    <Grid Visibility="{x:Bind ViewModel.IsSourceSelectable, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+        <Button Style="{StaticResource CircleIconButtonStyle}" ToolTipService.ToolTip="{ext:Locale Name=Quality}">
+            <ic:SymbolIcon FontSize="14" Symbol="Hd" />
+            <Button.Flyout>
+                <Flyout
+                    x:Name="FormatFlyout"
+                    FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
+                    Opened="OnFlyoutOpened"
+                    Placement="Top"
+                    ShouldConstrainToRootBounds="False">
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            HorizontalAlignment="Left"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{ext:Locale Name=Quality}" />
+                        <ItemsView
+                            x:Name="FormatView"
+                            Width="220"
+                            IsItemInvokedEnabled="True"
+                            ItemInvoked="OnFormatItemInvoked"
+                            SelectionMode="Single">
+                            <ItemsView.ItemTemplate>
+                                <DataTemplate x:DataType="items:SourceItemViewModel">
+                                    <ItemContainer IsEnabled="{x:Bind IsEnabled}" Style="{StaticResource AppItemContainerStyle}">
+                                        <Grid
+                                            MinHeight="40"
+                                            Padding="12,0"
+                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind Name}" />
+                                        </Grid>
+                                    </ItemContainer>
+                                </DataTemplate>
+                            </ItemsView.ItemTemplate>
+                            <ItemsView.Layout>
+                                <StackLayout Spacing="4" />
+                            </ItemsView.Layout>
+                        </ItemsView>
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+        </Button>
+    </Grid>
+</core:PlayerControlBase>

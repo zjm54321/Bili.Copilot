@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.Components;
-using BiliCopilot.UI.ViewModels.Core;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.Article;
@@ -54,9 +53,6 @@ public sealed partial class ArticleReaderPageViewModel
     [ObservableProperty]
     private bool _isCommentsOpened;
 
-    [ObservableProperty]
-    private bool _isAIOverlayOpened;
-
     /// <summary>
     /// 文章已加载.
     /// </summary>
@@ -76,9 +72,4 @@ public sealed partial class ArticleReaderPageViewModel
     /// 评论模块.
     /// </summary>
     public CommentMainViewModel CommentModule { get; }
-
-    /// <summary>
-    /// AI 模块.
-    /// </summary>
-    public AIViewModel AI { get; }
 }

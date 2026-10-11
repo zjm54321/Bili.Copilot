@@ -2,9 +2,13 @@
 
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using System.ComponentModel;
 
 namespace BiliCopilot.UI.Controls.Core;
 
@@ -13,13 +17,14 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private readonly DispatcherQueueTimer _tapTimer;
     private readonly DispatcherQueueTimer _holdTimer;
     private readonly DispatcherQueueTimer _tempControlTimer;
-    private Point _startPoint;
-    private InteractiveArea _interactiveArea;
-    private double _totalDeltaX;
-    private int _tapCount;
-    private bool _isManipulating;
+    private readonly PlayerSurfaceGestureState _gesture = new();
+    private PlayerViewModel? _subscribedViewModel;
+    private uint? _pointerId;
+    private double _startPosition;
+    private double _startVolume;
+    private bool _pendingTouchTap;
+    private bool _isSecondTouchTap;
     private bool _isTouch;
-    private bool _isLeftButton;
     private bool _isRightButton;
     private bool _isHolding;
 
@@ -44,153 +49,246 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
 
     protected override void OnPointerWheelChanged(PointerRoutedEventArgs e)
     {
-        var distance = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
-        if (!AppToolkit.IsShiftPressed() && !AppToolkit.IsCtrlPressed() && !AppToolkit.IsAltPressed())
+        // Windows reports precision-touchpad scroll through the same wheel axes
+        // as mouse wheels. Do not infer hardware from the delta or its magnitude.
+        if (!CanControlPlayback() || !IsSurfaceSource(e.OriginalSource)
+            || e.Pointer.PointerDeviceType != PointerDeviceType.Mouse || e.IsGenerated
+            || !AppToolkit.NotModifierKeyPressed())
         {
-            if (ViewModel?.Client is not null)
+            return;
+        }
+
+        var properties = e.GetCurrentPoint(this).Properties;
+        var distance = properties.MouseWheelDelta;
+        if (distance == 0)
+        {
+            return;
+        }
+
+        if (properties.IsHorizontalMouseWheel)
+        {
+            if (!CanSeek())
             {
-                if (distance > 0)
-                {
-                    ViewModel.IncreaseVolumeCommand.Execute(default);
-                }
-                else if (distance < 0)
-                {
-                    ViewModel.DecreaseVolumeCommand.Execute(default);
-                }
+                return;
+            }
+
+            if (distance > 0)
+            {
+                ViewModel.SkipForwardCommand.Execute(default);
+            }
+            else
+            {
+                ViewModel.SkipBackwardCommand.Execute(default);
             }
         }
-        else if (AppToolkit.IsOnlyCtrlPressed())
+        else if (distance > 0)
         {
-            if (ViewModel?.Client is not null)
-            {
-                if (distance > 0)
-                {
-                    ViewModel.IncreaseSpeedCommand.Execute(default);
-                }
-                else if (distance < 0)
-                {
-                    ViewModel.DecreaseSpeedCommand.Execute(default);
-                }
-            }
-        }
-    }
-
-    /// <inheritdoc/>
-    protected override void OnPointerPressed(PointerRoutedEventArgs e)
-    {
-        var point = e.GetCurrentPoint(this);
-        CheckPointerType(e);
-        _isLeftButton = e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse &&
-                        point.Properties.IsLeftButtonPressed;
-        _isRightButton = e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse &&
-                         point.Properties.IsRightButtonPressed;
-        _startPoint = point.Position;
-        var width = ActualWidth;
-        var sideWidth = Math.Max(80, width / 5d);
-
-        if (point.Position.X > width - sideWidth)
-        {
-            _interactiveArea = InteractiveArea.Aside;
+            ViewModel.IncreaseVolumeCommand.Execute(default);
         }
         else
         {
-            _interactiveArea = InteractiveArea.Main;
+            ViewModel.DecreaseVolumeCommand.Execute(default);
         }
 
-        _isHolding = false;
-        if (!_isRightButton)
+        e.Handled = true;
+    }
+
+    protected override void OnPointerPressed(PointerRoutedEventArgs e)
+    {
+        if (!CanControlPlayback() || !IsSurfaceSource(e.OriginalSource) || e.IsGenerated)
+        {
+            return;
+        }
+
+        var device = e.Pointer.PointerDeviceType;
+        if (device is not (PointerDeviceType.Touch or PointerDeviceType.Mouse))
+        {
+            return;
+        }
+
+        if (device == PointerDeviceType.Mouse && !AppToolkit.NotModifierKeyPressed())
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(this);
+        if (_pointerId.HasValue || (device == PointerDeviceType.Touch && !point.Properties.IsPrimary))
+        {
+            // Multi-contact touchscreen input is not a touchpad wheel gesture.
+            CleanupInteractionState();
+            e.Handled = true;
+            return;
+        }
+
+        if (device == PointerDeviceType.Mouse
+            && !point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed)
+        {
+            return;
+        }
+
+        // Only an accepted surface press moves focus; descendants retain their keys.
+        ViewModel.FocusPlayerInput();
+        _isTouch = device == PointerDeviceType.Touch;
+        _isRightButton = !_isTouch && point.Properties.IsRightButtonPressed;
+        _isSecondTouchTap = _isTouch && _pendingTouchTap;
+        _pendingTouchTap = false;
+        _tapTimer.Stop();
+        _gesture.Begin(point.Position.X, point.Position.Y, _isTouch);
+        _pointerId = e.Pointer.PointerId;
+        _startPosition = ViewModel.Player.Position;
+        _startVolume = ViewModel.Player.Volume;
+        if (!CapturePointer(e.Pointer))
+        {
+            CleanupInteractionState();
+            return;
+        }
+
+        if (_isTouch)
         {
             _holdTimer.Start();
         }
 
-        CapturePointer(e.Pointer);
         e.Handled = true;
     }
 
-    protected override void OnControlLoaded()
-        => _tempControlTimer.Start();
-
-    protected override void OnControlUnloaded()
-        => CleanupInteractionState();
-
-    /// <inheritdoc/>
     protected override void OnPointerMoved(PointerRoutedEventArgs e)
     {
-        if (PointerCaptures?.Any(p => p.PointerId == e.Pointer.PointerId) != true)
+        if (_pointerId != e.Pointer.PointerId)
         {
             return;
         }
 
-        CheckPointerType(e);
-        var currentPoint = e.GetCurrentPoint(this);
-        var deltaX = currentPoint.Position.X - _startPoint.X;
-        var deltaY = currentPoint.Position.Y - _startPoint.Y;
-
-        if (!_isManipulating && (Math.Abs(deltaX) > 5 || Math.Abs(deltaY) > 5))
+        if (!CanControlPlayback())
         {
-            _isManipulating = true;
-            _tapTimer.Stop();
-            _holdTimer.Stop();
-            _tapCount = 0;
+            CleanupInteractionState();
+            return;
         }
 
-        if (_isManipulating)
-        {
-            _totalDeltaX += deltaX;
-            HandleManipulationUpdate(deltaX, deltaY);
-            _startPoint = currentPoint.Position;
-        }
-
+        UpdateGesture(e.GetCurrentPoint(this).Position);
         e.Handled = true;
     }
 
-    /// <inheritdoc/>
     protected override void OnPointerReleased(PointerRoutedEventArgs e)
     {
-        if (PointerCaptures?.Any(p => p.PointerId == e.Pointer.PointerId) != true)
+        if (_pointerId != e.Pointer.PointerId)
         {
             return;
         }
 
-        CheckPointerType(e);
-        var currentPoint = e.GetCurrentPoint(this);
-        var deltaX = currentPoint.Position.X - _startPoint.X;
-        var deltaY = currentPoint.Position.Y - _startPoint.Y;
+        if (!CanControlPlayback())
+        {
+            CleanupInteractionState();
+            return;
+        }
 
+        UpdateGesture(e.GetCurrentPoint(this).Position);
         _holdTimer.Stop();
-
         if (_isHolding)
         {
-            ViewModel?.RestoreSpeedCommand?.Execute(default);
-            _isHolding = false;
+            EndTouchHold(ViewModel);
         }
-        else if (!_isManipulating)
+        else if (_gesture.Phase == PlayerSurfaceGesture.Horizontal)
         {
-            _tapCount++;
-            if (_tapCount == 1)
+            var position = GetNewPosition();
+            if (position.HasValue)
             {
-                _tapTimer.Start();
+                // Seeking does not change the previous playing/paused state.
+                CommitPosition(position.Value);
             }
         }
-        else
+        else if (_gesture.Phase == PlayerSurfaceGesture.Pressed)
         {
-            HandleManipulationCompleted();
-        }
-
-        if (_isRightButton)
-        {
-            _isRightButton = false;
-            if (!ViewModel!.IsConnecting && ViewModel.Player?.IsPlaybackInitialized == true)
+            if (_isRightButton)
             {
                 FlyoutBase.GetAttachedFlyout(this).ShowAt(this, new FlyoutShowOptions
                 {
                     Position = e.GetCurrentPoint(this).Position,
                 });
             }
+            else if (!_isTouch || _isSecondTouchTap)
+            {
+                ViewModel.PlayPauseCommand.Execute(default);
+            }
+            else
+            {
+                _pendingTouchTap = true;
+                _tapTimer.Start();
+            }
         }
 
+        ViewModel.IsPreviewProgressChanging = false;
+        // Clear ownership before ReleasePointerCapture raises CaptureLost.
+        _pointerId = null;
+        _isSecondTouchTap = false;
+        _isRightButton = false;
+        _gesture.Reset();
         ReleasePointerCapture(e.Pointer);
         e.Handled = true;
+    }
+
+    protected override void OnPointerCanceled(PointerRoutedEventArgs e)
+    {
+        if (_pointerId == e.Pointer.PointerId)
+        {
+            CleanupInteractionState();
+        }
+    }
+
+    protected override void OnPointerCaptureLost(PointerRoutedEventArgs e)
+    {
+        if (_pointerId == e.Pointer.PointerId)
+        {
+            CleanupInteractionState();
+        }
+    }
+
+    protected override void OnLostFocus(RoutedEventArgs e)
+        => CleanupInteractionState();
+
+    protected override void OnControlLoaded()
+    {
+        SubscribeViewModel(ViewModel);
+        _tempControlTimer.Start();
+    }
+
+    protected override void OnControlUnloaded()
+    {
+        CleanupInteractionState();
+        _tempControlTimer.Stop();
+        SubscribeViewModel(null);
+    }
+
+    protected override void OnViewModelChanged(PlayerViewModel? oldValue, PlayerViewModel? newValue)
+    {
+        CleanupInteractionState(oldValue);
+        SubscribeViewModel(IsLoaded ? newValue : null);
+    }
+
+    internal void CancelPendingInput()
+        => CleanupInteractionState();
+
+    private void SubscribeViewModel(PlayerViewModel? viewModel)
+    {
+        if (_subscribedViewModel is not null)
+        {
+            _subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        _subscribedViewModel = viewModel;
+        if (viewModel is not null)
+        {
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if ((e.PropertyName == nameof(ViewModel.IsWindowDeactivated) && ViewModel.IsWindowDeactivated)
+            || (e.PropertyName == nameof(ViewModel.IsConnecting) && ViewModel.IsConnecting)
+            || e.PropertyName is nameof(ViewModel.Player) or nameof(ViewModel.Connector) or nameof(ViewModel.SelectedSource))
+        {
+            CleanupInteractionState();
+        }
     }
 
     private void OnTempControlTimerTick(DispatcherQueueTimer sender, object args)
@@ -220,201 +318,154 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private void OnHoldTimerTick(object sender, object e)
     {
         _holdTimer.Stop();
-        _isHolding = true;
-        ViewModel.IsTouching = _isTouch;
-        ViewModel?.TripleSpeedCommand?.Execute(default);
-    }
-
-    private async void OnTapTimerTick(object? sender, object? e)
-    {
-        _tapTimer.Stop();
-        if (ViewModel.Client is null)
+        if (!_pointerId.HasValue || !CanControlPlayback() || !_gesture.TryHold())
         {
             return;
         }
 
-        if (_tapCount == 2)
+        _isSecondTouchTap = false;
+        if (!ViewModel.Player.IsPlaying)
         {
-            if (_isTouch)
-            {
-                var state = ViewModel.Player.PlaybackState;
-                if (state == Richasy.MpvKernel.Core.Enums.MpvPlayerState.Playing)
-                {
-                    await ViewModel.Client.PauseAsync();
-                }
-                else if (state == Richasy.MpvKernel.Core.Enums.MpvPlayerState.Paused)
-                {
-                    await ViewModel.Client.ResumeAsync();
-                }
-            }
-            else if (_isLeftButton)
-            {
-                ViewModel.ToggleFullScreenCommand.Execute(default);
-            }
-        }
-        else if (_tapCount == 1 && !ViewModel.IsEnd && (!ViewModel.IsControlsVisible || (_startPoint.Y >= 50 && ActualHeight - _startPoint.Y >= 150)))
-        {
-            if (_isTouch)
-            {
-                ViewModel.IsControlsVisible = !ViewModel.IsControlsVisible;
-                ViewModel.IsTouchControlsVisible = !ViewModel.IsTouchControlsVisible;
-            }
-            else if (_isLeftButton)
-            {
-                ViewModel.PlayPauseCommand.Execute(default);
-            }
+            return;
         }
 
-        _tapCount = 0;
+        _isHolding = true;
+        ViewModel.IsTouching = true;
+        ViewModel.TripleSpeedCommand.Execute(default);
     }
 
-    private async void HandleManipulationUpdate(double deltaX, double deltaY)
+    private void OnTapTimerTick(object? sender, object? e)
     {
-        switch (_interactiveArea)
+        _tapTimer.Stop();
+        var toggleControls = _pendingTouchTap && !_pointerId.HasValue && CanControlPlayback();
+        _pendingTouchTap = false;
+        if (toggleControls)
         {
-            case InteractiveArea.Main:
-                {
-                    if (Math.Abs(deltaX) > 2 && Math.Abs(deltaX) > Math.Abs(deltaY))
-                    {
-                        if (ViewModel.Player.PlaybackState == Richasy.MpvKernel.Core.Enums.MpvPlayerState.Playing)
-                        {
-                            await ViewModel.Client!.PauseAsync();
-                        }
-
-                        var newPos = GetNewPosition();
-                        if (newPos != null)
-                        {
-                            DispatcherQueue.TryEnqueue(() =>
-                            {
-                                ViewModel.IsPreviewProgressChanging = true;
-                                ViewModel.IsControlsVisible = true;
-                                ViewModel.PreviewPosition = newPos.Value;
-                            });
-                        }
-                    }
-                }
-
-                break;
-            case InteractiveArea.Aside:
-                {
-                    if (Math.Abs(deltaY) > 5 && Math.Abs(deltaY) > Math.Abs(deltaX))
-                    {
-                        var volumeChange = -deltaY / 10;
-                        DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            var currentVolume = ViewModel.Player.Volume;
-                            var newVolume = Math.Max(0, Math.Min(ViewModel.MaxVolume, currentVolume + volumeChange));
-                            ViewModel.LastVolumeChangingTime = DateTimeOffset.Now;
-                            ViewModel.IsVolumeChanging = true;
-                            await ViewModel.Client!.SetVolumeAsync(newVolume);
-                        });
-                    }
-                }
-
-                break;
-            default:
-                break;
+            ViewModel.IsTouchControlsVisible = !ViewModel.IsControlsVisible;
+            ViewModel.IsControlsVisible = !ViewModel.IsControlsVisible;
         }
     }
 
-    private async void HandleManipulationCompleted()
+    private void UpdateGesture(Point position)
     {
-        if (_interactiveArea == InteractiveArea.Main && Math.Abs(_totalDeltaX) > 10)
+        _gesture.Move(position.X, position.Y);
+        if (_gesture.Phase != PlayerSurfaceGesture.Pressed)
         {
-            var newPos = GetNewPosition();
-            if (newPos.HasValue)
-            {
-                await ViewModel.Client!.SetCurrentPositionAsync(newPos.Value);
-                await ViewModel.Client.ResumeAsync();
-            }
+            _holdTimer.Stop();
+            _isSecondTouchTap = false;
         }
 
-        _startPoint = new(0, 0);
-        _totalDeltaX = 0;
-        _interactiveArea = InteractiveArea.None;
-        _isManipulating = false;
+        if (_gesture.Phase == PlayerSurfaceGesture.Horizontal)
+        {
+            var newPosition = GetNewPosition();
+            if (newPosition.HasValue)
+            {
+                ViewModel.IsPreviewProgressChanging = true;
+                ViewModel.IsTouchControlsVisible = true;
+                ViewModel.IsControlsVisible = true;
+                ViewModel.PreviewPosition = newPosition.Value;
+            }
+        }
+        else if (_gesture.Phase == PlayerSurfaceGesture.Vertical)
+        {
+            // Retain the existing touch volume scale, now over the whole surface.
+            var volume = Math.Clamp(_startVolume - (_gesture.DeltaY / 10), 0, ViewModel.MaxVolume);
+            ApplyVolume(volume);
+        }
+    }
+
+    private async void CommitPosition(double position)
+    {
+        try
+        {
+            await ViewModel.ChangePositionAsync(position);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Player input seek failed: {ex.Message}");
+        }
+    }
+
+    private async void ApplyVolume(double volume)
+    {
+        try
+        {
+            await ViewModel.ChangeVolumeAsync(volume);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Player input volume failed: {ex.Message}");
+        }
     }
 
     private double? GetNewPosition()
     {
-        var state = ViewModel.Player.PlaybackState;
-        var isValidState = state is Richasy.MpvKernel.Core.Enums.MpvPlayerState.Playing or Richasy.MpvKernel.Core.Enums.MpvPlayerState.Paused;
-        if (isValidState)
+        if (!CanSeek() || ActualWidth <= 0)
         {
-            var duration = ViewModel.Player.Duration;
-            var currentPosition = ViewModel.Player.Position;
-            var newPosition = currentPosition + (_totalDeltaX / ActualWidth / 2 * duration);
-            if (newPosition < 0)
-            {
-                newPosition = 0;
-            }
-            else if (newPosition > duration)
-            {
-                newPosition = duration - 0.1;
-            }
-
-            return newPosition;
+            return null;
         }
 
-        return default;
+        var duration = ViewModel.Player.Duration;
+        return Math.Clamp(_startPosition + (_gesture.DeltaX / ActualWidth / 2 * duration), 0, Math.Max(0, duration - 0.1));
     }
 
-    /// <summary>
-    /// 清理所有交互状态，防止状态残留
-    /// </summary>
-    private void CleanupInteractionState()
-    {
-        // 停止所有计时器
-        _holdTimer.Stop();
-        _tapTimer.Stop();
+    private bool CanControlPlayback()
+        => ViewModel?.Client?.IsDisposed == false && ViewModel.Player?.IsPlaybackInitialized == true
+            && !ViewModel.IsPlaybackClosing && !ViewModel.IsConnecting && !ViewModel.IsWindowDeactivated
+            && !ViewModel.IsPopupVisible && !ViewModel.IsExtraPanelVisible && !ViewModel.IsSubtitleSettingsVisible;
 
-        // 如果正在倍速播放，恢复正常速度
+    private bool CanSeek()
+        => CanControlPlayback() && double.IsFinite(ViewModel.Player.Duration) && ViewModel.Player.Duration > 0;
+
+    private bool IsSurfaceSource(object source)
+    {
+        for (var current = source as DependencyObject; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, this))
+            {
+                return true;
+            }
+
+            if (current is Control or Microsoft.UI.Xaml.Documents.Hyperlink)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private void EndTouchHold(PlayerViewModel? owner)
+    {
         if (_isHolding)
         {
-            ViewModel?.IsTouching = false;
-            ViewModel?.RestoreSpeedCommand?.Execute(default);
             _isHolding = false;
+            if (owner is not null)
+            {
+                owner.IsTouching = false;
+                owner.RestoreSpeedCommand.Execute(default);
+            }
         }
-
-        // 如果正在预览进度，取消预览
-        if (ViewModel is not null && ViewModel.IsPreviewProgressChanging)
-        {
-            ViewModel.IsPreviewProgressChanging = false;
-        }
-
-        // 重置所有状态变量
-        _tapCount = 0;
-        _isManipulating = false;
-        _isLeftButton = false;
-        _isRightButton = false;
-        _isTouch = false;
-        _totalDeltaX = 0;
-        _startPoint = new(0, 0);
-        _interactiveArea = InteractiveArea.None;
     }
 
-    private void CheckPointerType(PointerRoutedEventArgs e)
-        => _isTouch = e.Pointer.PointerDeviceType is Microsoft.UI.Input.PointerDeviceType.Touch or Microsoft.UI.Input.PointerDeviceType.Pen;
-
-    /// <summary>
-    /// Interactive area types.
-    /// </summary>
-    internal enum InteractiveArea
+    private void CleanupInteractionState(PlayerViewModel? owner = null)
     {
-        /// <summary>
-        /// None.
-        /// </summary>
-        None,
+        _holdTimer.Stop();
+        _tapTimer.Stop();
+        owner ??= ViewModel;
+        EndTouchHold(owner);
+        if (owner is not null)
+        {
+            owner.IsPreviewProgressChanging = false;
+        }
 
-        /// <summary>
-        /// Main area.
-        /// </summary>
-        Main,
-
-        /// <summary>
-        /// Side area.
-        /// </summary>
-        Aside,
+        _pendingTouchTap = false;
+        _isSecondTouchTap = false;
+        _pointerId = null;
+        _isRightButton = false;
+        _isTouch = false;
+        _gesture.Reset();
+        ReleasePointerCaptures();
     }
 
     private void OnFlyoutOpened(object sender, object e)

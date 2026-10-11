@@ -10,7 +10,9 @@ namespace BiliCopilot.UI.ViewModels.Core;
 /// </summary>
 public interface IPlayerConnectorViewModel
 {
-    public Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver);
+    public Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver, CancellationToken cancellationToken = default);
+
+    public void InvalidateRequests();
 
     public Task PlayNextAsync();
 

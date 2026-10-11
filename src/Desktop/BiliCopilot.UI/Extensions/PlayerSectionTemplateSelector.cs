@@ -22,8 +22,6 @@ internal sealed partial class PlayerSectionTemplateSelector : DataTemplateSelect
 
     public DataTemplate InfoTemplate { get; set; }
 
-    public DataTemplate AITemplate { get; set; }
-
     protected override DataTemplate SelectTemplateCore(object item, DependencyObject container)
     {
         if (item is CommentMainViewModel)
@@ -57,10 +55,6 @@ internal sealed partial class PlayerSectionTemplateSelector : DataTemplateSelect
         else if (item is VideoPlayerInfoSectionDetailViewModel or PgcPlayerInfoSectionDetailViewModel)
         {
             return InfoTemplate;
-        }
-        else if (item is VideoPlayerAISectionDetailViewModel)
-        {
-            return AITemplate;
         }
 
         return default;

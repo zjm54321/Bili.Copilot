@@ -21,11 +21,6 @@
   	<RdXmlFile Include="rd.xml" />
   </ItemGroup>
   <ItemGroup>
-  	<None Update="$(UserProfile)\.nuget\packages\richasy.winuikernel.ai\*\contentFiles\any\net9.0-windows10.0.22621\Assets\**\*">
-  		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-  	</None>
-  </ItemGroup>
-  <ItemGroup>
     <Content Remove="Assets\basic-mpv.conf" />
     <Content Remove="Assets\bbdown\arm64\BBDown.exe" />
     <Content Remove="Assets\bbdown\x64\BBDown.exe" />
@@ -43,17 +38,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Remove="Assets\mpv.png" />
-    <None Remove="Assets\qq_group_dark.jpg" />
-    <None Remove="Assets\qq_group_light.jpg" />
     <None Remove="Assets\Reader\Dark.css" />
     <None Remove="Assets\Reader\Light.css" />
     <None Remove="Assets\Reader\ShowPage.html" />
-    <None Remove="Controls\AI\AIBody.xaml" />
-    <None Remove="Controls\AI\AIFooter.xaml" />
-    <None Remove="Controls\AI\AIHeader.xaml" />
-    <None Remove="Controls\AI\AIOverlayPanel.xaml" />
-    <None Remove="Controls\AI\AIPanel.xaml" />
-    <None Remove="Controls\AI\CustomPromptDialog.xaml" />
     <None Remove="Controls\Article\ArticlePartitionMainBody.xaml" />
     <None Remove="Controls\Article\ArticlePartitionMainHeader.xaml" />
     <None Remove="Controls\Article\ArticlePartitionSideBody.xaml" />
@@ -65,7 +52,6 @@
     <None Remove="Controls\Comment\CommentTextBox.xaml" />
     <None Remove="Controls\Components\ArticleCardControl\ArticleCardControl.xaml" />
     <None Remove="Controls\Components\ArticleReader.xaml" />
-    <None Remove="Controls\Components\ChatModelCardControl\ChatModelCardControl.xaml" />
     <None Remove="Controls\Components\DefaultCommentItemPresenter.xaml" />
     <None Remove="Controls\Components\EmotePanel.xaml" />
     <None Remove="Controls\Components\EmoteTextBlock.xaml" />
@@ -97,6 +83,7 @@
     <None Remove="Controls\Components\VideoMomentPresenter.xaml" />
     <None Remove="Controls\Core\CacheBar.xaml" />
     <None Remove="Controls\Core\ChapterPanel.xaml" />
+    <None Remove="Controls\Core\IslandTransportControls.xaml" />
     <None Remove="Controls\Core\NextTip.xaml" />
     <None Remove="Controls\Core\OverlayTransportControls.xaml" />
     <None Remove="Controls\Core\PlayerInteractivePanel.xaml" />
@@ -142,6 +129,9 @@
     <None Remove="Controls\Message\NotifyMessageCardControl.xaml" />
     <None Remove="Controls\Message\NotifyMessageHeader.xaml" />
     <None Remove="Controls\Message\NotifyMessageSideItem.xaml" />
+    <None Remove="Controls\Message\SystemMessageBody.xaml" />
+    <None Remove="Controls\Message\SystemMessageHeader.xaml" />
+    <None Remove="Controls\Message\SystemMessageSideItem.xaml" />
     <None Remove="Controls\Moment\ComprehensiveMainBody.xaml" />
     <None Remove="Controls\Moment\ComprehensiveMomentSectionDetailControl.xaml" />
     <None Remove="Controls\Moment\ComprehensiveMomentSpaceControl.xaml" />
@@ -176,6 +166,12 @@
     <None Remove="Controls\Pinner.xaml" />
     <None Remove="Controls\Player\CoinButton.xaml" />
     <None Remove="Controls\Player\DownloadButton.xaml" />
+    <None Remove="Controls\Player\EmbeddedPlayerView.xaml" />
+    <None Remove="Controls\Player\StoreIsland\IslandNextVideoButton.xaml" />
+    <None Remove="Controls\Player\StoreIsland\IslandDanmakuBox.xaml" />
+    <None Remove="Controls\Player\StoreIsland\IslandDanmakuSendOptions.xaml" />
+    <None Remove="Controls\Player\StoreIsland\IslandFormatButton.xaml" />
+    <None Remove="Controls\Player\StoreIsland\IslandSubtitleButton.xaml" />
     <None Remove="Controls\Player\FavoriteButton.xaml" />
     <None Remove="Controls\Player\LikeButton.xaml" />
     <None Remove="Controls\Player\PgcDescriptorControl.xaml" />
@@ -189,7 +185,6 @@
     <None Remove="Controls\Player\PgcSeasonsSection.xaml" />
     <None Remove="Controls\Player\PgcStatControl.xaml" />
     <None Remove="Controls\Player\UpSectionControl.xaml" />
-    <None Remove="Controls\Player\VideoAISection.xaml" />
     <None Remove="Controls\Player\VideoDanmakuPanel.xaml" />
     <None Remove="Controls\Player\VideoDescriptorControl.xaml" />
     <None Remove="Controls\Player\VideoInfoSection.xaml" />
@@ -220,7 +215,6 @@
     <None Remove="Controls\Search\VideoSearchExtraHeader.xaml" />
     <None Remove="Controls\Search\VideoSectionDetailControl.xaml" />
     <None Remove="Controls\Settings\AboutSettingControl.xaml" />
-    <None Remove="Controls\Settings\AIResponseSettingControl.xaml" />
     <None Remove="Controls\Settings\CacheSettingControl.xaml" />
     <None Remove="Controls\Settings\CloseBehaviorSettingControl.xaml" />
     <None Remove="Controls\Settings\DownloadSettingControl.xaml" />
@@ -230,9 +224,7 @@
     <None Remove="Controls\Settings\NotificationSettingControl.xaml" />
     <None Remove="Controls\Settings\PlayerBehaviorSettingControl.xaml" />
     <None Remove="Controls\Settings\PlayerControlSettingControl.xaml" />
-    <None Remove="Controls\Settings\PromptTemplateSettingControl.xaml" />
     <None Remove="Controls\Settings\ScreenshotSettingControl.xaml" />
-    <None Remove="Controls\Settings\ScrollSettingControl.xaml" />
     <None Remove="Controls\Settings\SearchRecommendSettingSection.xaml" />
     <None Remove="Controls\Settings\ThemeSettingControl.xaml" />
     <None Remove="Controls\Users\FansBody.xaml" />
@@ -247,7 +239,6 @@
     <None Remove="Controls\VideoPartition\VideoPartitionSideHeader.xaml" />
     <None Remove="Controls\ViewLater\ViewLaterBody.xaml" />
     <None Remove="Controls\ViewLater\ViewLaterHeader.xaml" />
-    <None Remove="Controls\Markdown\MarkdownTextBlock.xaml" />
     <None Remove="Forms\GalleryWindow.xaml" />
     <None Remove="Forms\StartupWindow.xaml" />
     <None Remove="Forms\WebSignInWindow.xaml" />
@@ -293,7 +284,6 @@
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="ColorCode.WinUI" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Segmented" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" />
@@ -303,8 +293,6 @@
     <PackageReference Include="Danmaku.Share" />
     <PackageReference Include="FluentIcons.WinUI" />
     <PackageReference Include="H.NotifyIcon.WinUI" />
-    <PackageReference Include="HtmlAgilityPack" />
-    <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="Microsoft.Windows.CsWin32">
       <PrivateAssets>all</PrivateAssets>
@@ -313,29 +301,6 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Graphics.Win2D" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Ali" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Anthropic" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Azure" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Baidu" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.DeepSeek" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Google" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Groq" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.IFlyTek" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.LingYi" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Mistral" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Moonshot" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Ollama" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.OpenAI" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.OpenRouter" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Perplexity" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.SiliconFlow" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Tencent" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.TogetherAI" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Volcano" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Windows" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.XAI" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.Youdao" />
-	<PackageReference Include="Richasy.AgentKernel.Connectors.ZhiPu" />
     <PackageReference Include="Richasy.BiliKernel.Authorizers.TV" />
     <PackageReference Include="Richasy.BiliKernel.Resolvers.WinUICookies" />
     <PackageReference Include="Richasy.BiliKernel.Resolvers.WinUIQRCode" />
@@ -349,10 +314,8 @@
     <PackageReference Include="Richasy.MpvKernel" />
     <PackageReference Include="Richasy.MpvKernel.Core" />
     <PackageReference Include="Richasy.MpvKernel.Player" />
-    <PackageReference Include="Richasy.MpvKernel.WinUI" />
-    <PackageReference Include="Richasy.WinUIKernel.AI" />
+    <PackageReference Include="Richasy.WinUIKernel.Share" />
     <PackageReference Include="RichasyKernel.Core" />
-    <PackageReference Include="Roman-Numerals" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Logging" />
     <PackageReference Include="Serilog.Sinks.File" />
@@ -631,11 +594,6 @@
   </ItemGroup>
   <ItemGroup>
     <Page Update="Controls\Components\ArticleCardControl\ArticleCardControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-  </ItemGroup>
-  <ItemGroup>
-    <Page Update="Controls\Markdown\MarkdownTextBlock.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
@@ -1194,9 +1152,6 @@
     <None Update="Assets\basic-mpv.conf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <Page Update="Controls\Settings\ScrollSettingControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
     <Page Update="Controls\Danmaku\DanmakuSendDialog.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -1225,6 +1180,36 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Core\PlayerOverlay.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Core\IslandTransportControls.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\StoreIsland\IslandNextVideoButton.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\StoreIsland\IslandDanmakuBox.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\StoreIsland\IslandDanmakuSendOptions.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\StoreIsland\IslandFormatButton.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\StoreIsland\IslandSubtitleButton.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Message\SystemMessageBody.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Message\SystemMessageHeader.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Message\SystemMessageSideItem.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\Player\EmbeddedPlayerView.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Core\NextTip.xaml">
@@ -1320,22 +1305,7 @@
     <Page Update="Controls\Components\PartitionArticlePresenter.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Update="Controls\AI\CustomPromptDialog.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Settings\PromptTemplateSettingControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
     <Page Update="Controls\Settings\SearchRecommendSettingSection.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Player\VideoAISection.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Settings\AIResponseSettingControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\AI\AIPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Player\PgcInfoSection.xaml">
@@ -1363,21 +1333,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Pinner.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\AI\AIFooter.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\AI\AIBody.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\AI\AIOverlayPanel.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\AI\AIHeader.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Components\ChatModelCardControl\ChatModelCardControl.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Styles\TrayResources.xaml">

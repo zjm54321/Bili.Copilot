@@ -22,11 +22,23 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task ToggleLikeAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var state = !IsLiked;
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            await this.Get<IPlayerService>().ToggleVideoLikeAsync(aid, state);
+            await this.Get<IPlayerService>().ToggleVideoLikeAsync(aid, state, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsLiked = state;
             ReloadEpisodeOperationCommand.Execute(default);
         }
@@ -39,10 +51,22 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task CoinAsync(int count = 1)
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            await this.Get<IPlayerService>().CoinVideoAsync(aid, count, IsCoinAlsoLike);
+            await this.Get<IPlayerService>().CoinVideoAsync(aid, count, IsCoinAlsoLike, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsCoined = true;
             if (IsCoinAlsoLike && !IsLiked)
             {
@@ -60,10 +84,22 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task TripleAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            await this.Get<IPlayerService>().TripleVideoAsync(aid);
+            await this.Get<IPlayerService>().TripleVideoAsync(aid, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsLiked = true;
             IsCoined = true;
             IsFavorited = true;
@@ -78,7 +114,9 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task InitializeFavoritesAsync()
     {
-        if (FavoriteFolders is not null)
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken) || FavoriteFolders is not null)
         {
             return;
         }
@@ -86,8 +124,16 @@ public sealed partial class PgcConnectorViewModel
         try
         {
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            var (folders, ids) = await this.Get<IFavoriteService>().GetPlayingVideoFavoriteFoldersAsync(aid);
+            var (folders, ids) = await this.Get<IFavoriteService>().GetPlayingVideoFavoriteFoldersAsync(aid, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             FavoriteFolders = folders.Select(p => new PlayerFavoriteFolderViewModel(p, ids.Contains(p.Id))).ToList();
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -98,7 +144,9 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task FavoriteAsync()
     {
-        if (FavoriteFolders is null)
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken) || FavoriteFolders is null)
         {
             return;
         }
@@ -108,7 +156,12 @@ public sealed partial class PgcConnectorViewModel
         try
         {
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            await this.Get<IPlayerService>().FavoriteVideoAsync(aid, selectedFolders, unselectedFolders);
+            await this.Get<IPlayerService>().FavoriteVideoAsync(aid, selectedFolders, unselectedFolders, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsFavorited = selectedFolders.Count != 0;
             FavoriteFolders = default;
             ReloadEpisodeOperationCommand.Execute(default);
@@ -173,17 +226,27 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task ReloadEpisodeOperationAsync()
     {
-        if (_episode is null)
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken) || _episode is null)
         {
             return;
         }
 
         try
         {
-            var operation = await this.Get<IPlayerService>().GetEpisodeOperationInformationAsync(_episode.Identifier.Id);
+            var operation = await this.Get<IPlayerService>().GetEpisodeOperationInformationAsync(_episode.Identifier.Id, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsLiked = operation.IsLiked;
             IsCoined = operation.IsCoined;
             IsFavorited = operation.IsFavorited;
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -194,17 +257,29 @@ public sealed partial class PgcConnectorViewModel
     [RelayCommand]
     private async Task ToggleFollowAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var state = !IsFollow;
             var service = this.Get<IEntertainmentDiscoveryService>();
             if (state)
             {
-                await service.FollowAsync(_view.Information.Identifier.Id);
+                await service.FollowAsync(_view.Information.Identifier.Id, cancellationToken);
             }
             else
             {
-                await service.UnfollowAsync(_view.Information.Identifier.Id);
+                await service.UnfollowAsync(_view.Information.Identifier.Id, cancellationToken);
+            }
+
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
             }
 
             IsFollow = state;

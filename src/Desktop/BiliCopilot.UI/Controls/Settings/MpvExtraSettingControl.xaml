@@ -18,7 +18,7 @@
         IsEnabled="{x:Bind ViewModel.IsMpvCustomOptionVisible, Mode=OneWay, Converter={StaticResource ObjectToBoolReverseConverter}}"
         IsExpanded="{x:Bind ViewModel.IsMpvExtraSettingExpanded, Mode=TwoWay}">
         <base:SettingsExpander.HeaderIcon>
-            <ImageIcon Source="ms-appx:///Assets/mpv.png" />
+            <ic:SymbolIcon Symbol="Options" />
         </base:SettingsExpander.HeaderIcon>
         <base:SettingsExpander.Items>
             <base:SettingsCard

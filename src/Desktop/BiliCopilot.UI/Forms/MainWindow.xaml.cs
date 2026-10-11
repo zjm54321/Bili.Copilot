@@ -1,9 +1,9 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.Models.Constants;
+using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.Core;
-using BiliCopilot.UI.ViewModels.View;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -23,27 +23,79 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
     private const int WindowMinWidth = 640;
     private const int WindowMinHeight = 480;
     private bool _isFirstActivated = true;
+    private bool _closingEmbedded;
+    private readonly RenderingOcclusionState _playerOcclusion;
+    internal bool IsEmbeddedPlayerRenderingSuspended => _playerOcclusion.IsSuspended;
+    internal bool SuppressPlayerBoundsPersistence { get; set; }
+
+    internal void UpdatePlayerBoundsSuppression(MainPlayerHost requester, bool suppressed)
+    {
+        if (this.Get<AppViewModel>().EmbeddedPlayer?.Window is MainPlayerHost current && !ReferenceEquals(current, requester)) return;
+        SuppressPlayerBoundsPersistence = suppressed;
+    }
+
+    internal FrameworkElement ShowEmbeddedPlayer(PlayerViewModel viewModel) => RootLayout.ShowEmbeddedPlayer(viewModel);
+    internal void ApplyPlayerPresentation(PlayerPresentationMode mode) => RootLayout.ApplyPlayerPresentation(mode);
+    internal void ClearEmbeddedPlayer(PlayerViewModel expectedViewModel) => RootLayout.ClearEmbeddedPlayer(expectedViewModel);
+
+    internal void ReportEmbeddedHostFailure(Exception exception)
+    {
+        this.Get<ILogger<App>>().LogError(exception, "Embedded native host layout failed.");
+        if (this.Get<AppViewModel>().EmbeddedPlayer is { } vm) vm.ErrorMessage = exception.Message;
+    }
+
+    /// <summary>Scope main-root dialogs/popups that cover native video airspace.</summary>
+    public IDisposable SuspendEmbeddedPlayerRendering()
+        => _playerOcclusion.Suspend();
+
+    private void UpdateEmbeddedPlayerOcclusion()
+    {
+        if (this.Get<AppViewModel>().EmbeddedPlayer?.Window is MainPlayerHost host)
+            host.UpdateRenderingOcclusion();
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MainWindow"/> class.
     /// </summary>
     public MainWindow()
     {
+        _playerOcclusion = new RenderingOcclusionState(UpdateEmbeddedPlayerOcclusion);
         InitializeComponent();
-        SetTitleBar(RootLayout.GetMainTitleBar());
+        RootLayout.SetEmbeddedPlayerRenderingSuspensionFactory(SuspendEmbeddedPlayerRendering);
+        RootLayout.ActiveTitleBarChanged += OnActiveTitleBarChanged;
+        ApplyActiveTitleBar();
         Title = ResourceToolkit.GetLocalizedString(StringNames.AppName);
         this.SetIcon("Assets/logo.ico");
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         MinWidth = WindowMinWidth;
         MinHeight = WindowMinHeight;
         this.Get<AppViewModel>().Windows.Add(this);
         Activated += OnActivated;
         Closed += OnClosed;
+        AppWindow.Closing += OnMainClosing;
+    }
+
+    private void OnActiveTitleBarChanged(object? sender, PlayerPresentationMode _)
+    {
+        if (ReferenceEquals(sender, RootLayout)) ApplyActiveTitleBar();
+    }
+
+    private void ApplyActiveTitleBar()
+    {
+        // Read the layout actually applied by Root, not a possibly stale event payload.
+        var mode = RootLayout.TitleBarPresentation;
+        SetTitleBar(RootLayout.GetActiveTitleBar());
+        if (mode == PlayerPresentationMode.FullScreen) return;
+
+        // The bar instance is persistent; a mode change still requires a height update.
+        AppWindow.TitleBar.PreferredHeightOption = mode is PlayerPresentationMode.FullWindow or PlayerPresentationMode.CompactOverlay
+            ? TitleBarHeightOption.Standard
+            : TitleBarHeightOption.Tall;
     }
 
     /// <inheritdoc/>
     public async Task ShowTipAsync(string text, InfoType type = InfoType.Error)
     {
+        using var rendering = SuspendEmbeddedPlayerRendering();
         var popup = new TipPopup() { Text = text };
         TipContainer.Visibility = Visibility.Visible;
         TipContainer.Children.Add(popup);
@@ -84,22 +136,80 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         Activated -= OnActivated;
         Closed -= OnClosed;
         AppWindow.Changed -= OnWindowChanged;
+        AppWindow.Closing -= OnMainClosing;
     }
 
-    private async void OnClosed(object sender, WindowEventArgs e)
+    private void OnMainClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        var app = this.Get<AppViewModel>();
+        if (_closingEmbedded) { args.Cancel = true; return; }
+        if (app.HasEmbeddedWork)
+        {
+            args.Cancel = true;
+            _ = CloseEmbeddedAndRetryAsync();
+            return;
+        }
+        if (app.HasIndependentWorkRequiringMainWindow) { args.Cancel = true; this.Activate(); return; }
+        if (!app.HasClassicWork) return;
+        args.Cancel = true;
+        if (app.ClassicPlayers.Count == 0)
+        {
+            // Keep the owner of a protocol prompt / explicit failed-close retry reachable.
+            if (app.HasPendingClassicExternalCleanup)
+                app.ReportClassicFailure(new InvalidOperationException("外部播放器尚未确认退出，需要明确重试清理。"));
+            return;
+        }
+        // Classic is registered in Windows for theme/lifetime, but must remain reachable.
+        this.Hide();
+    }
+
+    private async Task CloseEmbeddedAndRetryAsync()
+    {
+        if (_closingEmbedded) return;
+        _closingEmbedded = true;
+        try
+        {
+            await this.Get<AppViewModel>().CloseEmbeddedPlayerAsync();
+            _closingEmbedded = false;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            this.Get<ILogger<App>>().LogError(ex, "Embedded playback shutdown failed; main window retained.");
+            this.Get<AppViewModel>().ShowTipCommand.Execute((ex.Message, InfoType.Error));
+        }
+        finally { _closingEmbedded = false; }
+    }
+
+    private void OnClosed(object sender, WindowEventArgs e)
     {
         var appVM = this.Get<AppViewModel>();
+        // Window.Close can raise Closed without AppWindow.Closing (programmatic close).
+        if (appVM.HasEmbeddedWork || _closingEmbedded)
+        {
+            e.Handled = true;
+            _ = CloseEmbeddedAndRetryAsync();
+            return;
+        }
+        if (appVM.HasIndependentWorkRequiringMainWindow)
+        {
+            e.Handled = true;
+            this.Activate();
+            return;
+        }
         var windows = appVM.Windows;
-        var hasPlayer = appVM.Players.Count > 0;
+        var hasPlayer = appVM.Players.Any(player => !player.IsEmbedded) || appVM.HasClassicWork;
         if (hasPlayer)
         {
             e.Handled = true;
-            appVM.HideAllWindowsCommand.Execute(default);
+            if (appVM.HasClassicWork) this.Hide();
+            else appVM.HideAllWindowsCommand.Execute(default);
             return;
         }
 
+        RootLayout.ActiveTitleBarChanged -= OnActiveTitleBarChanged;
+        _playerOcclusion.Close();
         appVM.IsClosed = true;
-        RootLayout.ViewModel.Back();
         foreach (var item in windows)
         {
             if (item is not MainWindow)
@@ -114,7 +224,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         }
 
         appVM.Windows.Remove(this);
-        await this.Get<SettingsPageViewModel>().CheckSaveServicesAsync();
         UnregisterEventHandlers();
         SaveCurrentWindowStats();
         App.Current?.Exit();
@@ -188,6 +297,7 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
 
     private void SaveCurrentWindowStats()
     {
+        if (SuppressPlayerBoundsPersistence || AppWindow.Presenter.Kind != AppWindowPresenterKind.Overlapped) return;
         var left = AppWindow.Position.X;
         var top = AppWindow.Position.Y;
         var isMaximized = PInvoke.IsZoomed(new HWND(this.GetWindowHandle()));
@@ -220,7 +330,7 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         if (point.Properties.IsXButton1Pressed || point.Properties.IsXButton2Pressed)
         {
             e.Handled = true;
-            if (RootLayout.ViewModel.IsOverlayOpen)
+            if (RootLayout.ViewModel.IsOverlayOpen || this.Get<AppViewModel>().HasEmbeddedWork)
             {
                 RootLayout.ViewModel.Back();
             }

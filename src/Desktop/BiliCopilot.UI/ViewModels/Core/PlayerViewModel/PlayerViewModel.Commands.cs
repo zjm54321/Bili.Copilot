@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.Controls.Danmaku;
+using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
 using CommunityToolkit.Mvvm.Input;
@@ -21,15 +22,16 @@ namespace BiliCopilot.UI.ViewModels.Core;
 public sealed partial class PlayerViewModel
 {
     [RelayCommand]
-    private void Back()
+    private async Task BackAsync()
     {
         UseIntegrationOperation = false;
-        Window?.Close();
+        await CloseAsync();
     }
 
     [RelayCommand]
     private void ToggleTopMost()
     {
+        if (IsPlaybackClosing) return;
         IsTopMost = !IsTopMost;
         Window?.SetTopMost(IsTopMost);
     }
@@ -37,6 +39,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task IncreaseVolumeAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -56,6 +59,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task DecreaseVolumeAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -75,6 +79,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task IncreaseSpeedAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -92,6 +97,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task DecreaseSpeedAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -109,43 +115,21 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task BackToDefaultModeAsync()
     {
-        if (Player is null)
-        {
-            return;
-        }
-
-        if ((IsConnecting || Player.IsLoading) && Window is not null)
-        {
-            var presenterKind = Window.GetWindow().Presenter.Kind;
-            if (presenterKind == Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen)
-            {
-                Window.ExitFullScreen();
-            }
-            else if (presenterKind == Microsoft.UI.Windowing.AppWindowPresenterKind.CompactOverlay)
-            {
-                Window.ExitCompactOverlay();
-            }
-        }
-
         if (IsExtraPanelVisible)
         {
             IsExtraPanelVisible = false;
             return;
         }
 
-        if (Player.IsFullScreen)
-        {
-            await Client!.SetFullScreenStateAsync(false);
-        }
-        else if (Player.IsCompactOverlay)
-        {
-            await Client!.SetCompactOverlayStateAsync(false);
-        }
+        if (Presentation != PlayerPresentationMode.Normal)
+            await SetPresentationAsync(Presentation is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay
+                ? _returnPresentation : PlayerPresentationMode.Normal);
     }
 
     [RelayCommand]
     private Task SkipBackwardAsync()
     {
+        if (IsPlaybackClosing || Player is null) return Task.CompletedTask;
         var backwardSeconds = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.StepBackwardSecond, 10d);
         IsProgressChanging = true;
         LastProgressChangingTime = DateTimeOffset.Now;
@@ -155,6 +139,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private Task SkipForwardAsync()
     {
+        if (IsPlaybackClosing || Player is null) return Task.CompletedTask;
         var forwardSeconds = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.StepForwardSecond, 30d);
         IsProgressChanging = true;
         LastProgressChangingTime = DateTimeOffset.Now;
@@ -165,7 +150,10 @@ public sealed partial class PlayerViewModel
     /// 改变当前播放位置.
     /// </summary>
     /// <returns><see cref="Task"/>.</returns>
-    public async Task ChangePositionAsync(double position)
+    public Task ChangePositionAsync(double position)
+        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(ChangePositionCoreAsync(position));
+
+    private async Task ChangePositionCoreAsync(double position)
     {
         if (Player is null || position < 0 || position > Player.Duration || Math.Abs(Player.Position - position) < 2)
         {
@@ -179,7 +167,10 @@ public sealed partial class PlayerViewModel
     /// 改变音量.
     /// </summary>
     /// <returns><see cref="Task"/>.</returns>
-    public async Task ChangeVolumeAsync(double volume)
+    public Task ChangeVolumeAsync(double volume)
+        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(ChangeVolumeCoreAsync(volume));
+
+    private async Task ChangeVolumeCoreAsync(double volume)
     {
         if (Player is null || volume < 0)
         {
@@ -199,6 +190,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task PlayPauseAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -210,7 +202,7 @@ public sealed partial class PlayerViewModel
         }
         else if (Player.IsStopped)
         {
-            await Player.ReplayAsync();
+            await ReplayAsync();
         }
         else
         {
@@ -221,92 +213,29 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ToggleFullScreenAsync()
     {
-        if (Player is null)
-        {
-            return;
-        }
-
         IsExtraPanelVisible = false;
-        await Client!.SetFullScreenStateAsync(!Player.IsFullScreen);
+        await SetPresentationAsync(IsFullScreen ? _returnPresentation : PlayerPresentationMode.FullScreen);
     }
 
     [RelayCommand]
     private async Task ToggleCompactOverlayAsync()
     {
-        if (Player is null)
-        {
-            return;
-        }
-
         IsExtraPanelVisible = false;
-        await Client!.SetCompactOverlayStateAsync(!Player.IsCompactOverlay);
+        await SetPresentationAsync(Presentation == PlayerPresentationMode.CompactOverlay
+            ? _returnPresentation : PlayerPresentationMode.CompactOverlay);
     }
 
-    [RelayCommand]
-    private async Task PlayNextAsync()
-    {
-        await Client!.PauseAsync();
-        await Client!.StopAsync();
-        await Task.Delay(500);
-        if (IsConnecting || (DateTimeOffset.Now - _lastPlayNextOrPrevTime) < TimeSpan.FromSeconds(1))
-        {
-            return;
-        }
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private Task TripleSpeedAsync()
+        => IsTouching ? BeginTemporarySpeedAsync(TouchSpeedOwner) : Task.CompletedTask;
 
-        _lastPlayNextOrPrevTime = DateTimeOffset.Now;
-        await Connector!.PlayNextAsync();
-    }
-
-    [RelayCommand]
-    private async Task PlayPreviousAsync()
-    {
-        await Client!.PauseAsync();
-        await Client!.StopAsync();
-        await Task.Delay(500);
-        if (IsConnecting || (DateTimeOffset.Now - _lastPlayNextOrPrevTime) < TimeSpan.FromSeconds(1))
-        {
-            return;
-        }
-
-        _lastPlayNextOrPrevTime = DateTimeOffset.Now;
-        await Connector!.PlayPreviousAsync();
-    }
-
-    [RelayCommand]
-    private async Task TripleSpeedAsync()
-    {
-        if (Player is null || !Player.IsPlaying)
-        {
-            return;
-        }
-
-        _lastSpeed = Player.PlaybackRate;
-        IsHoldingSpeedChanging = true;
-        await Client!.SetSpeedAsync(SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.TempPlaybackRate, 3d));
-        LastSpeedChangingTime = DateTimeOffset.Now;
-        IsSpeedChanging = true;
-        _tripleTimer!.Start();
-    }
-
-    [RelayCommand]
-    private async Task RestoreSpeedAsync()
-    {
-        if (Player is null)
-        {
-            return;
-        }
-
-        IsHoldingSpeedChanging = false;
-        _tripleTimer!.Stop();
-        if (Math.Abs(_lastSpeed - Player.PlaybackRate) > 0.01)
-        {
-            await Client!.SetSpeedAsync(_lastSpeed);
-        }
-    }
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private Task RestoreSpeedAsync() => ReleaseTemporarySpeedAsync(TouchSpeedOwner);
 
     [RelayCommand]
     private async Task ResetSubtitlePositionAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Client != null && Player != null)
         {
             SubtitlePosition = IsVerticalScreen ? _verticalSubtitlePosition : _horizontalSubtitlePosition;
@@ -317,6 +246,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeSubtitlePositionAsync(double position)
     {
+        if (IsPlaybackClosing) return;
         if (Client != null && Player != null && Math.Abs(SubtitlePosition - position) >= 1)
         {
             if (IsVerticalScreen)
@@ -336,12 +266,15 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ReloadFontsAsync()
     {
+        if (IsPlaybackClosing) return;
+        var version = _mediaVersion;
         if (Fonts.Count > 0)
         {
             return;
         }
 
         var fonts = await this.Get<IFontToolkit>().GetFontsAsync();
+        if (!IsCurrentPlayback(version)) return;
         foreach (var item in fonts)
         {
             Fonts.Add(item);
@@ -359,6 +292,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeSubtitleFontSizeAsync(double fontSize)
     {
+        if (IsPlaybackClosing) return;
         if (Client != null && Player != null && Math.Abs(SubtitleFontSize - fontSize) >= 1)
         {
             SubtitleFontSize = fontSize;
@@ -370,6 +304,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeSubtitleFontFamilyAsync(string font)
     {
+        if (IsPlaybackClosing) return;
         if (Client != null && Player != null && !string.IsNullOrEmpty(font) && SubtitleFontFamily != font && Window?.IsClosed == false)
         {
             SubtitleFontFamily = font;
@@ -381,6 +316,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task SwitchToPreviousChapterAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -398,6 +334,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task SwitchToNextChapterAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -415,6 +352,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task SendKeyAsync(string key)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -433,6 +371,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ToggleStatsOverlayAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -452,6 +391,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task SetSubtitleDelaySecondsAsync(double seconds)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -471,6 +411,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ToggleSubtitleEnabledAsync()
     {
+        if (IsPlaybackClosing || Client is null) return;
         if (IsSubtitleEnabled)
         {
             var selected = Subtitles.FirstOrDefault(p => p.IsSelected);
@@ -492,6 +433,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task TogglePanscanAsync()
     {
+        if (IsPlaybackClosing || Client is null) return;
         var v = UsingPanscan ? 0 : 1;
         UsingPanscan = !UsingPanscan;
         try
@@ -507,6 +449,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ToggleMuteStateAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null || Client is null)
         {
             return;
@@ -519,12 +462,15 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task CopyPlayUrlAsync()
     {
+        if (IsPlaybackClosing) return;
+        var version = _mediaVersion;
         if (_sourceResolver is null)
         {
             return;
         }
 
         var source = await _sourceResolver!.GetSourceAsync();
+        if (!IsCurrentPlayback(version)) return;
         if (!string.IsNullOrEmpty(source.Url))
         {
             var dp = new DataPackage();
@@ -537,6 +483,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task TakeScreenshotAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player?.IsPlaybackInitialized != true)
         {
             return;
@@ -587,45 +534,59 @@ public sealed partial class PlayerViewModel
         }
     }
 
+    private ContentDialog? _activeDanmakuDialog;
+
     [RelayCommand]
     private async Task SendDanmakuAsync()
     {
-        if (Player is null || IsConnecting || IsDanmakuLoading)
+        if (IsPlaybackClosing || Player is null || IsConnecting || IsDanmakuLoading)
         {
             return;
         }
 
+        var version = _mediaVersion;
+        var position = Convert.ToInt32(Player.Position);
+        var token = _activeMediaToken;
+        var wasPlaying = Player.IsPlaying;
         try
         {
             await Client.PauseAsync();
+            if (!IsCurrentPlayback(version)) return;
             var dialog = new DanmakuSendDialog(DanmakuSend, () => IsPopupVisible = true)
             {
                 XamlRoot = Window!.XamlRoot,
             };
+            _activeDanmakuDialog = dialog;
             var result = await dialog.ShowAsync();
+            if (!IsCurrentPlayback(version)) return;
             if (result == ContentDialogResult.Primary)
             {
                 var input = dialog.GetInputText();
                 if (!string.IsNullOrEmpty(input))
                 {
-                    await DanmakuSend.SendDanmakuAsync(input, Convert.ToInt32(Player.Position));
-                    Danmaku.AddDanmaku(input);
+                    if (await DanmakuSend.TrySendDanmakuAsync(input, position, token) && IsCurrentPlayback(version))
+                        Danmaku.AddDanmaku(input);
                 }
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             logger.LogError(ex, "Send danmaku failed");
-            Window.ShowTip(ex.Message, InfoType.Error);
+            if (IsCurrentPlayback(version)) Window.ShowTip(ex.Message, InfoType.Error);
         }
-
-        IsPopupVisible = false;
-        await Client.ResumeAsync();
+        finally
+        {
+            _activeDanmakuDialog = null;
+            IsPopupVisible = false;
+            if (wasPlaying && IsCurrentPlayback(version)) await Client.ResumeAsync();
+        }
     }
 
     [RelayCommand]
     private async Task ChangeAnime4KModeAsync(Anime4KMode mode)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -646,6 +607,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeArtCNNModeAsync(ArtCNNMode mode)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -666,6 +628,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeNnedi3ModeAsync(Nnedi3Mode mode)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -686,6 +649,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeRavuModeAsync(RavuMode mode)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -706,6 +670,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ChangeNvidiaVsrModeAsync(VsrScale scale)
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;
@@ -718,7 +683,7 @@ public sealed partial class PlayerViewModel
             {
                 await Client!.SetNvidiaVsrAsync(false);
                 // Restore the GPU context and hardware decode settings.
-                var decodeType = SettingsToolkit.ReadLocalSetting(SettingNames.PreferDecode, PreferDecodeType.Auto);
+                var decodeType = DecodeOverride ?? SettingsToolkit.ReadLocalSetting(SettingNames.PreferDecode, PreferDecodeType.Auto);
                 if (decodeType == PreferDecodeType.Auto)
                 {
                     await Client.SetGpuContextAsync(GpuContextType.Auto);
@@ -775,6 +740,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ClearShadersAsync()
     {
+        if (IsPlaybackClosing) return;
         if (Player is null)
         {
             return;

@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    自 Store 源 VideoPlayerPage.xaml（commit 3987d5e, v2.2505.2.0）逐段迁移而来：
+      源 31-138  内容层（header / video / sidebar / splitter）
+      源 55       player:VideoPlayerMainHeader（旧控件在当前仓库不存在，其布局由 MainHeaderSelector 模板复刻：
+                  源 VideoPlayerMainHeader.xaml 15-77 的私密图标/标题/分享菜单原样排列；
+                  折叠开关 SideSplitButton 移至模板外，以绑定本视图 DP）
+      源 71-87    PlayerContainer + core:BiliPlayer + ExternalTransportControl（旧引擎替换为原生 VideoSlot，transport 已在 persistent overlay 浮岛，不在此重建）
+      源 105-110  SideHeader（row0/col2，源 VideoPlayerSideHeader）→ SideHeaderHost（当前 VideoPlayerSideHeader / PgcPlayerSideHeader）
+      源 112-118  SideBody（row2/col2，源 VideoPlayerSideBody）→ SideBodyHost（当前 VideoPlayerSideBody / PgcPlayerSideBody）
+      源 123-131  base:ColumnSplitter 分栏控制器（列宽/折叠由本视图 DP 承载；IsHide 读取 effective hidden）
+      源 142-150  PlayerHostState（改为由 SetPresentationMode 驱动）
+    保留源行/列/尺寸/边距/顺序；生命周期与渲染遮挡契约由 EmbeddedPlayerView.xaml.cs 持有。
+-->
+<core:PlayerControlBase
+    x:Class="BiliCopilot.UI.Controls.Player.EmbeddedPlayerView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:core="using:BiliCopilot.UI.Controls.Core"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:player="using:BiliCopilot.UI.Controls.Player"
+    xmlns:vm="using:BiliCopilot.UI.ViewModels.Core"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <!--  视频主标题区（源 VideoPlayerMainHeader.xaml 15-77）：私密图标 / 标题 / 分享菜单  -->
+        <DataTemplate x:Key="VideoMainHeaderTemplate" x:DataType="vm:VideoConnectorViewModel">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ic:SymbolIcon
+                    Margin="0,0,12,0"
+                    VerticalAlignment="Center"
+                    FontSize="14"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Symbol="EyeOff"
+                    ToolTipService.ToolTip="{ext:Locale Name=PlayInPrivateTip}"
+                    Visibility="{x:Bind IsPrivatePlay, Mode=OneWay}" />
+                <base:TrimTextBlock
+                    Grid.Column="1"
+                    Margin="0,0,12,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    FontWeight="Bold"
+                    IsTextSelectionEnabled="True"
+                    MaxLines="1"
+                    Text="{x:Bind Title, Mode=OneWay}" />
+                <StackPanel
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        VerticalAlignment="Center"
+                        Loaded="OnHeaderButtonLoaded"
+                        Style="{StaticResource IconButtonStyle}"
+                        Tag="{x:Bind}"
+                        Unloaded="OnHeaderButtonUnloaded">
+                        <ic:SymbolIcon FontSize="14" Symbol="Share" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="Bottom">
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind AddToViewLaterCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=AddToViewLater}" />
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind PinCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=FixContent}" />
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind CopyTitleCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=CopyTitle}" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutSeparator Style="{StaticResource MenuFlyoutHeaderSeparatorStyle}" Tag="{ext:Locale Name=Link}" />
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind CopyVideoUrlCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=CopyVideoUrl}" />
+                                <MenuFlyoutItem Command="{x:Bind ShareVideoUrlCommand, Mode=OneWay}" Text="{ext:Locale Name=ShareLink}" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutSeparator Style="{StaticResource MenuFlyoutHeaderSeparatorStyle}" Tag="{ext:Locale Name=OpenWith}" />
+                                <MenuFlyoutItem Tag="OpenInNewWindow" Text="{ext:Locale Name=OpenInNewWindow}" />
+                                <MenuFlyoutItem Command="{x:Bind OpenInBrowserCommand, Mode=OneWay}" Text="{ext:Locale Name=OpenInBrowser}" />
+                                <MenuFlyoutItem Tag="OpenWithMpv" Text="{ext:Locale Name=OpenWithMpv}" />
+                                <MenuFlyoutItem Tag="OpenWithMpvNet" Text="{ext:Locale Name=OpenWithMpvNet}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+        <!--  PGC 主标题区：同源排列；命令取当前 PGC 同类命令，PGC 无私密播放状态  -->
+        <DataTemplate x:Key="PgcMainHeaderTemplate" x:DataType="vm:PgcConnectorViewModel">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <base:TrimTextBlock
+                    Margin="0,0,12,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    FontWeight="Bold"
+                    IsTextSelectionEnabled="True"
+                    MaxLines="1"
+                    Text="{x:Bind Title, Mode=OneWay}" />
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        VerticalAlignment="Center"
+                        Loaded="OnHeaderButtonLoaded"
+                        Style="{StaticResource IconButtonStyle}"
+                        Tag="{x:Bind}"
+                        Unloaded="OnHeaderButtonUnloaded">
+                        <ic:SymbolIcon FontSize="14" Symbol="Share" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="Bottom">
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind PinCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=FixContent}" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutSeparator Style="{StaticResource MenuFlyoutHeaderSeparatorStyle}" Tag="{ext:Locale Name=Link}" />
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind CopyEpisodeUrlCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=CopyEpisodeUrl}" />
+                                <MenuFlyoutItem
+                                    MinWidth="200"
+                                    Command="{x:Bind CopySeasonUrlCommand, Mode=OneWay}"
+                                    Text="{ext:Locale Name=CopySeasonUrl}" />
+                                <MenuFlyoutItem Command="{x:Bind ShareEpisodeUrlCommand, Mode=OneWay}" Text="{ext:Locale Name=ShareLink}" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutSeparator Style="{StaticResource MenuFlyoutHeaderSeparatorStyle}" Tag="{ext:Locale Name=OpenWith}" />
+                                <MenuFlyoutItem Command="{x:Bind OpenInBrowserCommand, Mode=OneWay}" Text="{ext:Locale Name=OpenInBrowser}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+        <!--  侧栏（源 105-118）：header 于 row0、body 于 row2，直接复用当前分节控件，无硬宽度  -->
+        <DataTemplate x:Key="VideoSideHeaderTemplate" x:DataType="vm:VideoConnectorViewModel">
+            <player:VideoPlayerSideHeader ViewModel="{x:Bind}" />
+        </DataTemplate>
+        <DataTemplate x:Key="VideoSideBodyTemplate" x:DataType="vm:VideoConnectorViewModel">
+            <player:VideoPlayerSideBody ViewModel="{x:Bind}" />
+        </DataTemplate>
+        <DataTemplate x:Key="PgcSideHeaderTemplate" x:DataType="vm:PgcConnectorViewModel">
+            <player:PgcPlayerSideHeader ViewModel="{x:Bind}" />
+        </DataTemplate>
+        <DataTemplate x:Key="PgcSideBodyTemplate" x:DataType="vm:PgcConnectorViewModel">
+            <player:PgcPlayerSideBody ViewModel="{x:Bind}" />
+        </DataTemplate>
+        <ext:PlayerComponentTemplateSelector
+            x:Key="MainHeaderSelector"
+            PgcTemplate="{StaticResource PgcMainHeaderTemplate}"
+            VideoTemplate="{StaticResource VideoMainHeaderTemplate}" />
+        <ext:PlayerComponentTemplateSelector
+            x:Key="SideHeaderSelector"
+            PgcTemplate="{StaticResource PgcSideHeaderTemplate}"
+            VideoTemplate="{StaticResource VideoSideHeaderTemplate}" />
+        <ext:PlayerComponentTemplateSelector
+            x:Key="SideBodySelector"
+            PgcTemplate="{StaticResource PgcSideBodyTemplate}"
+            VideoTemplate="{StaticResource VideoSideBodyTemplate}" />
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="HeaderRow" Height="56" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition x:Name="SidePanelColumn" Width="0" />
+        </Grid.ColumnDefinitions>
+        <Grid.ChildrenTransitions>
+            <RepositionThemeTransition IsStaggeringEnabled="False" />
+        </Grid.ChildrenTransitions>
+
+        <!--  标题行（源 55 / VideoPlayerMainHeader.xaml）：标题模板 + 侧栏折叠开关  -->
+        <Grid
+            x:Name="PlayerHeader"
+            Grid.Row="0"
+            Padding="16,0"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ContentControl
+                x:Name="HeaderHost"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Content="{x:Bind ViewModel.Connector, Mode=OneWay}"
+                ContentTemplateSelector="{StaticResource MainHeaderSelector}"
+                IsTabStop="False" />
+            <base:SideSplitButton
+                Grid.Column="1"
+                Margin="4,0,0,0"
+                VerticalAlignment="Center"
+                IsHide="{x:Bind IsNavColumnManualHide, Mode=TwoWay}"
+                IsInvertDirection="True" />
+        </Grid>
+
+        <Border
+            x:Name="HeaderDivider"
+            Grid.Row="1"
+            Grid.ColumnSpan="3"
+            Height="1"
+            HorizontalAlignment="Stretch"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <!--
+            视频列（源 71-87）：VideoSlotElement 为宿主 MainPlayerHost 定位原生子窗口的空占位。
+            loading/error 复用当前 IsConnecting / ErrorMessage 单一租约（VideoSlot 始终可测量）。
+        -->
+        <Grid
+            x:Name="VideoContainer"
+            Grid.Row="2"
+            Grid.Column="0"
+            Margin="0,0,-6,0">
+            <Grid
+                x:Name="PlayerContainer"
+                MinHeight="200"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+                <Grid x:Name="VideoSlotElement" Background="Transparent" />
+                <base:LoadingWidget
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Text="{ext:Locale Name=Connecting}"
+                    Visibility="{x:Bind ViewModel.IsConnecting, Mode=OneWay}" />
+                <StackPanel
+                    MaxWidth="380"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="12"
+                    Visibility="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}">
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                        Text="{ext:Locale Name=MpvError}"
+                        TextAlignment="Center" />
+                    <TextBlock
+                        Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap" />
+                    <Button
+                        x:Name="ErrorBackButton"
+                        HorizontalAlignment="Center"
+                        Command="{x:Bind ViewModel.BackCommand, Mode=OneWay}"
+                        Content="{ext:Locale Name=Back}" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!--  侧栏头部（源 105-110）：row0/col2；x:Load 使隐藏/非 Normal 呈现时不创建、不加载重面板  -->
+        <ContentControl
+            x:Name="SideHeaderHost"
+            Grid.Row="0"
+            Grid.Column="2"
+            Margin="-6,0,0,0"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            HorizontalContentAlignment="Stretch"
+            VerticalContentAlignment="Stretch"
+            Content="{x:Bind ViewModel.Connector, Mode=OneWay}"
+            ContentTemplateSelector="{StaticResource SideHeaderSelector}"
+            IsTabStop="False"
+            x:Load="{x:Bind IsSidePanelActive, Mode=OneWay}" />
+
+        <!--  侧栏主体（源 112-118）：row2/col2；无硬宽度，随分栏拖动 300–500 实际重排  -->
+        <ContentControl
+            x:Name="SideBodyHost"
+            Grid.Row="2"
+            Grid.Column="2"
+            Margin="-6,0,0,0"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            HorizontalContentAlignment="Stretch"
+            VerticalContentAlignment="Stretch"
+            Content="{x:Bind ViewModel.Connector, Mode=OneWay}"
+            ContentTemplateSelector="{StaticResource SideBodySelector}"
+            IsTabStop="False"
+            x:Load="{x:Bind IsSidePanelActive, Mode=OneWay}" />
+
+        <!--
+            右侧分栏大小控制器（源 123-131）；源列宽由 ViewModel.NavColumnWidth 供值，此处由视图自身 DP 承载。
+            IsHide 读取 effective hidden（显示条件不满足 ∪ 手动折叠），宽度回写不能强行显示。
+        -->
+        <base:ColumnSplitter
+            x:Name="SideSplitter"
+            Grid.RowSpan="3"
+            Grid.Column="1"
+            ColumnWidth="{x:Bind NavColumnWidth, Mode=TwoWay}"
+            HideTip="{ext:Locale Name=Show}"
+            IsHide="{x:Bind IsNavColumnEffectiveHide, Mode=OneWay}"
+            IsHideButtonEnabled="False"
+            IsInvertDirection="True"
+            MaxColumnWidth="500"
+            MinColumnWidth="300"
+            ShowTip="{ext:Locale Name=Hide}" />
+    </Grid>
+</core:PlayerControlBase>

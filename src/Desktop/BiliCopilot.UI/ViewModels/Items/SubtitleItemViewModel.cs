@@ -23,14 +23,10 @@ public sealed partial class SubtitleItemViewModel : ViewModelBase<SubtitleMeta>
         _activeFunc = activeFunc;
         _deactiveFunc = deactiveFunc;
         Name = meta.LanguageName;
-        IsAI = meta.IsAI;
     }
 
     [ObservableProperty]
     public partial string Name { get; set; }
-
-    [ObservableProperty]
-    public partial bool IsAI { get; set; }
 
     [ObservableProperty]
     public partial bool IsSelected { get; set; }

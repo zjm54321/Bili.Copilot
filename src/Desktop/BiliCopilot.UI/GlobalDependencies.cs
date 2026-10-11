@@ -9,9 +9,7 @@ using BiliCopilot.UI.ViewModels.View;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
-using Richasy.AgentKernel;
 using Richasy.BiliKernel;
-using Richasy.WinUIKernel.AI;
 using Richasy.WinUIKernel.Share;
 using Richasy.WinUIKernel.Share.Toolkits;
 using Richasy.WinUIKernel.Share.ViewModels;
@@ -39,7 +37,6 @@ internal static class GlobalDependencies
             .AddSerilog()
             .AddDispatcherQueue()
             .AddShareToolkits()
-            .AddConfigManager()
             .AddXamlRootProvider()
 
             .AddBiliClient()
@@ -62,38 +59,17 @@ internal static class GlobalDependencies
             .AddMomentDiscoveryService()
             .AddMomentOperationService()
             .AddMessageService()
+            .AddMessageNotifications()
             .AddFavoriteService()
             .AddSearchService()
             .AddDanmakuService()
             .AddSubtitleService()
             .AddPlayerService()
 
-            .AddOpenAIChatService()
-            .AddAzureOpenAIChatService()
-            .AddAzureAIChatService()
-            .AddXAIChatService()
-            .AddZhiPuChatService()
-            .AddLingYiChatService()
-            .AddAnthropicChatService()
-            .AddMoonshotChatService()
-            .AddGeminiChatService()
-            .AddDeepSeekChatService()
-            .AddQwenChatService()
-            .AddErnieChatService()
-            .AddHunyuanChatService()
-            .AddSparkChatService()
-            .AddDoubaoChatService()
-            .AddSiliconFlowChatService()
-            .AddOpenRouterChatService()
-            .AddTogetherAIChatService()
-            .AddGroqChatService()
-            .AddOllamaChatService()
-            .AddMistralChatService()
-            .AddPerplexityChatService()
-
             .AddTransient<CommentMainViewModel>()
             .AddSingleton<PinnerViewModel>()
             .AddSingleton<AppViewModel>()
+            .AddSingleton<BiliCopilot.UI.Classic.ClassicPlayerLauncher>()
             .AddSingleton<EmoteModuleViewModel>()
             .AddSingleton<NavigationViewModel>()
             .AddSingleton<StartupPageViewModel>()
@@ -117,8 +93,6 @@ internal static class GlobalDependencies
             .AddSingleton<SettingsPageViewModel>()
             .AddSingleton<UserSpacePageViewModel>()
             .AddSingleton<NotificationViewModel>()
-            .AddTransient<SubtitleViewModel>()
-            .AddTransient<AIViewModel>()
             .AddTransient<UserMomentDetailViewModel>()
             .AddTransient<DownloadViewModel>()
             .AddTransient<VideoMediaSourceResolver>()
@@ -131,13 +105,18 @@ internal static class GlobalDependencies
             .Build();
 
         Kernel.InitializeShareKernel(Kernel.Get<ILogger<App>>());
-        Kernel.InitializeAIKernel();
     }
 
     public static IKernelBuilder AddDispatcherQueue(this IKernelBuilder builder)
     {
         var queue = DispatcherQueue.GetForCurrentThread();
         builder.Services.AddSingleton(queue);
+        return builder;
+    }
+
+    public static IKernelBuilder AddMessageNotifications(this IKernelBuilder builder)
+    {
+        builder.Services.AddSingleton<Services.Messages.IMessageNotificationService, Services.Messages.MessageNotificationService>();
         return builder;
     }
 
@@ -160,13 +139,6 @@ internal static class GlobalDependencies
     public static IKernelBuilder AddXamlRootProvider(this IKernelBuilder builder)
     {
         builder.Services.AddSingleton<IXamlRootProvider, XamlRootProvider>();
-        return builder;
-    }
-
-    public static IKernelBuilder AddConfigManager(this IKernelBuilder builder)
-    {
-        builder.Services
-            .AddSingleton<IChatConfigManager, ChatConfigManager>();
         return builder;
     }
 

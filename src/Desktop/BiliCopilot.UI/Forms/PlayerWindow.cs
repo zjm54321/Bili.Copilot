@@ -1,4 +1,5 @@
 ﻿using BiliCopilot.UI.Controls.Core;
+using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
 using CommunityToolkit.WinUI.Helpers;
@@ -14,25 +15,35 @@ using WinUIEx;
 
 namespace BiliCopilot.UI.Forms;
 
-public sealed partial class PlayerWindow : IAsyncDisposable
+public sealed partial class PlayerWindow : IPlayerHost
 {
     private const int WindowMinWidth = 480;
     private const int WindowMinHeight = 270;
-    private readonly AppWindow _rootWindow;
-    private readonly DesktopWindowXamlSource _xamlSource;
-    private readonly CursorGrid _rootGrid;
-    private InputActivationListener _inputActivationListener;
+    private AppWindow _rootWindow = null!;
+    private DesktopWindowXamlSource _xamlSource = null!;
+    private CursorGrid _rootGrid = null!;
+    private InputActivationListener? _inputActivationListener;
     private bool _isFirstActivated = true;
     private bool _enteringFullScreen;
     private bool _enteringCompactOverlay;
     private bool _isPresenterChanging;
-    private Action<bool> _activeChangedAction;
+    private bool _isDisposing;
+    private bool _isReady;
+    private Task? _readyTask;
+    private Action<bool>? _activeChangedAction;
 
-    public PlayerWindow()
+    // No native allocation in the constructor: the VM must own us before ReadyAsync.
+    public PlayerWindow() { }
+
+    private async Task CreateNativeAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(IsDisposed || IsClosed || _isDisposing, this);
         _rootWindow = AppWindow.Create();
+        _rootWindow.Title = "哔哩助理";
         _rootWindow.AssociateWithDispatcherQueue(DispatcherQueue.GetForCurrentThread());
         _rootWindow.Destroying += OnWindowDestroying;
+        _rootWindow.Closing += OnWindowClosing;
 
         _rootWindow.SetIcon("Assets/logo.ico");
         _rootWindow.TitleBar.ExtendsContentIntoTitleBar = true;
@@ -54,12 +65,61 @@ public sealed partial class PlayerWindow : IAsyncDisposable
         _inputActivationListener.InputActivationChanged += OnInputActivationChanged;
 
         ResetWindowMinSize();
+        cancellationToken.ThrowIfCancellationRequested();
+        _isReady = true;
+        await Task.CompletedTask;
     }
 
     /// <summary>
     /// 对象是否已经被释放.
     /// </summary>
     public bool IsDisposed { get; private set; }
+
+    public bool IsEmbedded => false;
+    public IntPtr OwnerHwnd => Handle;
+    public IntPtr RenderHwnd => Handle;
+    public PlayerPresentationMode Presentation => _rootWindow?.Presenter.Kind switch
+    {
+        AppWindowPresenterKind.FullScreen => PlayerPresentationMode.FullScreen,
+        AppWindowPresenterKind.CompactOverlay => PlayerPresentationMode.CompactOverlay,
+        _ => PlayerPresentationMode.Normal,
+    };
+    public event EventHandler? PresentationChanged;
+    public event EventHandler? CloseRequested;
+
+    public Task ReadyAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(IsDisposed || IsClosed || _isDisposing, this);
+        // A failed partial native creation cannot be retried over the owned resources.
+        return _readyTask ??= CreateNativeAsync(cancellationToken);
+    }
+
+    private void CheckReady()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed || IsClosed || _isDisposing, this);
+        if (!_isReady) throw new InvalidOperationException("PlayerWindow.ReadyAsync must complete before native window use.");
+    }
+
+    public Task SetPresentationAsync(PlayerPresentationMode mode)
+    {
+        CheckReady();
+        _isPresenterChanging = true;
+        try
+        {
+            _enteringFullScreen = mode == PlayerPresentationMode.FullScreen;
+            _enteringCompactOverlay = mode == PlayerPresentationMode.CompactOverlay;
+            _rootWindow.SetPresenter(mode switch
+            {
+                PlayerPresentationMode.FullScreen => AppWindowPresenterKind.FullScreen,
+                PlayerPresentationMode.CompactOverlay => AppWindowPresenterKind.CompactOverlay,
+                _ => AppWindowPresenterKind.Overlapped,
+            });
+            PresentationChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally { _isPresenterChanging = false; }
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// 窗口是否已关闭.
@@ -79,7 +139,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// <summary>
     /// 窗口句柄.
     /// </summary>
-    public IntPtr Handle => Win32Interop.GetWindowFromWindowId(_rootWindow.Id);
+    public IntPtr Handle => _rootWindow is null ? IntPtr.Zero : Win32Interop.GetWindowFromWindowId(_rootWindow.Id);
 
     /// <summary>
     /// XAML 根元素.
@@ -94,15 +154,27 @@ public sealed partial class PlayerWindow : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
 
-        IsDisposed = true;
-
-        if (_rootWindow != null)
+        SaveCurrentWindowStats();
+        _isDisposing = true;
+        _activeChangedAction = null;
+        if (_inputActivationListener is not null)
         {
+            _inputActivationListener.InputActivationChanged -= OnInputActivationChanged;
+            _inputActivationListener = null;
+        }
+        _xamlSource?.Dispose();
+        _xamlSource = null!;
+        if (_rootWindow is not null)
+        {
+            _rootWindow.Closing -= OnWindowClosing;
             _rootWindow.Changed -= OnWindowChanged;
             _rootWindow.Destroy();
+            _rootWindow.Destroying -= OnWindowDestroying;
+            _rootWindow = null!;
         }
-
-        _xamlSource?.Dispose();
+        IsClosed = true;
+        _isReady = false;
+        IsDisposed = true;
         return ValueTask.CompletedTask;
     }
 
@@ -111,6 +183,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// </summary>
     public void Show(bool restorePosition = true)
     {
+        CheckReady();
         _rootWindow.Show();
         PInvoke.SetForegroundWindow(new(Handle));
         PInvoke.SetFocus(new(Handle));
@@ -147,16 +220,23 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// <param name="isVisible"></param>
     public void SetCaptionButtonVisibility(bool isVisible)
     {
+        if (!_isReady || IsClosed || IsDisposed || _isDisposing) return;
         _rootWindow.TitleBar?.ButtonForegroundColor = isVisible ? Colors.White : "#111111".ToColor();
     }
 
-    public void SetActiveAction(Action<bool> activeChangedAction)
+    public void SetActiveAction(Action<bool>? activeChangedAction)
         => _activeChangedAction = activeChangedAction;
 
     /// <summary>
     /// 关闭窗口.
     /// </summary>
-    public void Close() => _rootWindow.Destroy();
+    public void Close() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        args.Cancel = true;
+        Close();
+    }
 
     /// <summary>
     /// 隱藏光标.
@@ -172,74 +252,22 @@ public sealed partial class PlayerWindow : IAsyncDisposable
 
     public void EnterFullScreen()
     {
-        if (_rootWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-        {
-            if (IsTopMost())
-            {
-                SetTopMost(false);
-            }
-
-            _enteringFullScreen = true;
-            _enteringCompactOverlay = false;
-            _isPresenterChanging = true;
-            _rootWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-            _ = Task.Run(() =>
-            {
-                Task.Delay(500).Wait();
-                _isPresenterChanging = false;
-            });
-        }
+        _ = SetPresentationAsync(PlayerPresentationMode.FullScreen);
     }
 
     public void ExitFullScreen()
     {
-        if (_rootWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
-        {
-            _enteringFullScreen = false;
-            _isPresenterChanging = true;
-            _rootWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
-            _ = Task.Run(() =>
-            {
-                Task.Delay(500).Wait();
-                _isPresenterChanging = false;
-            });
-        }
+        _ = SetPresentationAsync(PlayerPresentationMode.Normal);
     }
 
     public void EnterCompactOverlay()
     {
-        if (_rootWindow.Presenter.Kind != AppWindowPresenterKind.CompactOverlay)
-        {
-            if (IsTopMost())
-            {
-                SetTopMost(false);
-            }
-
-            _enteringCompactOverlay = true;
-            _enteringFullScreen = false;
-            _isPresenterChanging = true;
-            _rootWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay);
-            _ = Task.Run(() =>
-            {
-                Task.Delay(500).Wait();
-                _isPresenterChanging = false;
-            });
-        }
+        _ = SetPresentationAsync(PlayerPresentationMode.CompactOverlay);
     }
 
     public void ExitCompactOverlay()
     {
-        if (_rootWindow.Presenter.Kind == AppWindowPresenterKind.CompactOverlay)
-        {
-            _enteringCompactOverlay = false;
-            _isPresenterChanging = true;
-            _rootWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
-            _ = Task.Run(() =>
-            {
-                Task.Delay(500).Wait();
-                _isPresenterChanging = false;
-            });
-        }
+        _ = SetPresentationAsync(PlayerPresentationMode.Normal);
     }
 
     /// <summary>
@@ -248,7 +276,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// <param name="theme">元素主题.</param>
     public void SetTheme(ElementTheme theme)
     {
-        _rootGrid.RequestedTheme = theme;
+        if (_rootGrid is not null) _rootGrid.RequestedTheme = theme;
     }
 
     /// <summary>
@@ -257,6 +285,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// <param name="element">UI元素.</param>
     public void SetUIElement(UIElement? element)
     {
+        CheckReady();
         if (_rootGrid.Children.Count > 0)
         {
             _rootGrid.Children.Clear();
@@ -273,7 +302,10 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     /// </summary>
     /// <returns><see cref="AppWindow"/>.</returns>
     public AppWindow GetWindow()
-        => _rootWindow;
+    {
+        CheckReady();
+        return _rootWindow;
+    }
 
     public void DelayUpdateTitleBarPadding(bool delaySec = false)
     {
@@ -285,8 +317,10 @@ public sealed partial class PlayerWindow : IAsyncDisposable
                 {
                     overlay?.HeaderBar.HorizontalAlignment = HorizontalAlignment.Left;
                     await Task.Delay(800);
+                    if (IsClosed || IsDisposed || _isDisposing) return;
                     overlay?.HeaderBar.HorizontalAlignment = HorizontalAlignment.Stretch;
                     await Task.Delay(800);
+                    if (IsClosed || IsDisposed || _isDisposing) return;
                 }
 
                 if (overlay?.HeaderBar?.ActualWidth > 0 && _rootWindow.IsVisible && !PInvoke.IsIconic(new(Handle)))
@@ -299,9 +333,11 @@ public sealed partial class PlayerWindow : IAsyncDisposable
 
     private async void OnInputActivationChanged(InputActivationListener sender, InputActivationListenerActivationChangedEventArgs args)
     {
+        // Input holds must end immediately; only focus/layout work is delayed.
+        _activeChangedAction?.Invoke(sender.State == InputActivationState.Activated);
         // 延迟处理，避免打断正常的用户操作.
         await Task.Delay(400);
-        if (IsClosed)
+        if (IsClosed || IsDisposed || _isDisposing || !_isReady)
         {
             return;
         }
@@ -311,8 +347,6 @@ public sealed partial class PlayerWindow : IAsyncDisposable
             ResetFocus();
         }
 
-        _activeChangedAction?.Invoke(sender.State == InputActivationState.Activated);
-
         if (_rootWindow.Position.X < -10000 || _rootWindow.Position.Y < -10000)
         {
             MoveAndResize();
@@ -321,6 +355,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
 
     private void OnWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
+        if (args.DidPresenterChange) PresentationChanged?.Invoke(this, EventArgs.Empty);
         if (args.DidSizeChange)
         {
             var size = _rootWindow.Presenter.Kind is AppWindowPresenterKind.FullScreen or AppWindowPresenterKind.CompactOverlay
@@ -370,7 +405,8 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     private void OnWindowDestroying(AppWindow sender, object args)
     {
         IsClosed = true;
-        _inputActivationListener.InputActivationChanged -= OnInputActivationChanged;
+        if (_inputActivationListener is not null)
+            _inputActivationListener.InputActivationChanged -= OnInputActivationChanged;
         _rootWindow.Destroying -= OnWindowDestroying;
         _rootWindow.Changed -= OnWindowChanged;
         SaveCurrentWindowStats();
@@ -389,8 +425,9 @@ public sealed partial class PlayerWindow : IAsyncDisposable
             size.Height));
     }
 
-    internal void SetTopMost(bool isTopMost)
+    public void SetTopMost(bool isTopMost)
     {
+        CheckReady();
         // 全屏和小窗模式下不处理置顶.
         if (_rootWindow.Presenter.Kind is AppWindowPresenterKind.FullScreen or AppWindowPresenterKind.CompactOverlay)
         {
@@ -400,8 +437,9 @@ public sealed partial class PlayerWindow : IAsyncDisposable
         PInvoke.SetWindowPos(new(Handle), isTopMost ? new(-1) : new(-2), 0, 0, 0, 0, SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW);
     }
 
-    internal bool IsTopMost()
+    public bool IsTopMost()
     {
+        if (!_isReady || IsClosed || IsDisposed || _isDisposing) return false;
         var style = PInvoke.GetWindowLong(new(Handle), WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
         return (style & 0x00000008) != 0; // WS_EX_TOPMOST
     }
@@ -410,7 +448,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
     {
         DispatcherQueue.GetForCurrentThread().TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
-            if (_xamlSource is null || _xamlSource.SiteBridge is null || _rootGrid is null)
+            if (IsClosed || IsDisposed || _isDisposing || _xamlSource is null || _xamlSource.SiteBridge is null || _rootGrid is null)
             {
                 return;
             }
@@ -476,6 +514,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
 
     private void SaveCurrentWindowStats()
     {
+        if (!_isReady || _isFirstActivated || _isDisposing || IsDisposed || _isPresenterChanging || _rootWindow?.Presenter.Kind != AppWindowPresenterKind.Overlapped) return;
         var isMaximized = PInvoke.IsZoomed(new HWND(Handle));
         SettingsToolkit.WriteLocalSetting(SettingNames.IsPlayerWindowMaximized, (bool)isMaximized);
 
@@ -485,7 +524,7 @@ public sealed partial class PlayerWindow : IAsyncDisposable
             var top = _rootWindow.Position.Y;
             SettingsToolkit.WriteLocalSetting(SettingNames.PlayerWindowPositionLeft, left);
             SettingsToolkit.WriteLocalSetting(SettingNames.PlayerWindowPositionTop, top);
-            var scaleFactor = _xamlSource.Content.XamlRoot.RasterizationScale;
+            var scaleFactor = XamlRoot?.RasterizationScale ?? 1d;
             var actualWidth = _rootWindow.Size.Width / scaleFactor;
             var actualHeight = _rootWindow.Size.Height / scaleFactor;
             if (actualHeight >= WindowMinHeight && actualWidth >= WindowMinWidth)

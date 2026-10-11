@@ -16,6 +16,9 @@ public sealed partial class ViewLaterPageViewModel
     private readonly IViewLaterService _service;
     private readonly ILogger<ViewLaterPageViewModel> _logger;
 
+    // Commands and collection notifications run on the UI thread.
+    private Task _loadTask = Task.CompletedTask;
+    private Task _refreshTask = Task.CompletedTask;
     private int _pageNumber;
 
     [ObservableProperty]

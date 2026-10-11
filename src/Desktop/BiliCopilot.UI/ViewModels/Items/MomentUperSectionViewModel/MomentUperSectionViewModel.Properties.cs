@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.Moment;
 using System.Collections.ObjectModel;
@@ -14,6 +15,10 @@ public sealed partial class MomentUperSectionViewModel
 {
     private readonly IMomentDiscoveryService _service;
     private readonly ILogger<MomentUperSectionViewModel> _logger;
+    private readonly IAsyncRelayCommand? _ownerRefreshCommand;
+    private Task _loadTask = Task.CompletedTask;
+    private Task _refreshTask = Task.CompletedTask;
+    private bool _isRetired;
     private bool _preventLoadMore;
     private string? _offset;
     private string? _baseline;
@@ -36,6 +41,11 @@ public sealed partial class MomentUperSectionViewModel
     /// 是否为全部动态区块.
     /// </summary>
     public bool IsTotal { get; init; }
+
+    /// <summary>
+    /// 刷新当前动态流；全部动态必须由外层同时刷新 UP 列表.
+    /// </summary>
+    public IAsyncRelayCommand? RefreshFeedCommand => IsTotal ? _ownerRefreshCommand : RefreshCommand;
 
     /// <summary>
     /// 头像.

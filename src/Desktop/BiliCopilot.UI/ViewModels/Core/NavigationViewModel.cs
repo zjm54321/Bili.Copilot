@@ -24,6 +24,60 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     private MainFrame? _navFrame;
     private OverlayFrame? _overFrame;
 
+    /// <summary>Observable completion/failure for the legacy void navigation interface.</summary>
+    public Task LastNavigationTask { get; private set; } = Task.CompletedTask;
+    public Exception? LastNavigationError { get; private set; }
+
+    public void NavigateTo(Type pageType, object? parameter = null) => QueueNavigation(() => NavigateToCore(pageType, parameter));
+    public void NavigateToOver(Type pageType, object? parameter = null) => QueueNavigation(() => NavigateToOverCore(pageType, parameter));
+    public void Search(string keyword) => QueueNavigation(() => SearchCore(keyword));
+    public void SearchInRegion(string keyword) => QueueNavigation(() => SearchInRegionCore(keyword));
+    public void Back()
+    {
+        var returningFromPlayer = this.Get<AppViewModel>().HasEmbeddedWork;
+        QueueNavigation(() => { if (!returningFromPlayer) BackCore(); });
+    }
+
+    private void QueueNavigation(Action navigate)
+    {
+        var previous = LastNavigationTask;
+        var close = this.Get<AppViewModel>().CloseEmbeddedPlayerAsync();
+        LastNavigationTask = NavigateAfterCloseAsync(previous, close, navigate);
+        OnPropertyChanged(nameof(LastNavigationTask));
+        _ = ObserveNavigationAsync(LastNavigationTask);
+    }
+
+    private static async Task NavigateAfterCloseAsync(Task previous, Task close, Action navigate)
+    {
+        // This continuation owns no player gate; the previous navigation never waits for this successor.
+#pragma warning disable VSTHRD003
+        try { await previous; } catch { /* Prior failure is exposed by LastNavigationError. */ }
+#pragma warning restore VSTHRD003
+        // Join the actual cached close before navigating; close has no dependency on this continuation.
+#pragma warning disable VSTHRD003
+        await close; // A failed close retains ownership and MUST prevent navigation.
+#pragma warning restore VSTHRD003
+        navigate();
+    }
+
+    private async Task ObserveNavigationAsync(Task navigation)
+    {
+        try
+        {
+            // This observer owns no gate and is not a prerequisite of the navigation it observes.
+#pragma warning disable VSTHRD003
+            await navigation;
+#pragma warning restore VSTHRD003
+            LastNavigationError = null;
+        }
+        catch (Exception ex)
+        {
+            LastNavigationError = ex;
+            this.Get<AppViewModel>().ShowTipCommand.Execute((ex.Message, Richasy.WinUIKernel.Share.Base.InfoType.Error));
+        }
+        OnPropertyChanged(nameof(LastNavigationError));
+    }
+
     [ObservableProperty]
     private bool _isOverlayOpen;
 
@@ -54,7 +108,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     public ObservableCollection<AppNavigationItemViewModel> FooterItems { get; } = new();
 
     /// <inheritdoc/>
-    public void NavigateTo(Type pageType, object? parameter = null)
+    private void NavigateToCore(Type pageType, object? parameter = null)
     {
         if (_navFrame is null)
         {
@@ -103,7 +157,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     }
 
     /// <inheritdoc/>
-    public void NavigateToOver(Type pageType, object? parameter = null)
+    private void NavigateToOverCore(Type pageType, object? parameter = null)
     {
         if (_overFrame is null)
         {
@@ -140,7 +194,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     /// <summary>
     /// 执行搜索.
     /// </summary>
-    public void Search(string keyword)
+    private void SearchCore(string keyword)
     {
         if (_overFrame is not null && _overFrame.GetCurrentContent() is SearchPage page)
         {
@@ -149,7 +203,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
             return;
         }
 
-        NavigateToOver(typeof(SearchPage), keyword);
+        NavigateToOverCore(typeof(SearchPage), keyword);
     }
 
     /// <summary>
@@ -164,7 +218,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     /// <summary>
     /// 在指定区域执行搜索.
     /// </summary>
-    public void SearchInRegion(string keyword)
+    private void SearchInRegionCore(string keyword)
     {
         if (_overFrame.GetCurrentContent() is UserSpacePage usp)
         {
@@ -179,7 +233,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     /// <summary>
     /// 尝试返回.
     /// </summary>
-    public void Back()
+    private void BackCore()
     {
         if (_overFrame is not null)
         {

@@ -16,27 +16,67 @@ namespace BiliCopilot.UI.ViewModels.Core;
 
 public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConnectorViewModel
 {
+    private long _requestGeneration;
+    private CancellationToken _initializationCancellation;
+    private bool _requestsInvalidated = true;
+
     public VideoConnectorViewModel(PlayerViewModel parent)
     {
         Parent = parent;
         _comments = this.Get<CommentMainViewModel>();
         Downloader = this.Get<DownloadViewModel>();
-        AI = this.Get<AIViewModel>();
     }
 
-    public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver)
+    public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        InvalidateRequests();
+        var generation = _requestGeneration;
+        _initializationCancellation = cancellationToken;
+        _requestsInvalidated = false;
         _snapshot = snapshot;
         ClearView();
         IsLoading = true;
-        await LoadItemDetailAsync();
-        var prev = FindPrevVideo();
-        var next = FindNextVideo();
-        var prevName = prev is VideoPart part ? part.Identifier.Title : prev is VideoInformation video ? video.Identifier.Title : default;
-        var nextName = next is VideoPart part2 ? part2.Identifier.Title : next is VideoInformation video2 ? video2.Identifier.Title : default;
-        var initArgs = new PlaylistInitializedEventArgs(prev != null, next != null, prevName, nextName);
-        PlaylistInitialized?.Invoke(this, initArgs);
+        try
+        {
+            await LoadItemDetailAsync(snapshot, generation, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
+
+            var prev = FindPrevVideo();
+            var next = FindNextVideo();
+            var prevName = prev is VideoPart part ? part.Identifier.Title : prev is VideoInformation video ? video.Identifier.Title : default;
+            var nextName = next is VideoPart part2 ? part2.Identifier.Title : next is VideoInformation video2 ? video2.Identifier.Title : default;
+            var initArgs = new PlaylistInitializedEventArgs(prev != null, next != null, prevName, nextName);
+            PlaylistInitialized?.Invoke(this, initArgs);
+        }
+        finally
+        {
+            if (generation == _requestGeneration)
+            {
+                IsLoading = false;
+            }
+        }
+    }
+
+    /// <summary>Synchronously detach pending media/comment results. Call on the UI thread.</summary>
+    public void InvalidateRequests()
+    {
+        _requestsInvalidated = true;
+        _requestGeneration++;
+        _comments.InvalidateRequests();
         IsLoading = false;
+    }
+
+    private bool IsRequestCurrent(long generation, CancellationToken cancellationToken)
+        => !_requestsInvalidated && generation == _requestGeneration && !cancellationToken.IsCancellationRequested && !Parent.IsPlaybackClosing;
+
+    private void ThrowIfRequestInvalid(long generation, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            throw new OperationCanceledException("The media request was superseded.", cancellationToken);
+        }
     }
 
     public void InitializeDownloader(List<PlayerFormatInformation> formats)
@@ -51,7 +91,7 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
 
     public async Task PlayNextAsync()
     {
-        if (IsLoading)
+        if (IsLoading || Parent.IsConnecting || Parent.IsPlaybackClosing || !IsRequestCurrent(_requestGeneration, _initializationCancellation))
         {
             return;
         }
@@ -65,20 +105,19 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
         if (next is VideoPart part)
         {
             _snapshot.PreferPart = part;
-            Parent.InitializeCommand.Execute(_snapshot);
+            await Parent.InitializeAsync(_snapshot);
             return;
         }
         else if (next is VideoInformation video)
         {
-            Parent.InitializeCommand.Execute(new MediaSnapshot(video, IsPrivatePlay) { Playlist = _snapshot.Playlist, Type = BiliMediaType.Video });
+            await Parent.InitializeAsync(new MediaSnapshot(video, IsPrivatePlay) { Playlist = _snapshot.Playlist, Type = BiliMediaType.Video });
         }
 
-        await Task.CompletedTask;
     }
 
     public async Task PlayPreviousAsync()
     {
-        if (IsLoading)
+        if (IsLoading || Parent.IsConnecting || Parent.IsPlaybackClosing || !IsRequestCurrent(_requestGeneration, _initializationCancellation))
         {
             return;
         }
@@ -93,15 +132,14 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
         {
             _snapshot.PreferPart = part;
             _snapshot.StartPosition = 0;
-            Parent.InitializeCommand.Execute(_snapshot);
+            await Parent.InitializeAsync(_snapshot);
             return;
         }
         else if (next is VideoInformation video)
         {
-            Parent.InitializeCommand.Execute(new MediaSnapshot(video, IsPrivatePlay) { Playlist = _snapshot.Playlist, Type = BiliMediaType.Video });
+            await Parent.InitializeAsync(new MediaSnapshot(video, IsPrivatePlay) { Playlist = _snapshot.Playlist, Type = BiliMediaType.Video });
         }
 
-        await Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -111,7 +149,7 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
     [RelayCommand]
     private void SelectSection(IPlayerSectionDetailViewModel section)
     {
-        if (section is null || section == SelectedSection)
+        if (!IsRequestCurrent(_requestGeneration, _initializationCancellation) || section is null || section == SelectedSection || Sections?.Contains(section) != true)
         {
             return;
         }
@@ -122,7 +160,7 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
 
     private void PlayItem(PlaylistMediaViewModel vm)
     {
-        if (vm.Data.Video.Identifier.Id == _snapshot.Video.Identifier.Id)
+        if (!IsRequestCurrent(_requestGeneration, _initializationCancellation) || vm.Data.Video.Identifier.Id == _snapshot.Video.Identifier.Id)
         {
             return;
         }
@@ -130,22 +168,32 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
         NewMediaRequest?.Invoke(this, vm.Data);
     }
 
-    private async Task LoadItemDetailAsync()
+    private async Task LoadItemDetailAsync(MediaSnapshot snapshot, long generation, CancellationToken cancellationToken)
     {
         var service = this.Get<IPlayerService>();
         try
         {
-            _view = await service.GetVideoPageDetailAsync(_snapshot.Video.Identifier);
-            _part = FindInitialPart(_snapshot.PreferPart?.Identifier.Id);
+            var view = await service.GetVideoPageDetailAsync(snapshot.Video.Identifier, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
+
+            _view = view;
+            _part = FindInitialPart(snapshot.PreferPart?.Identifier.Id);
             UpdateProperties();
+            ThrowIfRequestInvalid(generation, cancellationToken);
             InitializeView(_view);
-            _comments?.Initialize(_view.Information.Identifier.Id, Richasy.BiliKernel.Models.CommentTargetType.Video, Richasy.BiliKernel.Models.CommentSortType.Hot);
+            _comments?.Initialize(_view.Information.Identifier.Id, Richasy.BiliKernel.Models.CommentTargetType.Video, Richasy.BiliKernel.Models.CommentSortType.Hot, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
             InitializeSections();
-            AI.InjectVideoAsync(_view, _part);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
+            ThrowIfRequestInvalid(generation, cancellationToken);
             this.Get<ILogger<VideoConnectorViewModel>>().LogError(ex, "获取视频信息失败");
+            throw;
         }
     }
 

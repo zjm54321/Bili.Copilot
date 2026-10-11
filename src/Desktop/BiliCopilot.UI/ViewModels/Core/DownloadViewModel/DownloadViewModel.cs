@@ -134,9 +134,7 @@ public sealed partial class DownloadViewModel : ViewModelBase
     [RelayCommand]
     private void DownloadSubtitle()
     {
-        var isAISubtitleFiltered = SettingsToolkit.ReadLocalSetting(SettingNames.FilterAISubtitle, true);
-        var subCommand = isAISubtitleFiltered ? "--sub-only" : "--sub-only --skip-ai False";
-        var command = $"{GetBasicCommand(false)} {subCommand} \"{_currentUrl}\"";
+        var command = $"{GetBasicCommand(false)} --sub-only \"{_currentUrl}\"";
         LaunchDownloadProcess(command);
     }
 

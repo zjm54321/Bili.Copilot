@@ -20,22 +20,31 @@ internal sealed partial class VideoMediaSourceResolver(IPlayerService playerServ
 {
     private MediaSnapshot _snapshot;
     private VideoPart _part;
-    private TaskCompletionSource<bool>? _initTask;
-    private CancellationTokenSource? _initCts;
+    private Task? _initTask;
     private DashMediaInformation? _playbackInfo;
 
     public void Initialize(MediaSnapshot snapshot, VideoPart part)
     {
-        _snapshot = snapshot;
-        _part = part;
+        lock (InitializationSync)
+        {
+            InvalidateInitialization();
+            _snapshot = snapshot;
+            _part = part;
+        }
+    }
+
+    protected override void ResetInitialization()
+    {
         _playbackInfo = default;
-        _initTask?.TrySetCanceled();
-        _initCts?.Cancel();
+        _initTask = default;
     }
 
     internal void ResetSnapshot(MediaSnapshot snapshot)
     {
-        _snapshot = snapshot;
+        lock (InitializationSync)
+        {
+            _snapshot = snapshot;
+        }
     }
 
     internal PlayerFormatInformation? GetCurrentFormat()
@@ -84,6 +93,7 @@ internal sealed partial class VideoMediaSourceResolver(IPlayerService playerServ
 
     public override async Task<MpvMediaSource> GetSourceAsync()
     {
+        var request = CaptureInitialization();
         var volume = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.PlayerVolume, 100d);
         var speed = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.PlayerSpeed, 1d);
         var cookies = cookiesResolver.GetCookieString();
@@ -102,74 +112,92 @@ internal sealed partial class VideoMediaSourceResolver(IPlayerService playerServ
             UserAgent = userAgent,
             HttpHeaders = headers,
             EnableCookies = true,
-            MediaName = _snapshot.Video.Identifier.Title,
         };
 
-        await LoadMediaInfoAsync();
-        var (videoUrl, audioUrl) = GetPlayUrls();
-        var fileUrl = string.Empty;
-        if (!string.IsNullOrEmpty(videoUrl))
+        await LoadMediaInfoAsync(request);
+        lock (InitializationSync)
         {
-            fileUrl = videoUrl;
-            if (!string.IsNullOrEmpty(audioUrl))
+            ThrowIfInitializationInvalid(request);
+            options.MediaName = _snapshot.Video.Identifier.Title;
+            var (videoUrl, audioUrl) = GetPlayUrls();
+            var fileUrl = string.Empty;
+            if (!string.IsNullOrEmpty(videoUrl))
             {
-                options.AudioTracks ??= [];
-                options.AudioTracks.Add(audioUrl);
+                fileUrl = videoUrl;
+                if (!string.IsNullOrEmpty(audioUrl))
+                {
+                    options.AudioTracks ??= [];
+                    options.AudioTracks.Add(audioUrl);
+                }
             }
-        }
-        else if (!string.IsNullOrEmpty(audioUrl))
-        {
-            fileUrl = audioUrl;
-        }
+            else if (!string.IsNullOrEmpty(audioUrl))
+            {
+                fileUrl = audioUrl;
+            }
 
-        return new MpvMediaSource(fileUrl, _snapshot.Video.Identifier.Id, _snapshot.Video.Identifier.Title, options);
+            return new MpvMediaSource(fileUrl, _snapshot.Video.Identifier.Id, _snapshot.Video.Identifier.Title, options);
+        }
     }
 
     public async Task<List<PlayerFormatInformation>?> GetSourcesAsync()
     {
-        await LoadMediaInfoAsync();
-        return [.. _playbackInfo?.Formats];
+        var request = CaptureInitialization();
+        await LoadMediaInfoAsync(request);
+        lock (InitializationSync)
+        {
+            ThrowIfInitializationInvalid(request);
+            return [.. _playbackInfo!.Formats];
+        }
     }
 
-    internal async Task LoadMediaInfoAsync()
+    internal Task LoadMediaInfoAsync() => LoadMediaInfoAsync(CaptureInitialization());
+
+    private async Task LoadMediaInfoAsync((long Generation, CancellationToken CancellationToken) request)
     {
-        if (_snapshot is null || _part is null)
+        Task loadTask;
+        lock (InitializationSync)
         {
-            throw new InvalidOperationException("必须先初始化媒体信息.");
+            ThrowIfInitializationInvalid(request);
+            if (_snapshot is null || _part is null)
+            {
+                throw new InvalidOperationException("必须先初始化媒体信息.");
+            }
+
+            loadTask = _initTask ??= LoadMediaInfoCoreAsync(_snapshot, _part, request);
         }
 
-        if (_playbackInfo is not null)
+        await loadTask;
+        lock (InitializationSync)
         {
-            return;
+            ThrowIfInitializationInvalid(request);
         }
+    }
 
-        if (_initTask?.Task.IsCompleted == true)
-        {
-            return;
-        }
-
-        if (_initTask is not null)
-        {
-#pragma warning disable VSTHRD003 // Avoid awaiting foreign Tasks
-            await _initTask.Task;
-#pragma warning restore VSTHRD003 // Avoid awaiting foreign Tasks
-            return;
-        }
-
-        _initTask = new TaskCompletionSource<bool>();
-        _initCts = new CancellationTokenSource();
+    private async Task LoadMediaInfoCoreAsync(MediaSnapshot snapshot, VideoPart part, (long Generation, CancellationToken CancellationToken) request)
+    {
         try
         {
-            _playbackInfo = await playerService.GetVideoPlayDetailAsync(_snapshot.Video.Identifier, Convert.ToInt64(_part.Identifier.Id), _initCts.Token);
+            var info = await playerService.GetVideoPlayDetailAsync(snapshot.Video.Identifier, Convert.ToInt64(part.Identifier.Id), request.CancellationToken);
+            lock (InitializationSync)
+            {
+                ThrowIfInitializationInvalid(request);
+                _playbackInfo = info;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"获取 {_snapshot.Video.Identifier.Title} 播放信息失败");
-            _initTask.TrySetException(new InvalidOperationException("获取 Dash 播放信息失败."));
-            return;
-        }
+            lock (InitializationSync)
+            {
+                ThrowIfInitializationInvalid(request);
+            }
 
-        _initTask.TrySetResult(true);
+            logger.LogError(ex, "获取视频播放信息失败");
+            throw;
+        }
     }
 
     private (string? video, string? audio) GetPlayUrls()

@@ -107,12 +107,6 @@ public sealed partial class SettingsPageViewModel
     private bool _withoutCredentialWhenGenDownloadCommand;
 
     [ObservableProperty]
-    private bool _filterAISubtitle;
-
-    [ObservableProperty]
-    private bool _isAIStreamingResponse;
-
-    [ObservableProperty]
     private bool _isWebDavEnabled;
 
     [ObservableProperty]
@@ -171,9 +165,6 @@ public sealed partial class SettingsPageViewModel
 
     [ObservableProperty]
     public partial double TempPlaybackRate { get; set; }
-
-    [ObservableProperty]
-    public partial bool ScrollAccelerate { get; set; }
 
     [ObservableProperty]
     public partial bool CacheOnDisk { get; set; }

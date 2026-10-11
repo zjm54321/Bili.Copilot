@@ -14,7 +14,10 @@
     xmlns:local="using:BiliCopilot.UI.Controls.Core"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:triggers="using:CommunityToolkit.WinUI"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    GotFocus="OnControlGotFocus"
+    LostFocus="OnControlLostFocus"
+    IsEnabled="{x:Bind IsActive, Mode=OneWay}">
 
     <Grid
         x:Name="RootGrid"
@@ -206,7 +209,6 @@
 
                     <Button.Flyout>
                         <Flyout
-                            Closed="OnFlyoutClosed"
                             Opened="OnDisplayFlyoutOpened"
                             Placement="Top">
                             <StackPanel Width="200" Spacing="8">
@@ -261,7 +263,6 @@
                     <ic:SymbolIcon FontSize="14" Symbol="TopSpeed" />
                     <Button.Flyout>
                         <Flyout
-                            Closed="OnFlyoutClosed"
                             Opened="OnDisplayFlyoutOpened"
                             Placement="Top">
                             <StackPanel Spacing="12">
@@ -371,7 +372,6 @@
                         <ic:SymbolIcon FontSize="14" Symbol="Subtitles" />
                         <Button.Flyout>
                             <Flyout
-                                Closed="OnFlyoutClosed"
                                 Opened="OnSubtitleFlyoutOpened"
                                 ShouldConstrainToRootBounds="False">
                                 <Flyout.FlyoutPresenterStyle>
@@ -482,7 +482,6 @@
                     <ic:SymbolIcon FontSize="14" Symbol="MoreVertical" />
                     <Button.Flyout>
                         <MenuFlyout
-                            Closed="OnFlyoutClosed"
                             Opened="OnDisplayFlyoutOpened"
                             ShouldConstrainToRootBounds="False">
                             <MenuFlyoutItem Command="{x:Bind ViewModel.ToggleCompactOverlayCommand, Mode=OneWay}" Text="{x:Bind GetCompactOverlayTip(ViewModel.Player.IsCompactOverlay), Mode=OneWay}">
@@ -586,9 +585,9 @@
         </Grid>
 
         <TeachingTip
-            Closed="OnDanmakuOptionsClosed"
+            x:Name="DanmakuOptionsTip"
             IsLightDismissEnabled="True"
-            IsOpen="{x:Bind ViewModel.IsDanmakuOptionsVisible, Mode=TwoWay}"
+            IsOpen="{x:Bind IsDanmakuOptionsOpen(IsActive, ViewModel.IsDanmakuOptionsVisible), Mode=OneWay}"
             PreferredPlacement="TopLeft"
             Target="{x:Bind DanmakuOptionButton}">
             <danmaku:DanmakuDisplayOptions ViewModel="{x:Bind ViewModel.Danmaku, Mode=OneWay}" />

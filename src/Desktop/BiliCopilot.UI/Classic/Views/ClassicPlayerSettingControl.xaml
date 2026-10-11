@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<settings:SettingsPageControlBase
+    x:Class="BiliCopilot.UI.Classic.Views.ClassicPlayerSettingControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:classic="using:BiliCopilot.UI.Classic"
+    xmlns:converters="using:BiliCopilot.UI.Classic.Views"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:settings="using:BiliCopilot.UI.Controls.Settings"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <converters:ClassicExperienceConverter x:Key="ExperienceConverter" />
+        <converters:ClassicBackendKindConverter x:Key="BackendConverter" />
+        <converters:ClassicDisplayModeConverter x:Key="DisplayModeConverter" />
+        <converters:ClassicDecodePreferenceConverter x:Key="DecodeConverter" />
+        <converters:ClassicExperienceToVisibilityConverter x:Key="ClassicVisibilityConverter" />
+    </UserControl.Resources>
+
+    <base:SettingsExpander
+        Description="选择新播放器或经典播放器，并配置经典播放器的后端、显示与解码偏好。"
+        Header="播放体验">
+        <base:SettingsExpander.Items>
+            <base:SettingsCard
+                Description="下一次播放生效，不切换当前正在播放的引擎。"
+                Header="播放体验">
+                <ComboBox
+                    MinWidth="140"
+                    ItemsSource="{x:Bind ViewModel.PlaybackExperienceCollection, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.PlayerExperience, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="classic:PlaybackExperience">
+                            <TextBlock Text="{x:Bind Converter={StaticResource ExperienceConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </base:SettingsCard>
+
+            <base:SettingsCard
+                Description="所选后端不可用时不会自动替换为其它引擎；原生窗口暂不支持直播。"
+                Header="经典播放器后端"
+                Visibility="{x:Bind ViewModel.PlayerExperience, Mode=OneWay, Converter={StaticResource ClassicVisibilityConverter}}">
+                <ComboBox
+                    MinWidth="140"
+                    ItemsSource="{x:Bind ViewModel.ClassicBackendCollection, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.ClassicPlayerBackend, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="classic:ClassicBackendKind">
+                            <TextBlock Text="{x:Bind Converter={StaticResource BackendConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </base:SettingsCard>
+
+            <base:SettingsCard
+                Description="由播放窗口应用：全屏与紧凑覆盖切换窗口呈现器，全窗口切换播放界面布局。"
+                Header="显示模式"
+                Visibility="{x:Bind ViewModel.PlayerExperience, Mode=OneWay, Converter={StaticResource ClassicVisibilityConverter}}">
+                <ComboBox
+                    MinWidth="140"
+                    ItemsSource="{x:Bind ViewModel.ClassicDisplayModeCollection, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.ClassicPlayerDisplayMode, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="classic:ClassicDisplayMode">
+                            <TextBlock Text="{x:Bind Converter={StaticResource DisplayModeConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </base:SettingsCard>
+
+            <base:SettingsCard
+                Description="仅岛式窗口后端应用强制解码；原生、外部与网页后端需保持「自动」，否则本次播放会明确报错。"
+                Header="解码偏好"
+                Visibility="{x:Bind ViewModel.PlayerExperience, Mode=OneWay, Converter={StaticResource ClassicVisibilityConverter}}">
+                <ComboBox
+                    MinWidth="140"
+                    ItemsSource="{x:Bind ViewModel.ClassicDecodeCollection, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.ClassicPlayerDecodePreference, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="classic:ClassicDecodePreference">
+                            <TextBlock Text="{x:Bind Converter={StaticResource DecodeConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </base:SettingsCard>
+
+            <base:SettingsCard
+                Description="留空表示未设置；仅使用绝对路径，不进行 PATH 查找。"
+                Header="外部播放器路径"
+                Visibility="{x:Bind ViewModel.PlayerExperience, Mode=OneWay, Converter={StaticResource ClassicVisibilityConverter}}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Text="{x:Bind ViewModel.ClassicExternalPlayerPath, Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis" />
+                    <StackPanel
+                        Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <Button Click="OnPickExternalPlayerClick" Content="选择" />
+                        <Button
+                            Click="OnClearExternalPlayerClick"
+                            Content="清除"
+                            IsEnabled="{x:Bind ViewModel.HasClassicExternalPlayerPath, Mode=OneWay}" />
+                    </StackPanel>
+                </Grid>
+            </base:SettingsCard>
+
+            <base:SettingsCard
+                Description="直播播放时改用网页播放器。"
+                Header="直播使用网页播放器"
+                Visibility="{x:Bind ViewModel.PlayerExperience, Mode=OneWay, Converter={StaticResource ClassicVisibilityConverter}}">
+                <ToggleSwitch IsOn="{x:Bind ViewModel.ClassicUseWebPlayerWhenLive, Mode=TwoWay}" />
+            </base:SettingsCard>
+        </base:SettingsExpander.Items>
+    </base:SettingsExpander>
+</settings:SettingsPageControlBase>

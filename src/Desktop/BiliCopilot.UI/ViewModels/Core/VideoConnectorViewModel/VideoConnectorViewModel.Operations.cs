@@ -22,17 +22,34 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task ToggleFollowAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var service = this.Get<IRelationshipService>();
             if (IsFollow)
             {
-                await service.UnfollowUserAsync(_view.Information.Publisher.User.Id);
+                await service.UnfollowUserAsync(_view.Information.Publisher.User.Id, cancellationToken);
+                if (!IsRequestCurrent(generation, cancellationToken))
+                {
+                    return;
+                }
+
                 IsFollow = false;
             }
             else
             {
-                await service.FollowUserAsync(_view.Information.Publisher.User.Id);
+                await service.FollowUserAsync(_view.Information.Publisher.User.Id, cancellationToken);
+                if (!IsRequestCurrent(generation, cancellationToken))
+                {
+                    return;
+                }
+
                 IsFollow = true;
             }
         }
@@ -45,10 +62,22 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task ToggleLikeAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
             var state = !IsLiked;
-            await this.Get<IPlayerService>().ToggleVideoLikeAsync(_view.Information.Identifier.Id, state);
+            await this.Get<IPlayerService>().ToggleVideoLikeAsync(_view.Information.Identifier.Id, state, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsLiked = state;
         }
         catch (Exception ex)
@@ -60,9 +89,21 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task CoinAsync(int count = 1)
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
-            await this.Get<IPlayerService>().CoinVideoAsync(_view.Information.Identifier.Id, count, IsCoinAlsoLike);
+            await this.Get<IPlayerService>().CoinVideoAsync(_view.Information.Identifier.Id, count, IsCoinAlsoLike, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsCoined = true;
             if (IsCoinAlsoLike && !IsLiked)
             {
@@ -78,9 +119,21 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task TripleAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
-            await this.Get<IPlayerService>().TripleVideoAsync(_view.Information.Identifier.Id);
+            await this.Get<IPlayerService>().TripleVideoAsync(_view.Information.Identifier.Id, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsLiked = true;
             IsCoined = true;
             IsFavorited = true;
@@ -94,15 +147,25 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task InitializeFavoritesAsync()
     {
-        if (FavoriteFolders is not null)
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken) || FavoriteFolders is not null)
         {
             return;
         }
 
         try
         {
-            var (folders, ids) = await this.Get<IFavoriteService>().GetPlayingVideoFavoriteFoldersAsync(_view.Information.Identifier.Id);
+            var (folders, ids) = await this.Get<IFavoriteService>().GetPlayingVideoFavoriteFoldersAsync(_view.Information.Identifier.Id, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             FavoriteFolders = folders.Select(p => new PlayerFavoriteFolderViewModel(p, ids.Contains(p.Id))).ToList();
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -113,7 +176,9 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task FavoriteAsync()
     {
-        if (FavoriteFolders is null)
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken) || FavoriteFolders is null)
         {
             return;
         }
@@ -122,7 +187,12 @@ public sealed partial class VideoConnectorViewModel
         var unselectedFolders = FavoriteFolders?.Where(p => !p.IsSelected).Select(p => p.Data.Id).ToList();
         try
         {
-            await this.Get<IPlayerService>().FavoriteVideoAsync(_view.Information.Identifier.Id, selectedFolders, unselectedFolders);
+            await this.Get<IPlayerService>().FavoriteVideoAsync(_view.Information.Identifier.Id, selectedFolders, unselectedFolders, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             IsFavorited = selectedFolders.Count != 0;
             FavoriteFolders = default;
         }
@@ -146,13 +216,30 @@ public sealed partial class VideoConnectorViewModel
     [RelayCommand]
     private async Task AddToViewLaterAsync()
     {
+        var generation = _requestGeneration;
+        var cancellationToken = _initializationCancellation;
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
-            await this.Get<IViewLaterService>().AddAsync(_view.Information.Identifier.Id);
+            await this.Get<IViewLaterService>().AddAsync(_view.Information.Identifier.Id, cancellationToken);
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             this.Get<AppViewModel>().ShowTipCommand.Execute((ResourceToolkit.GetLocalizedString(StringNames.AddViewLaterSucceed), InfoType.Success));
         }
         catch (Exception ex)
         {
+            if (!IsRequestCurrent(generation, cancellationToken))
+            {
+                return;
+            }
+
             this.Get<ILogger<VideoItemViewModel>>().LogError(ex, "添加稍后再看失败");
             this.Get<AppViewModel>().ShowTipCommand.Execute((ResourceToolkit.GetLocalizedString(StringNames.AddViewLaterFailed), InfoType.Error));
         }

@@ -1,13 +1,11 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
-using BiliCopilot.UI.Extensions;
 using BiliCopilot.UI.Forms;
 using BiliCopilot.UI.Models;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32;
 using Richasy.BiliKernel.Bili.Authorization;
 using Richasy.WinUIKernel.Share.Base;
 using Richasy.WinUIKernel.Share.Toolkits;
@@ -16,7 +14,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Windows.Storage;
 using Windows.System;
-using Windows.Win32.UI.WindowsAndMessaging;
 using WinUIEx;
 
 namespace BiliCopilot.UI.ViewModels.Core;
@@ -81,8 +78,6 @@ public sealed partial class AppViewModel : ViewModelBase
     [RelayCommand]
     private async Task LaunchAsync()
     {
-        StartVisorService();
-
         // 清除所有之前的badges.
         //BadgeNotificationManager.Current.ClearBadge();
         if (_tokenResolver.GetToken() is not null)
@@ -132,12 +127,10 @@ public sealed partial class AppViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task OpenPlayerAsync(MediaSnapshot snapshot)
     {
-        var playerVM = this.Get<PlayerViewModel>();
-        this.Get<AppViewModel>().Players.Add(playerVM);
-        await playerVM.InitializeAsync(snapshot);
+        await OpenMainPlayerAsync(snapshot);
     }
 
     [RelayCommand]
@@ -218,6 +211,7 @@ public sealed partial class AppViewModel : ViewModelBase
                         DefaultButton = ContentDialogButton.Close,
                     };
 
+                    using var rendering = Windows.OfType<MainWindow>().FirstOrDefault()?.SuspendEmbeddedPlayerRendering();
                     await dialog.ShowAsync();
                 });
             }
@@ -226,159 +220,6 @@ public sealed partial class AppViewModel : ViewModelBase
         {
             _logger.LogError(ex, "检查GPU类型时失败");
         }
-    }
-
-    private void StartVisorService()
-    {
-        try
-        {
-            // 构建服务路径
-            var architecture = RuntimeInformation.ProcessArchitecture;
-            var identifier = architecture == Architecture.Arm64 ? "arm64" : "x64";
-            var servicePath = Path.Combine(Package.Current.InstalledPath, "Assets", "visor", identifier, "BiliCopilot.Visor.exe");
-
-            if (!File.Exists(servicePath))
-            {
-                this.Get<ILogger<AppViewModel>>().LogWarning($"BiliCopilot.Visor not found at: {servicePath}");
-                return;
-            }
-
-            // 检查是否已经运行
-            var existingProcess = Process.GetProcessesByName("BiliCopilot.Visor");
-            if (existingProcess.Length > 0)
-            {
-                this.Get<ILogger<AppViewModel>>().LogInformation("BiliCopilot.Visor is already running.");
-                // 已经运行，尝试初始化
-                _ = InitializeVisorAsync();
-                return;
-            }
-
-            // 启动服务（无参数启动，等待管道初始化）
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = servicePath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-            };
-
-            var p = Process.Start(startInfo);
-            this.Get<ILogger<AppViewModel>>().LogInformation("BiliCopilot.Visor started successfully.");
-
-            // 等待一小段时间让管道服务器启动
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(500);
-                await InitializeVisorAsync();
-            });
-        }
-        catch (Exception ex)
-        {
-            this.Get<ILogger<AppViewModel>>().LogError(ex, "Failed to start BiliCopilot.Visor.");
-        }
-    }
-
-    private async Task InitializeVisorAsync()
-    {
-        try
-        {
-            // 获取当前滚动速度
-            var originalWheelLines = GetCurrentWheelLines();
-            if (originalWheelLines == null)
-            {
-                this.Get<ILogger<AppViewModel>>().LogWarning("Failed to get current wheel lines.");
-                return;
-            }
-
-            // 检查是否启用滚动加速
-            var scrollAccelerate = SettingsToolkit.ReadLocalSetting(SettingNames.ScrollAccelerate, true);
-
-            // 发送初始化命令
-            var response = await VisorClient.InitializeAsync(originalWheelLines.Value, 12, scrollAccelerate);
-            if (response?.Success == true)
-            {
-                this.Get<ILogger<AppViewModel>>().LogInformation("Visor initialized successfully.");
-            }
-            else
-            {
-                this.Get<ILogger<AppViewModel>>().LogWarning($"Failed to initialize Visor: {response?.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            this.Get<ILogger<AppViewModel>>().LogError(ex, "Failed to initialize Visor.");
-        }
-    }
-
-    /// <summary>
-    /// 更新 Visor 滚动加速设置
-    /// </summary>
-    public async Task UpdateVisorScrollAccelerateAsync(bool enabled)
-    {
-        try
-        {
-            var response = enabled
-                ? await VisorClient.EnableScrollAccelerateAsync()
-                : await VisorClient.DisableScrollAccelerateAsync();
-
-            if (response?.Success == true)
-            {
-                this.Get<ILogger<AppViewModel>>().LogInformation($"Visor scroll accelerate {(enabled ? "enabled" : "disabled")}.");
-            }
-            else
-            {
-                this.Get<ILogger<AppViewModel>>().LogWarning($"Failed to update Visor scroll accelerate: {response?.Message}");
-            }
-        }
-        catch (Exception ex)
-        {
-            this.Get<ILogger<AppViewModel>>().LogError(ex, "Failed to update Visor scroll accelerate.");
-        }
-    }
-
-    private int? GetCurrentWheelLines()
-    {
-        try
-        {
-            unsafe
-            {
-                uint lines = 0;
-                var ok = PInvoke.SystemParametersInfo(
-                    SYSTEM_PARAMETERS_INFO_ACTION.SPI_GETWHEELSCROLLLINES,
-                    0u,
-                    &lines,
-                    0);
-
-                if (ok)
-                {
-#pragma warning disable CA1508 // 避免死条件代码
-                    return lines == 12 ? 3 : (int)lines;
-#pragma warning restore CA1508 // 避免死条件代码
-                }
-
-                this.Get<ILogger<AppViewModel>>().LogWarning("Get wheel lines via SPI failed, fallback to registry.");
-            }
-        }
-        catch (Exception ex)
-        {
-            this.Get<ILogger<AppViewModel>>().LogError(ex, "Get wheel lines via SPI exception.");
-        }
-
-        try
-        {
-            using var reg = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", false);
-            var value = reg?.GetValue("WheelScrollLines")?.ToString();
-            if (uint.TryParse(value, out var regLines))
-            {
-                return regLines == 12 ? 3 : (int)regLines;
-            }
-        }
-        catch (Exception ex)
-        {
-            this.Get<ILogger<AppViewModel>>().LogError(ex, "Read wheel lines from registry failed.");
-        }
-
-        return null;
     }
 
     partial void OnIsInitialLoadingChanged(bool value)

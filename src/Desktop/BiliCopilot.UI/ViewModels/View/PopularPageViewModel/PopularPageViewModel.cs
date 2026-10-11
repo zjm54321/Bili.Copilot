@@ -79,11 +79,15 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
             return;
         }
 
-        if (Videos.Count > 0)
+        // The previous selection may still be waiting in the dispatcher queue.
+        // Cache the list under its actual owner, not the pending selection.
+        if (_displayedSection is not null && Videos.Count > 0)
         {
-            _videoCache[SelectedSection] = Videos.ToList();
+            _videoCache[_displayedSection] = Videos.ToList();
         }
 
+        var generation = ++_videoGeneration;
+        IsVideoLoading = true;
         SelectedSection = vm;
         var sectionId = vm switch
         {
@@ -93,29 +97,42 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
         };
         SettingsToolkit.WriteLocalSetting(SettingNames.PopularPageLastSelectedSectionId, sectionId);
 
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
+        if (!this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () => await ApplySectionAsync(vm, generation)))
         {
-            Videos.Clear();
-            if (_videoCache.TryGetValue(vm, out var cacheVideos))
-            {
-                foreach (var video in cacheVideos)
-                {
-                    Videos.Add(video);
-                }
+            // Do not leave a pending selection permanently blocking retries.
+            _ = ApplySectionAsync(vm, generation);
+        }
+    }
 
-                VideoListUpdated?.Invoke(this, EventArgs.Empty);
-            }
-            else
+    private async Task ApplySectionAsync(IPopularSectionItemViewModel vm, long generation)
+    {
+        if (!IsCurrentVideoGeneration(generation))
+        {
+            return;
+        }
+
+        Videos.Clear();
+        _displayedSection = vm;
+        IsVideoLoading = false;
+        if (_videoCache.TryGetValue(vm, out var cacheVideos))
+        {
+            foreach (var video in cacheVideos)
             {
-                await LoadVideosAsync();
+                Videos.Add(video);
             }
-        });
+
+            VideoListUpdated?.Invoke(this, EventArgs.Empty);
+        }
+        else
+        {
+            await LoadVideosAsync();
+        }
     }
 
     [RelayCommand]
     private async Task LoadVideosAsync()
     {
-        if (IsVideoLoading)
+        if (IsVideoLoading || SelectedSection is null)
         {
             return;
         }
@@ -125,35 +142,63 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
             return;
         }
 
+        var generation = _videoGeneration;
         IsVideoLoading = true;
-        if (SelectedSection is PopularSectionItemViewModel section)
+        try
         {
-            if (section.Type == PopularSectionType.Recommend)
+            if (SelectedSection is PopularSectionItemViewModel section)
             {
-                await LoadRecommendVideosAsync();
+                if (section.Type == PopularSectionType.Recommend)
+                {
+                    await LoadRecommendVideosAsync(generation);
+                }
+                else if (section.Type == PopularSectionType.Hot)
+                {
+                    await LoadHotVideosAsync(generation);
+                }
+                else if (section.Type == PopularSectionType.Rank && Videos.Count == 0)
+                {
+                    await LoadTotalRankVideosAsync(generation);
+                }
             }
-            else if (section.Type == PopularSectionType.Hot)
+            else if (SelectedSection is PopularRankPartitionViewModel partition && Videos.Count == 0)
             {
-                await LoadHotVideosAsync();
+                await LoadPartitionRankVideosAsync(partition.Data, generation);
             }
-            else if (section.Type == PopularSectionType.Rank && Videos.Count == 0)
-            {
-                await LoadTotalRankVideosAsync();
-            }
-        }
-        else if (SelectedSection is PopularRankPartitionViewModel partition && Videos.Count == 0)
-        {
-            await LoadPartitionRankVideosAsync(partition.Data);
-        }
 
-        VideoListUpdated?.Invoke(this, EventArgs.Empty);
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () => IsVideoLoading = false);
+            if (IsCurrentVideoGeneration(generation))
+            {
+                VideoListUpdated?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            if (IsCurrentVideoGeneration(generation)
+                && !this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () =>
+                {
+                    if (IsCurrentVideoGeneration(generation))
+                    {
+                        IsVideoLoading = false;
+                    }
+                }))
+            {
+                IsVideoLoading = false;
+            }
+        }
     }
 
     [RelayCommand]
     private async Task RefreshVideoAsync()
     {
+        if (SelectedSection is null)
+        {
+            return;
+        }
+
+        // Refresh is a new generation even when the selected section is unchanged.
+        ++_videoGeneration;
         Videos.Clear();
+        _displayedSection = SelectedSection;
         _videoCache.Remove(SelectedSection);
         if (SelectedSection is PopularSectionItemViewModel section)
         {
@@ -167,8 +212,11 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
             }
         }
 
+        IsVideoLoading = false;
         await LoadVideosAsync();
     }
+
+    private bool IsCurrentVideoGeneration(long generation) => generation == _videoGeneration;
 
     [RelayCommand]
     private async Task PlayCuratedListAsync()

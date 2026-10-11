@@ -5,7 +5,6 @@ using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.View;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
 using Richasy.BiliKernel.Bili.Moment;
 using Richasy.BiliKernel.Models.Moment;
 using Richasy.WinUIKernel.Share.ViewModels;
@@ -20,11 +19,12 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
     /// <summary>
     /// Initializes a new instance of the <see cref="MomentUperSectionViewModel"/> class.
     /// </summary>
-    public MomentUperSectionViewModel(MomentProfile data)
+    public MomentUperSectionViewModel(MomentProfile? data, IAsyncRelayCommand? ownerRefreshCommand = null)
         : base(data)
     {
         _service = this.Get<IMomentDiscoveryService>();
         _logger = this.Get<ILogger<MomentUperSectionViewModel>>();
+        _ownerRefreshCommand = ownerRefreshCommand;
         IsTotal = data is null;
         Avatar = data?.User?.Avatar.Uri;
         Name = data?.User?.Name ?? ResourceToolkit.GetLocalizedString(StringNames.AllDynamic);
@@ -33,61 +33,136 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
 
     internal void InjectFirstPageData(MomentView momentView)
     {
-        IsEmpty = false;
+        // The owner seeds a new, unpublished section on the UI thread. Do not queue
+        // collection writes: its Initialize/Refresh task must include publication.
         _preventLoadMore = momentView.HasMoreMoments != true;
         _offset = momentView.Offset;
         _baseline = momentView.UpdateBaseline;
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () =>
+        Items.Clear();
+        foreach (var item in momentView.Moments)
         {
-            Items.Clear();
-            foreach (var item in momentView.Moments)
-            {
-                Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
-            }
-
-            ListUpdated?.Invoke(this, EventArgs.Empty);
-        });
-    }
-
-    [RelayCommand]
-    private async Task InitializeAsync()
-    {
-        if (Items.Count > 0 || _preventLoadMore)
-        {
-            return;
+            Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
         }
 
-        await LoadItemsAsync();
+        IsEmpty = Items.Count == 0;
+    }
+
+    internal void NotifyListUpdated()
+        => ListUpdated?.Invoke(this, EventArgs.Empty);
+
+    internal Task RetireAsync()
+    {
+        // Stop accepting work before the owner drains this generation and replaces it.
+        _isRetired = true;
+        // Return this retired generation's real drain task; retirement holds no gate and is not a prerequisite of that load.
+#pragma warning disable VSTHRD003
+        return _loadTask;
+#pragma warning restore VSTHRD003
     }
 
     [RelayCommand]
-    private void Refresh()
+    private Task InitializeAsync()
+    {
+        if (_isRetired || !_loadTask.IsCompleted)
+        {
+            // Join existing work without reopening a retired generation; this caller holds no gate and is not its prerequisite.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
+        }
+
+        if (Items.Count > 0 || _preventLoadMore)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadItemsAsync();
+    }
+
+    [RelayCommand]
+    private Task RefreshAsync()
     {
         if (IsTotal)
         {
             throw new Exception("请在外层视图模型中刷新综合动态，以便更新 UP 列表");
         }
 
-        _offset = default;
-        _baseline = default;
-        IsEmpty = false;
-        _preventLoadMore = false;
-        Items.Clear();
-
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
+        if (_isRetired)
         {
-            await LoadItemsAsync();
-        });
+            // A retired section only exposes its existing drain, never a new refresh; no gate or load dependency is introduced.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
+        }
+
+        return !_refreshTask.IsCompleted ? _refreshTask : StartLoad(refresh: true);
     }
 
     [RelayCommand]
-    private async Task LoadItemsAsync()
+    private Task LoadItemsAsync()
     {
-        if (IsEmpty || IsLoading || _preventLoadMore)
+        if (_isRetired || !_loadTask.IsCompleted)
         {
-            return;
+            // Join the full current load/refresh or retired drain; paging holds no gate and cannot become its prerequisite.
+#pragma warning disable VSTHRD003
+            return _loadTask;
+#pragma warning restore VSTHRD003
         }
 
+        return IsEmpty || _preventLoadMore ? Task.CompletedTask : StartLoad(refresh: false);
+    }
+
+    private Task StartLoad(bool refresh)
+    {
+        var previousLoad = _loadTask;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _loadTask = completion.Task;
+        if (refresh)
+        {
+            _refreshTask = completion.Task;
+        }
+
+        _ = CompleteLoadAsync(previousLoad, completion, refresh);
+        return completion.Task;
+    }
+
+    private async Task CompleteLoadAsync(Task previousLoad, TaskCompletionSource completion, bool refresh)
+    {
+        try
+        {
+            try
+            {
+                // Drain only the captured predecessor, never our own published slot.
+                // Capture precedes successor publication; this gate-free successor cannot be the predecessor's prerequisite.
+#pragma warning disable VSTHRD003
+                await previousLoad;
+#pragma warning restore VSTHRD003
+            }
+            catch
+            {
+                // A prior failure must not poison subsequent refreshes.
+            }
+
+            if (refresh)
+            {
+                _offset = default;
+                _baseline = default;
+                IsEmpty = false;
+                _preventLoadMore = false;
+                Items.Clear();
+            }
+
+            await LoadItemsCoreAsync();
+            completion.SetResult();
+        }
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+    }
+
+    private async Task LoadItemsCoreAsync()
+    {
         try
         {
             IsLoading = true;

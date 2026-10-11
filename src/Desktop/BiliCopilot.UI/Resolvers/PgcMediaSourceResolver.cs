@@ -19,22 +19,31 @@ internal sealed partial class PgcMediaSourceResolver(IPlayerService playerServic
 {
     private MediaSnapshot _snapshot;
     private EpisodeInformation _episode;
-    private TaskCompletionSource<bool>? _initTask;
-    private CancellationTokenSource? _initCts;
+    private Task? _initTask;
     private DashMediaInformation? _playbackInfo;
 
     public void Initialize(MediaSnapshot snapshot, EpisodeInformation episode)
     {
-        _snapshot = snapshot;
-        _episode = episode;
+        lock (InitializationSync)
+        {
+            InvalidateInitialization();
+            _snapshot = snapshot;
+            _episode = episode;
+        }
+    }
+
+    protected override void ResetInitialization()
+    {
         _playbackInfo = default;
-        _initTask?.TrySetCanceled();
-        _initCts?.Cancel();
+        _initTask = default;
     }
 
     internal void ResetSnapshot(MediaSnapshot snapshot)
     {
-        _snapshot = snapshot;
+        lock (InitializationSync)
+        {
+            _snapshot = snapshot;
+        }
     }
 
     internal PlayerFormatInformation? GetCurrentFormat()
@@ -78,6 +87,7 @@ internal sealed partial class PgcMediaSourceResolver(IPlayerService playerServic
 
     public override async Task<MpvMediaSource> GetSourceAsync()
     {
+        var request = CaptureInitialization();
         var volume = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.PlayerVolume, 100d);
         var speed = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.PlayerSpeed, 1d);
         var cookies = cookiesResolver.GetCookieString();
@@ -89,8 +99,6 @@ internal sealed partial class PgcMediaSourceResolver(IPlayerService playerServic
             { "Referer", referer },
         };
 
-        var id = _snapshot.Episode?.Identifier.Id ?? _snapshot.Season?.Identifier.Id;
-        var title = _snapshot.Episode?.Identifier.Title ?? _snapshot.Season?.Identifier.Title;
         var options = new MpvPlayOptions
         {
             WindowHandle = WindowHandle,
@@ -99,76 +107,96 @@ internal sealed partial class PgcMediaSourceResolver(IPlayerService playerServic
             UserAgent = userAgent,
             HttpHeaders = headers,
             EnableCookies = true,
-            MediaName = title,
         };
 
-        await LoadMediaInfoAsync();
-        var (videoUrl, audioUrl) = GetPlayUrls();
-        var fileUrl = string.Empty;
-        if (!string.IsNullOrEmpty(videoUrl))
+        await LoadMediaInfoAsync(request);
+        lock (InitializationSync)
         {
-            fileUrl = videoUrl;
-            if (!string.IsNullOrEmpty(audioUrl))
+            ThrowIfInitializationInvalid(request);
+            var id = _snapshot.Episode?.Identifier.Id ?? _snapshot.Season?.Identifier.Id;
+            var title = _snapshot.Episode?.Identifier.Title ?? _snapshot.Season?.Identifier.Title;
+            options.MediaName = title;
+            var (videoUrl, audioUrl) = GetPlayUrls();
+            var fileUrl = string.Empty;
+            if (!string.IsNullOrEmpty(videoUrl))
             {
-                options.AudioTracks ??= [];
-                options.AudioTracks.Add(audioUrl);
+                fileUrl = videoUrl;
+                if (!string.IsNullOrEmpty(audioUrl))
+                {
+                    options.AudioTracks ??= [];
+                    options.AudioTracks.Add(audioUrl);
+                }
             }
-        }
-        else if (!string.IsNullOrEmpty(audioUrl))
-        {
-            fileUrl = audioUrl;
-        }
+            else if (!string.IsNullOrEmpty(audioUrl))
+            {
+                fileUrl = audioUrl;
+            }
 
-        return new MpvMediaSource(fileUrl, id, title, options);
+            return new MpvMediaSource(fileUrl, id, title, options);
+        }
     }
 
     public async Task<List<PlayerFormatInformation>?> GetSourcesAsync()
     {
-        await LoadMediaInfoAsync();
-        return [.. _playbackInfo?.Formats];
+        var request = CaptureInitialization();
+        await LoadMediaInfoAsync(request);
+        lock (InitializationSync)
+        {
+            ThrowIfInitializationInvalid(request);
+            return [.. _playbackInfo!.Formats];
+        }
     }
 
-    internal async Task LoadMediaInfoAsync()
+    internal Task LoadMediaInfoAsync() => LoadMediaInfoAsync(CaptureInitialization());
+
+    private async Task LoadMediaInfoAsync((long Generation, CancellationToken CancellationToken) request)
     {
-        if (_snapshot is null || _episode is null)
+        Task loadTask;
+        lock (InitializationSync)
         {
-            throw new InvalidOperationException("必须先初始化媒体信息.");
+            ThrowIfInitializationInvalid(request);
+            if (_snapshot is null || _episode is null)
+            {
+                throw new InvalidOperationException("必须先初始化媒体信息.");
+            }
+
+            loadTask = _initTask ??= LoadMediaInfoCoreAsync(_episode, request);
         }
 
-        if (_playbackInfo is not null)
+        await loadTask;
+        lock (InitializationSync)
         {
-            return;
+            ThrowIfInitializationInvalid(request);
         }
+    }
 
-        if (_initTask?.Task.IsCompleted == true)
-        {
-            return;
-        }
-
-        if (_initTask is not null)
-        {
-#pragma warning disable VSTHRD003 // Avoid awaiting foreign Tasks
-            await _initTask.Task;
-#pragma warning restore VSTHRD003 // Avoid awaiting foreign Tasks
-            return;
-        }
-
-        _initTask = new TaskCompletionSource<bool>();
-        _initCts = new CancellationTokenSource();
+    private async Task LoadMediaInfoCoreAsync(EpisodeInformation episode, (long Generation, CancellationToken CancellationToken) request)
+    {
         try
         {
-            var cid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Cid);
-            var seasonType = _episode.GetExtensionIfNotNull<string>(EpisodeExtensionDataId.SeasonType);
-            _playbackInfo = await playerService.GetPgcPlayDetailAsync(cid.ToString(), _episode.Identifier.Id, seasonType);
+            var cid = episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Cid);
+            var seasonType = episode.GetExtensionIfNotNull<string>(EpisodeExtensionDataId.SeasonType);
+            var info = await playerService.GetPgcPlayDetailAsync(cid.ToString(), episode.Identifier.Id, seasonType, request.CancellationToken);
+            lock (InitializationSync)
+            {
+                ThrowIfInitializationInvalid(request);
+                _playbackInfo = info;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"获取 {_episode.Identifier.Title} 播放信息失败");
-            _initTask.TrySetException(new InvalidOperationException("获取 Dash 播放信息失败."));
-            return;
-        }
+            lock (InitializationSync)
+            {
+                ThrowIfInitializationInvalid(request);
+            }
 
-        _initTask.TrySetResult(true);
+            logger.LogError(ex, "获取剧集播放信息失败");
+            throw;
+        }
     }
 
     private (string? video, string? audio) GetPlayUrls()

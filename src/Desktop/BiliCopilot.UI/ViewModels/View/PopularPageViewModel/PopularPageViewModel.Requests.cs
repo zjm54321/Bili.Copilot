@@ -13,11 +13,16 @@ namespace BiliCopilot.UI.ViewModels.View;
 /// </summary>
 public sealed partial class PopularPageViewModel
 {
-    private async Task LoadRecommendVideosAsync()
+    private async Task LoadRecommendVideosAsync(long generation)
     {
         try
         {
             var (videos, nextOffset) = await _service.GetRecommendVideoListAsync(_recommendOffset);
+            if (!IsCurrentVideoGeneration(generation))
+            {
+                return;
+            }
+
             _recommendOffset = nextOffset;
             TryAddVideos(videos, VideoCardStyle.Recommend);
         }
@@ -27,11 +32,16 @@ public sealed partial class PopularPageViewModel
         }
     }
 
-    private async Task LoadHotVideosAsync()
+    private async Task LoadHotVideosAsync(long generation)
     {
         try
         {
             var (videos, nextOffset) = await _service.GetHotVideoListAsync(_hotOffset);
+            if (!IsCurrentVideoGeneration(generation))
+            {
+                return;
+            }
+
             _hotOffset = nextOffset;
             TryAddVideos(videos, VideoCardStyle.Hot);
         }
@@ -41,11 +51,16 @@ public sealed partial class PopularPageViewModel
         }
     }
 
-    private async Task LoadTotalRankVideosAsync()
+    private async Task LoadTotalRankVideosAsync(long generation)
     {
         try
         {
             var videos = await _service.GetGlobalRankingListAsync();
+            if (!IsCurrentVideoGeneration(generation))
+            {
+                return;
+            }
+
             TryAddVideos(videos, VideoCardStyle.Rank);
         }
         catch (Exception ex)
@@ -54,11 +69,16 @@ public sealed partial class PopularPageViewModel
         }
     }
 
-    private async Task LoadPartitionRankVideosAsync(Partition partition)
+    private async Task LoadPartitionRankVideosAsync(Partition partition, long generation)
     {
         try
         {
             var videos = await _service.GetPartitionRankingListAsync(partition);
+            if (!IsCurrentVideoGeneration(generation))
+            {
+                return;
+            }
+
             TryAddVideos(videos, VideoCardStyle.Rank);
         }
         catch (Exception ex)

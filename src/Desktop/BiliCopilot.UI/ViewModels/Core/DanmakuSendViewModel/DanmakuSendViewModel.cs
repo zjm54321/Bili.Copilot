@@ -33,15 +33,33 @@ public sealed partial class DanmakuSendViewModel : ViewModelBase
     }
 
     public async Task SendDanmakuAsync(string text, int position)
+        => _ = await TrySendDanmakuAsync(text, position);
+
+    /// <summary>
+    /// Send only on explicit user action. The caller owns media/draft identity and UI completion.
+    /// False includes cancellation, even if a service ignored cancellation and later completed.
+    /// </summary>
+    public async Task<bool> TrySendDanmakuAsync(string text, int position, CancellationToken cancellationToken = default)
     {
+        var aid = _aid;
+        var cid = _cid;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var danmakuColor = (Color.R * 256 * 256) + (Color.G * 256) + Color.B;
-            await _danmakuService.SendVideoDanmakuAsync(text, _aid, _cid, position, danmakuColor.ToString(), IsStandardSize, Location);
+            await _danmakuService.SendVideoDanmakuAsync(text, aid, cid, position, danmakuColor.ToString(), IsStandardSize, Location, cancellationToken);
+            return !cancellationToken.IsCancellationRequested;
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            _logger.LogError(ex, "弹幕发送失败.");
+            return false;
+        }
+        catch (Exception)
+        {
+            // Service exceptions can contain authenticated request URLs; keep the original
+            // failure message, but do not log the exception, draft or media identifiers.
+            _logger.LogError("弹幕发送失败.");
+            return false;
         }
     }
 

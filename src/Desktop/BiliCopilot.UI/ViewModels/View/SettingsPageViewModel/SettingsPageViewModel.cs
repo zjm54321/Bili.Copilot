@@ -1,6 +1,5 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
-using BiliCopilot.UI.Controls.AI;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Pages;
 using BiliCopilot.UI.Toolkits;
@@ -10,10 +9,10 @@ using Humanizer;
 using Microsoft.Extensions.Logging;
 using Richasy.MpvKernel;
 using Richasy.MpvKernel.Core.Enums;
-using Richasy.WinUIKernel.AI.ViewModels;
 using Richasy.WinUIKernel.Share;
 using Richasy.WinUIKernel.Share.Base;
 using Richasy.WinUIKernel.Share.Toolkits;
+using Richasy.WinUIKernel.Share.ViewModels;
 using Windows.Storage;
 using Windows.System;
 
@@ -22,8 +21,11 @@ namespace BiliCopilot.UI.ViewModels.View;
 /// <summary>
 /// 设置页面视图模型.
 /// </summary>
-public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
+public sealed partial class SettingsPageViewModel : ViewModelBase
 {
+    private long _cacheSizeRefreshVersion;
+    private int _cacheClearOperations;
+
     [RelayCommand]
     private async Task InitializeAsync()
     {
@@ -33,7 +35,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
             return;
         }
 
-        ScrollAccelerate = SettingsToolkit.ReadLocalSetting(SettingNames.ScrollAccelerate, true);
         AppTheme = SettingsToolkit.ReadLocalSetting(SettingNames.AppTheme, ElementTheme.Default);
         CheckTheme();
         LogLevel = SettingsToolkit.ReadLocalSetting(SettingNames.MpvLogLevel, MpvLogLevel.Warn);
@@ -97,8 +98,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
         UseExternalBBDown = SettingsToolkit.ReadLocalSetting(SettingNames.UseExternalBBDown, false);
         OnlyCopyCommandWhenDownload = SettingsToolkit.ReadLocalSetting(SettingNames.OnlyCopyCommandWhenDownload, false);
         WithoutCredentialWhenGenDownloadCommand = SettingsToolkit.ReadLocalSetting(SettingNames.WithoutCredentialWhenGenDownloadCommand, false);
-        FilterAISubtitle = SettingsToolkit.ReadLocalSetting(SettingNames.FilterAISubtitle, true);
-        IsAIStreamingResponse = SettingsToolkit.ReadLocalSetting(SettingNames.IsAIStreamingResponse, true);
         if (string.IsNullOrEmpty(DefaultDownloadPath))
         {
             DefaultDownloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Bili Downloads");
@@ -121,10 +120,11 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
         }
 
         var copyrightTemplate = ResourceToolkit.GetLocalizedString(StringNames.Copyright);
-        Copyright = string.Format(copyrightTemplate, 2024);
+        Copyright = string.Format(copyrightTemplate, 2026);
         PackageVersion = this.Get<IAppToolkit>().GetPackageVersion();
         CheckMpvConfigVisible();
         LoadCustomLibmpvSettings();
+        InitializeClassicSettings();
         await LoadCacheSizeAsync();
 
         if (GpuDevices.Count == 0)
@@ -195,25 +195,60 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
         var result = await dialog.ShowAsync();
         if (result == ContentDialogResult.Primary)
         {
-            var cacheFolder = await Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalCacheFolder.CreateFolderAsync("ImageExCache", CreationCollisionOption.OpenIfExists);
-            await cacheFolder.DeleteAsync(StorageDeleteOption.PermanentDelete);
+            // Invalidate pending scans before deletion, not just when the next scan starts.
+            _cacheSizeRefreshVersion++;
+            _cacheClearOperations++;
+            try
+            {
+                var cacheFolder = await Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalCacheFolder.CreateFolderAsync("ImageExCache", CreationCollisionOption.OpenIfExists);
+                await cacheFolder.DeleteAsync(StorageDeleteOption.PermanentDelete);
+            }
+            finally
+            {
+                _cacheClearOperations--;
+            }
+
             await LoadCacheSizeAsync();
         }
     }
 
     private async Task LoadCacheSizeAsync()
     {
-        var cacheFolder = await Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalCacheFolder.CreateFolderAsync("ImageExCache", CreationCollisionOption.OpenIfExists);
-        var size = Directory.GetFiles(cacheFolder.Path, "*.*", SearchOption.AllDirectories)
-            .Sum(file => new FileInfo(file).Length);
-        IsTotalImageCacheClearEnabled = size > 0;
-        if (size == 0)
+        // These counters and bound properties are accessed only on the existing UI context.
+        var refreshVersion = ++_cacheSizeRefreshVersion;
+        if (_cacheClearOperations > 0)
         {
-            TotalImageCacheSize = ResourceToolkit.GetLocalizedString(StringNames.NoCache);
+            return;
         }
-        else
+
+        try
         {
-            TotalImageCacheSize = size.Bits().Humanize();
+            var cacheFolder = await Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalCacheFolder.CreateFolderAsync("ImageExCache", CreationCollisionOption.OpenIfExists);
+            if (refreshVersion != _cacheSizeRefreshVersion)
+            {
+                return;
+            }
+
+            var cachePath = cacheFolder.Path;
+            var size = await Task.Run(() => ImageCacheSizeCalculator.Calculate(cachePath));
+            if (refreshVersion != _cacheSizeRefreshVersion)
+            {
+                return;
+            }
+
+            IsTotalImageCacheClearEnabled = size > 0;
+            TotalImageCacheSize = size == 0
+                ? ResourceToolkit.GetLocalizedString(StringNames.NoCache)
+                : size.Bits().Humanize();
+        }
+        catch (Exception ex)
+        {
+            this.Get<ILogger<SettingsPageViewModel>>().LogError(ex, "计算图片缓存大小失败");
+            if (refreshVersion == _cacheSizeRefreshVersion)
+            {
+                // Keep the last displayed total; a failed scan is not an empty cache.
+                this.Get<AppViewModel>().ShowTipCommand.Execute((ex.Message, InfoType.Error));
+            }
         }
     }
 
@@ -276,54 +311,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
         }
 
         await Launcher.LaunchFolderPathAsync(DefaultDownloadPath);
-    }
-
-    [RelayCommand]
-    private async Task EditVideoSummarizeAsync()
-    {
-        if (!FileToolkit.IsLocalDataExist("video_summarize.txt", "Prompt"))
-        {
-            await this.Get<IFileToolkit>().WriteLocalDataAsync("video_summarize.txt", PromptConstants.VideoSummaryPrompt, default, "Prompt");
-        }
-
-        await new CustomPromptDialog("video_summarize", ResourceToolkit.GetLocalizedString(StringNames.VideoSummarize))
-        { XamlRoot = this.Get<AppViewModel>().ActivatedWindow.Content.XamlRoot }.ShowAsync();
-    }
-
-    [RelayCommand]
-    private async Task EditVideoEvaluationAsync()
-    {
-        if (!FileToolkit.IsLocalDataExist("video_evaluation.txt", "Prompt"))
-        {
-            await this.Get<IFileToolkit>().WriteLocalDataAsync("video_evaluation.txt", PromptConstants.VideoEvaluationPrompt, default, "Prompt");
-        }
-
-        await new CustomPromptDialog("video_evaluation", ResourceToolkit.GetLocalizedString(StringNames.VideoEvaluation))
-        { XamlRoot = this.Get<AppViewModel>().ActivatedWindow.Content.XamlRoot }.ShowAsync();
-    }
-
-    [RelayCommand]
-    private async Task EditArticleSummarizeAsync()
-    {
-        if (!FileToolkit.IsLocalDataExist("article_summarize.txt", "Prompt"))
-        {
-            await this.Get<IFileToolkit>().WriteLocalDataAsync("article_summarize.txt", PromptConstants.ArticleSummaryPrompt, default, "Prompt");
-        }
-
-        await new CustomPromptDialog("article_summarize", ResourceToolkit.GetLocalizedString(StringNames.ArticleSummarize))
-        { XamlRoot = this.Get<AppViewModel>().ActivatedWindow.Content.XamlRoot }.ShowAsync();
-    }
-
-    [RelayCommand]
-    private async Task EditArticleEvaluationAsync()
-    {
-        if (!FileToolkit.IsLocalDataExist("article_evaluation.txt", "Prompt"))
-        {
-            await this.Get<IFileToolkit>().WriteLocalDataAsync("article_evaluation.txt", PromptConstants.ArticleEvaluationPrompt, default, "Prompt");
-        }
-
-        await new CustomPromptDialog("article_evaluation", ResourceToolkit.GetLocalizedString(StringNames.ArticleEvaluation))
-        { XamlRoot = this.Get<AppViewModel>().ActivatedWindow.Content.XamlRoot }.ShowAsync();
     }
 
     [RelayCommand]
@@ -469,9 +456,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
     partial void OnWithoutCredentialWhenGenDownloadCommandChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.WithoutCredentialWhenGenDownloadCommand, value);
 
-    partial void OnFilterAISubtitleChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.FilterAISubtitle, value);
-
     partial void OnPlayNextWithoutTipChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.PlayNextWithoutTip, value);
 
@@ -483,9 +467,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
 
     partial void OnMTCBehaviorChanged(MTCBehavior value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.MTCBehavior, value);
-
-    partial void OnIsAIStreamingResponseChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.IsAIStreamingResponse, value);
 
     partial void OnUseWebPlayerWhenLiveChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.UseWebPlayerWhenLive, value);
@@ -538,13 +519,6 @@ public sealed partial class SettingsPageViewModel : AISettingsViewModelBase
 
     partial void OnCacheOnDiskChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.CacheOnDisk, value);
-
-    partial void OnScrollAccelerateChanged(bool value)
-    {
-        SettingsToolkit.WriteLocalSetting(SettingNames.ScrollAccelerate, value);
-        // 通知 Visor 更新滚动加速设置
-        _ = this.Get<AppViewModel>().UpdateVisorScrollAccelerateAsync(value);
-    }
 
     partial void OnTempPlaybackRateChanged(double value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.TempPlaybackRate, value);

@@ -15,9 +15,24 @@
     xmlns:local="using:BiliCopilot.UI.Controls.Core"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:player="using:BiliCopilot.UI.Controls.Player"
+    xmlns:store="using:BiliCopilot.UI.Controls.Player.StoreIsland"
     mc:Ignorable="d">
 
     <UserControl.Resources>
+        <DataTemplate x:Key="EmbeddedInteractionNoticeTemplate">
+            <InfoBar
+                Margin="8"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Top"
+                IsIconVisible="True"
+                IsOpen="False"
+                Message="{ext:Locale Name=InteractionNotSupportTip}"
+                Severity="Warning">
+                <InfoBar.ActionButton>
+                    <HyperlinkButton Content="{ext:Locale Name=OpenInBrowser}" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+        </DataTemplate>
         <Style
             x:Key="DropDownFlyoutStyle"
             BasedOn="{StaticResource DefaultFlyoutPresenterStyle}"
@@ -87,6 +102,11 @@
             Fill="Black"
             Visibility="{x:Bind ViewModel.IsBlackBackgroundVisible, Mode=OneWay}" />
         <local:PlayerInteractivePanel ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+        <ContentControl
+            x:Name="EmbeddedInteractionNoticeHost"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Top"
+            IsTabStop="False" />
         <Rectangle
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
@@ -114,8 +134,9 @@
                     x:Name="TransportControls"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Bottom"
+                    IsActive="{x:Bind local:PlayerOverlay.IsFullScreenActive(ViewModel.IsControlsVisible, ViewModel.IsWindowDeactivated, ViewModel.IsConnecting, ViewModel.IsPlaybackClosing, ViewModel.Presentation), Mode=OneWay}"
                     ViewModel="{x:Bind ViewModel, Mode=OneWay}"
-                    Visibility="{x:Bind ViewModel.IsControlsVisible, Mode=OneWay}">
+                    Visibility="{x:Bind local:PlayerOverlay.IsFullScreenTransportVisible(ViewModel.IsControlsVisible, ViewModel.Presentation), Mode=OneWay}">
                     <local:OverlayTransportControls.LeftElement>
                         <ContentControl
                             HorizontalAlignment="Stretch"
@@ -147,6 +168,26 @@
                             Duration="0:0:0.25" />
                     </animations:Implicit.HideAnimations>
                 </local:OverlayTransportControls>
+                <local:IslandTransportControls
+                    x:Name="IslandTransport"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Bottom"
+                    IsActive="{x:Bind local:PlayerOverlay.IsIslandActive(ViewModel.IsControlsVisible, ViewModel.IsWindowDeactivated, ViewModel.IsConnecting, ViewModel.IsPlaybackClosing, ViewModel.Presentation), Mode=OneWay}"
+                    ViewModel="{x:Bind ViewModel, Mode=OneWay}"
+                    Visibility="{x:Bind local:PlayerOverlay.IsIslandVisible(ViewModel.IsControlsVisible, ViewModel.Presentation), Mode=OneWay}">
+                    <local:IslandTransportControls.LeftContent>
+                        <store:IslandNextVideoButton ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+                    </local:IslandTransportControls.LeftContent>
+                    <local:IslandTransportControls.MiddleContent>
+                        <store:IslandDanmakuBox RenderViewModel="{x:Bind ViewModel.Danmaku, Mode=OneWay}" ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+                    </local:IslandTransportControls.MiddleContent>
+                    <local:IslandTransportControls.RightContent>
+                        <StackPanel Orientation="Horizontal">
+                            <store:IslandFormatButton ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+                            <store:IslandSubtitleButton ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+                        </StackPanel>
+                    </local:IslandTransportControls.RightContent>
+                </local:IslandTransportControls>
                 <local:NextTip
                     x:Name="NextTip"
                     HorizontalAlignment="Center"
@@ -197,8 +238,9 @@
                         Content="{ext:Locale Name=Reload}" />
                 </base:EmptyHolder.ActionElement>-->
             </base:EmptyHolder>
+            <!--  扩展面板仅占标题行（60）以下的 Row 1：不与全屏标题重叠，标题始终可点，顶部标签完整可点  -->
             <controls:OverlayPanel
-                Grid.RowSpan="2"
+                Grid.Row="1"
                 IsShow="{x:Bind ViewModel.IsExtraPanelVisible, Mode=TwoWay}"
                 PanelAlignment="Left">
                 <controls:OverlayPanel.Element>
@@ -354,7 +396,7 @@
                     Visibility="{x:Bind ViewModel.IsBottomProgressBarVisible, Mode=OneWay}"
                     Value="{x:Bind ViewModel.Player.Position, Mode=OneWay}" />
             </Grid>
-            <Grid Height="60" Visibility="{x:Bind ViewModel.IsControlsVisible, Mode=OneWay}">
+            <Grid Height="60" Visibility="{x:Bind local:PlayerOverlay.IsOverlayHeaderVisible(ViewModel.IsControlsVisible, ViewModel.IsEmbedded, ViewModel.Presentation), Mode=OneWay}">
                 <Grid.Background>
                     <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
                         <LinearGradientBrush.GradientStops>
@@ -427,6 +469,7 @@
                                 <DropDownButton.Flyout>
                                     <Flyout
                                         x:Name="SourceFlyout"
+                                        Opened="OnOverlayFlyoutOpened"
                                         FlyoutPresenterStyle="{StaticResource DropDownFlyoutStyle}"
                                         Placement="Bottom">
                                         <ItemsRepeater
@@ -438,6 +481,7 @@
                                                     <Button
                                                         Click="OnSourceItemClick"
                                                         DataContext="{x:Bind}"
+                                                        IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
                                                         Style="{StaticResource ItemButtonStyle}">
                                                         <Grid>
                                                             <Rectangle
@@ -519,7 +563,7 @@
                                 ToolTipService.ToolTip="{ext:Locale Name=Settings}">
                                 <ic:SymbolIcon FontSize="14" Symbol="Settings" />
                                 <Button.Flyout>
-                                    <MenuFlyout Placement="Bottom">
+                                    <MenuFlyout Opened="OnOverlayFlyoutOpened" Placement="Bottom">
                                         <MenuFlyoutItem
                                             MinWidth="140"
                                             MinHeight="40"

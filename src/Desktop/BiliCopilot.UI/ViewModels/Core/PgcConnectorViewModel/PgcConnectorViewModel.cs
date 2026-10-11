@@ -13,6 +13,10 @@ namespace BiliCopilot.UI.ViewModels.Core;
 
 public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnectorViewModel
 {
+    private long _requestGeneration;
+    private CancellationToken _initializationCancellation;
+    private bool _requestsInvalidated = true;
+
     public PgcConnectorViewModel(PlayerViewModel parent)
     {
         Parent = parent;
@@ -20,21 +24,58 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
         Downloader = this.Get<DownloadViewModel>();
     }
 
-    public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver)
+    public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        InvalidateRequests();
+        var generation = _requestGeneration;
+        _initializationCancellation = cancellationToken;
+        _requestsInvalidated = false;
         _snapshot = snapshot;
         ClearView();
         IsLoading = true;
-        await LoadItemDetailAsync();
-        _snapshot.Season = _view.Information;
-        _snapshot.Episode = _episode;
-        var prev = FindPreviousEpisode();
-        var next = FindNextEpisode();
-        var prevName = prev?.Identifier.Title;
-        var nextName = next?.Identifier.Title;
-        var initArgs = new PlaylistInitializedEventArgs(prev != null, next != null, prevName, nextName);
-        PlaylistInitialized?.Invoke(this, initArgs);
+        try
+        {
+            await LoadItemDetailAsync(snapshot, generation, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
+
+            _snapshot.Season = _view.Information;
+            _snapshot.Episode = _episode;
+            var prev = FindPreviousEpisode();
+            var next = FindNextEpisode();
+            var prevName = prev?.Identifier.Title;
+            var nextName = next?.Identifier.Title;
+            var initArgs = new PlaylistInitializedEventArgs(prev != null, next != null, prevName, nextName);
+            PlaylistInitialized?.Invoke(this, initArgs);
+        }
+        finally
+        {
+            if (generation == _requestGeneration)
+            {
+                IsLoading = false;
+            }
+        }
+    }
+
+    /// <summary>Synchronously detach pending media/comment results. Call on the UI thread.</summary>
+    public void InvalidateRequests()
+    {
+        _requestsInvalidated = true;
+        _requestGeneration++;
+        _comments.InvalidateRequests();
         IsLoading = false;
+    }
+
+    private bool IsRequestCurrent(long generation, CancellationToken cancellationToken)
+        => !_requestsInvalidated && generation == _requestGeneration && !cancellationToken.IsCancellationRequested && !Parent.IsPlaybackClosing;
+
+    private void ThrowIfRequestInvalid(long generation, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsRequestCurrent(generation, cancellationToken))
+        {
+            throw new OperationCanceledException("The media request was superseded.", cancellationToken);
+        }
     }
 
     public void InitializeDownloader(List<PlayerFormatInformation> formats)
@@ -50,6 +91,11 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
 
     public async Task PlayNextAsync()
     {
+        if (IsLoading || Parent.IsConnecting || Parent.IsPlaybackClosing || !IsRequestCurrent(_requestGeneration, _initializationCancellation))
+        {
+            return;
+        }
+
         var next = FindNextEpisode();
         if (next is null)
         {
@@ -57,12 +103,16 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
         }
 
         _snapshot.Episode = next;
-        Parent.InitializeCommand.Execute(_snapshot);
-        await Task.CompletedTask;
+        await Parent.InitializeAsync(_snapshot);
     }
 
     public async Task PlayPreviousAsync()
     {
+        if (IsLoading || Parent.IsConnecting || Parent.IsPlaybackClosing || !IsRequestCurrent(_requestGeneration, _initializationCancellation))
+        {
+            return;
+        }
+
         var prev = FindPreviousEpisode();
         if (prev is null)
         {
@@ -70,34 +120,42 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
         }
 
         _snapshot.Episode = prev;
-        Parent.InitializeCommand.Execute(_snapshot);
-        await Task.CompletedTask;
+        await Parent.InitializeAsync(_snapshot);
     }
 
     [RelayCommand]
     private void OpenPanel()
         => RequestOpenExtraPanel?.Invoke(this, EventArgs.Empty);
 
-    private async Task LoadItemDetailAsync()
+    private async Task LoadItemDetailAsync(MediaSnapshot snapshot, long generation, CancellationToken cancellationToken)
     {
         var service = this.Get<IPlayerService>();
         try
         {
-            _view = await service.GetPgcPageDetailAsync(_snapshot.Season?.Identifier.Id, _snapshot.Episode?.Identifier.Id);
-            System.Diagnostics.Debug.WriteLine($"Pgc Page Detail: {_view}");
-            _episode = FindInitialEpisode(_snapshot.Episode?.Identifier.Id);
+            var view = await service.GetPgcPageDetailAsync(snapshot.Season?.Identifier.Id, snapshot.Episode?.Identifier.Id, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
+
+            _view = view;
+            _episode = FindInitialEpisode(snapshot.Episode?.Identifier.Id);
             EpisodeTitle = _episode.Identifier.Title;
             EpisodeId = _episode.Identifier.Id;
             UpdateProperties();
+            ThrowIfRequestInvalid(generation, cancellationToken);
             InitializeView(_view);
             var aid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
-            var cid = _episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Cid).ToString();
-            _comments.Initialize(aid, Richasy.BiliKernel.Models.CommentTargetType.Video, Richasy.BiliKernel.Models.CommentSortType.Hot);
+            _comments.Initialize(aid, Richasy.BiliKernel.Models.CommentTargetType.Video, Richasy.BiliKernel.Models.CommentSortType.Hot, cancellationToken);
+            ThrowIfRequestInvalid(generation, cancellationToken);
             InitializeSections();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
+            ThrowIfRequestInvalid(generation, cancellationToken);
             this.Get<ILogger<PgcConnectorViewModel>>().LogError(ex, "获取剧集信息失败");
+            throw;
         }
     }
 

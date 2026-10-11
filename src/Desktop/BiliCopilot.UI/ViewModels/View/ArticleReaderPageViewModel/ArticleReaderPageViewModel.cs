@@ -23,14 +23,12 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
         IArticleDiscoveryService discovery,
         IArticleOperationService operation,
         ILogger<ArticleReaderPageViewModel> logger,
-        CommentMainViewModel comment,
-        AIViewModel ai)
+        CommentMainViewModel comment)
     {
         _discoveryService = discovery;
         _operationService = operation;
         _logger = logger;
         CommentModule = comment;
-        AI = ai;
     }
 
     [RelayCommand]
@@ -41,12 +39,10 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
         IsLoading = true;
         Article = article;
         IsCommentsOpened = false;
-        IsAIOverlayOpened = false;
         CommentModule.Initialize(article.Id, Richasy.BiliKernel.Models.CommentTargetType.Article, Richasy.BiliKernel.Models.CommentSortType.Hot);
         try
         {
             Content = await _discoveryService.GetArticleContentAsync(article);
-            AI.InjectArticleAsync(Content);
             InitializeUser();
             InitializeStats();
             ArticleInitialized?.Invoke(this, EventArgs.Empty);
@@ -129,20 +125,6 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
     [RelayCommand]
     private void ShowUserSpace()
         => this.Get<NavigationViewModel>().NavigateToOver(typeof(UserSpacePage), Content.Author.Profile.User);
-
-    [RelayCommand]
-    private void ToggleAIOverlayVisibility()
-    {
-        IsAIOverlayOpened = !IsAIOverlayOpened;
-        if (IsAIOverlayOpened)
-        {
-            AI.InitializeCommand.Execute(default);
-        }
-        else
-        {
-            AI.ClearCommand.Execute(default);
-        }
-    }
 
     private void InitializeUser()
     {

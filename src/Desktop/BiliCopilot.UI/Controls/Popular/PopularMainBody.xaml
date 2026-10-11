@@ -15,6 +15,15 @@
     mc:Ignorable="d">
 
     <UserControl.Resources>
+        <!--  与商店版 v2.2505.2.0 同源：局部覆盖全局 VideoLayout，仅本页生效  -->
+        <UniformGridLayout
+            x:Key="VideoLayout"
+            ItemsStretch="Fill"
+            MinColumnSpacing="16"
+            MinItemHeight="240"
+            MinItemWidth="200"
+            MinRowSpacing="16" />
+
         <DataTemplate x:Key="RecommendStyle" x:DataType="items:VideoItemViewModel">
             <components:VideoCardControl Style="{StaticResource RecommendVideoCardStyle}" ViewModel="{x:Bind}" />
         </DataTemplate>
@@ -32,7 +41,7 @@
     </UserControl.Resources>
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadVideosCommand}">
+        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadVideosCommand}" RefreshCommand="{x:Bind ViewModel.RefreshVideoCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
                 <Grid Margin="0,16">
                     <repeater:AppRepeater
