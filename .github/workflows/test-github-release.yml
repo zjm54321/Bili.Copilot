@@ -30,10 +30,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          ./.github/scripts/generate-release-notes.ps1 `
-            -Endpoint "${{ secrets.OAI_ENDPOINT }}" `
-            -ApiKey "${{ secrets.OAI_KEY }}" `
-            -Model "${{ secrets.OAI_MODEL }}"
+          ./.github/scripts/generate-release-notes.ps1
 
   build-sideload:
     name: Build Sideload Package (x64)

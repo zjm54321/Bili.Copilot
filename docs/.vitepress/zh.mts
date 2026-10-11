@@ -3,12 +3,10 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 export const zh = defineConfig({
     lang: 'zh-Hans',
     title: '哔哩助理',
-    description: '支持主流 AI 服务的应用',
     themeConfig: {
         nav: [
           { text: '下载应用', link: 'https://www.microsoft.com/store/productId/9MVFJLPH517M' },
           { text: '播放体验', link: '/player' },
-          { text: 'AI 集成', link: '/ai' },
           { text: '常见问题', link: '/faq' },
         ],
     
@@ -33,13 +31,6 @@ export const zh = defineConfig({
               { text: 'WebDAV', link: '/webdav' },
             ]
           },
-          {
-            text: 'AI',
-            items: [
-              { text: '功能概述', link: '/ai' },
-              { text: '服务配置', link: 'https://agent.richasy.net/chat-config' }
-            ]
-          }
         ],
 
         editLink: {

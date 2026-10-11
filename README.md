@@ -48,8 +48,6 @@
 
 - [bili-kernel](https://github.com/Richasy/bili-kernel)  
   哔哩助理与 BiliBili API 交互的核心代码，是一层 .NET 包装器，基于 .NET Standard 2.0，完全的 AOT 支持，便于移植和二次开发。
-- [agent-kernel](https://github.com/Richasy/agent-kernel)  
-  小幻助理 / 小幻阅读 / 哔哩助理 共享的 AI 基础库，支持 20 余种 AI 服务，并提供完全的 AOT 支持。
 - [mpv-kernel](https://github.com/Richasy/mpv-kernel)  
   哔哩助理的核心播放器之一，将 MPV 集成进 WinUI3 以实现良好的播放体验。
 - [winui-kernel](https://github.com/Richasy/winui-kernel)  
@@ -90,16 +88,6 @@ git clone https://github.com/Richasy/Bili.Copilot.git
 | MPV        | 解码速度快，播放稳定               | 内存占用相对较高           |
 | 外部播放器 | 自定义程度高，可以获得最佳播放体验 | 需要额外安装配置，门槛较高 |
 
-### 人工智能
-
-哔哩助理与 [小幻助理](https://github.com/Richasy/Rodel.Agent) 共享代码，接入 20 余种国内外主流 AI 模型服务，给用户足够多的选择。
-
-你可以通过大语言模型对视频/文章内容进行总结（视频需要有字幕），或者结合内容与评论对视频/文章进行 AI 评价。
-
-或许更进一步，你可以基于当前视频/文章的内容与模型对话，针对性地回答你的疑问。
-
-开发者会持续探索大语言模型和 B 站内容结合的边界，更进一步挖掘 AI 潜力，也欢迎你提出你的想法，真正让 AI 有用起来。
-
 ## 视频下载
 
 新版本的哔哩助理（V2）内置了 [BBDown](https://github.com/nilaoda/BBDown) 作为下载工具，也内置了 ffmpeg 作为混流工具，用户无需额外下载依赖，在视频播放下面点击下载按钮即可按需下载。
@@ -122,8 +110,6 @@ git clone https://github.com/Richasy/Bili.Copilot.git
 ![截图](assets/screenshot.png)
 
 ![截图](assets/player.png)
-
-![截图](assets/ai.png)
 
 ## 鸣谢
 

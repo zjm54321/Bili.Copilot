@@ -4,7 +4,7 @@ layout: home
 
 hero:
   name: 哔哩助理
-  text: 基于 Windows App SDK 和 AI 构建的 BiliBili 第三方应用
+  text: 基于 Windows App SDK 构建的 BiliBili 第三方应用
   tagline: 提供 Windows 原生体验
   actions:
     - theme: brand
@@ -27,9 +27,6 @@ features:
   - icon: 🍻
     title: 功能丰富
     details: 涵盖绝大部分常用功能，满足大多数人的浏览需求。
-  - icon: 🤖
-    title: AI 赋能
-    details: 支持20余种AI服务，视频一键总结，即问即答。
 ---
 <style>
 :root {
