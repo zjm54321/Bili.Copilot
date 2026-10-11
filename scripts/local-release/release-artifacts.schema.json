@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bilicopilot:local-release:release-artifacts:1",
+  "title": "Bili.Copilot local Release MSIX artifacts manifest, schemaVersion 1",
+  "description": "Final values only. Install.ps1 / Trust-Certificate.ps1 additionally enforce: no '__PENDING' values, no '://', '*', '?', '%' anywhere; packageFamilyName/packageFullName must equal the values derived from the fixed Publisher; certificate.derSha256 == certificate.sha256; dependency version >= declaredMinVersion; unique relativePath values; payload/ holds exactly the listed files. The manifest's own SHA-256 is recorded externally (not in this file).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "package", "certificate", "dependencies", "scripts"],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "version": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,4})(\\.(0|[1-9][0-9]{0,4})){3}$" },
+    "payloadPath": { "type": "string", "pattern": "^payload[\\\\/][A-Za-z0-9][A-Za-z0-9._-]{0,150}[A-Za-z0-9]$", "not": { "pattern": "\\.\\." } },
+    "utc": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+  },
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "name", "publisher", "version", "architecture", "packageFamilyName", "packageFullName", "applicationId", "minOsVersion"],
+      "properties": {
+        "relativePath": { "$ref": "#/$defs/payloadPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "name": { "const": "BiliCopilot.LocalRelease" },
+        "publisher": { "const": "CN=BiliCopilot Local Release" },
+        "version": { "const": "2.2611.1.0" },
+        "architecture": { "const": "x64" },
+        "packageFamilyName": { "type": "string", "pattern": "^BiliCopilot\\.LocalRelease_[0-9a-hjkmnp-tv-z]{13}$" },
+        "packageFullName": { "type": "string", "pattern": "^BiliCopilot\\.LocalRelease_2\\.2611\\.1\\.0_x64__[0-9a-hjkmnp-tv-z]{13}$" },
+        "applicationId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,63}(\\.[A-Za-z0-9]{1,63}){0,8}$" },
+        "minOsVersion": { "$ref": "#/$defs/version" }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "derSha256", "thumbprint", "subject", "notBeforeUtc", "notAfterUtc", "codeSigningEku", "digitalSignature", "isCertificateAuthority"],
+      "properties": {
+        "relativePath": { "$ref": "#/$defs/payloadPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "derSha256": { "$ref": "#/$defs/sha256" },
+        "thumbprint": { "type": "string", "pattern": "^[0-9A-F]{40}$" },
+        "subject": { "const": "CN=BiliCopilot Local Release" },
+        "notBeforeUtc": { "$ref": "#/$defs/utc" },
+        "notAfterUtc": { "$ref": "#/$defs/utc" },
+        "codeSigningEku": { "const": "1.3.6.1.5.5.7.3.3" },
+        "digitalSignature": { "const": true },
+        "isCertificateAuthority": { "const": false }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relativePath", "sha256", "name", "publisher", "version", "architecture", "declaredMinVersion"],
+        "properties": {
+          "relativePath": { "$ref": "#/$defs/payloadPath" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{1,48}[A-Za-z0-9]$" },
+          "publisher": { "type": "string", "pattern": "^CN=[^\\r\\n]{1,8000}$" },
+          "version": { "$ref": "#/$defs/version" },
+          "architecture": { "enum": ["x64", "neutral"] },
+          "declaredMinVersion": { "$ref": "#/$defs/version" }
+        }
+      }
+    },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installSha256", "trustSha256"],
+      "properties": {
+        "installSha256": { "$ref": "#/$defs/sha256" },
+        "trustSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
