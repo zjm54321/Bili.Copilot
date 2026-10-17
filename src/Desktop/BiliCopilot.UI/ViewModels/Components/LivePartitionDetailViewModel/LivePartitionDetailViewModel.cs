@@ -1,9 +1,9 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.Items;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
 using Richasy.BiliKernel.Bili.Media;
 using Richasy.BiliKernel.Models.Media;
 using Richasy.WinUIKernel.Share.ViewModels;
@@ -15,6 +15,15 @@ namespace BiliCopilot.UI.ViewModels.Components;
 /// </summary>
 public sealed partial class LivePartitionDetailViewModel : ViewModelBase<PartitionViewModel>
 {
+    private const string DefaultSortType = "online";
+    private static readonly LiveTag DefaultTag = new("online", "综合", DefaultSortType);
+
+    [ObservableProperty]
+    private bool _hasLoadError;
+
+    [ObservableProperty]
+    private string _loadError = string.Empty;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="LivePartitionDetailViewModel"/> class.
     /// </summary>
@@ -30,81 +39,98 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
     [RelayCommand]
     private async Task InitializeAsync()
     {
-        if (Children?.Count > 0)
+        if (IsLiveLoading || (CurrentTag is not null && Children?.Count > 0))
         {
             return;
         }
 
         IsLiveLoading = true;
+        ClearLoadError();
         try
         {
-            var (lives, tags, nextPageNumber) = await _service.GetPartitionLiveListAsync(Data.Data);
-            if (tags is not null)
+            // The SDK omits sort_type when tag is null. Several live areas then return
+            // code=0 with an empty list, which the SDK treats as a failed request.
+            var (lives, tags, nextPageNumber) = await _service.GetPartitionLiveListAsync(Data.Data, DefaultTag);
+            var children = tags?.Select(WithUsableSort).ToList() ?? [];
+            var firstTag = children.FirstOrDefault(tag => tag.SortType == DefaultSortType);
+            if (firstTag is null)
             {
-                Children = [.. tags];
+                firstTag = DefaultTag;
+                children.Insert(0, firstTag);
             }
 
+            Children = children;
+            CurrentTag = firstTag;
+            _childPartitionOffsetCache[firstTag] = nextPageNumber;
             TryAddRooms(lives);
-            CurrentTag = tags.First();
-            _childPartitionOffsetCache[tags.First()] = nextPageNumber;
         }
         catch (Exception ex)
         {
+            SetLoadError();
             _logger.LogError(ex, $"尝试加载 {Data.Data.Name} 分区视频时出错.");
         }
-
-        IsLiveLoading = false;
+        finally
+        {
+            IsLiveLoading = false;
+        }
         Initialized?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]
-    private void Refresh()
+    private async Task RefreshAsync()
     {
-        _childPartitionRoomCache.Remove(CurrentTag);
-        _childPartitionOffsetCache.Remove(CurrentTag);
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
-        {
-            Rooms.Clear();
-            _preventLoadMore = false;
-            await LoadRoomsAsync();
-        });
-    }
-
-    [RelayCommand]
-    private void ChangeChildPartition(LiveTag tag)
-    {
-        if (tag is null || tag.Equals(CurrentTag))
+        if (IsLiveLoading)
         {
             return;
         }
 
         _preventLoadMore = false;
-        if (Rooms.Count > 0)
+        Rooms.Clear();
+        ClearLoadError();
+        if (CurrentTag is null)
+        {
+            await InitializeAsync();
+            return;
+        }
+
+        _childPartitionRoomCache.Remove(CurrentTag);
+        _childPartitionOffsetCache.Remove(CurrentTag);
+        await LoadRoomsAsync();
+    }
+
+    [RelayCommand]
+    private async Task ChangeChildPartitionAsync(LiveTag tag)
+    {
+        if (IsLiveLoading || tag is null || tag.Equals(CurrentTag))
+        {
+            return;
+        }
+
+        _preventLoadMore = false;
+        if (CurrentTag is not null && Rooms.Count > 0)
         {
             _childPartitionRoomCache[CurrentTag] = Rooms.ToList();
         }
 
         CurrentTag = tag;
-        this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
+        ClearLoadError();
+        Rooms.Clear();
+        if (_childPartitionRoomCache.TryGetValue(tag, out var cache))
         {
-            Rooms.Clear();
-            if (_childPartitionRoomCache.TryGetValue(CurrentTag, out var cache))
+            foreach (var item in cache)
             {
-                foreach (var item in cache)
-                {
-                    Rooms.Add(item);
-                }
+                Rooms.Add(item);
             }
+        }
 
-            if (Rooms.Count == 0)
-            {
-                await LoadRoomsAsync();
-            }
-            else
-            {
-                LiveListUpdated?.Invoke(this, EventArgs.Empty);
-            }
-        });
+        if (Rooms.Count == 0)
+        {
+            await LoadRoomsAsync();
+        }
+        else
+        {
+            LiveListUpdated?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     [RelayCommand]
@@ -115,9 +141,21 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
             return;
         }
 
+        if (CurrentTag is null)
+        {
+            await InitializeAsync();
+            return;
+        }
+
         IsLiveLoading = true;
-        await LoadChildPartitionRoomsAsync();
-        IsLiveLoading = false;
+        try
+        {
+            await LoadChildPartitionRoomsAsync();
+        }
+        finally
+        {
+            IsLiveLoading = false;
+        }
         LiveListUpdated?.Invoke(this, EventArgs.Empty);
     }
 
@@ -128,6 +166,7 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
             return;
         }
 
+        ClearLoadError();
         try
         {
             var pn = 0;
@@ -136,15 +175,33 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
                 pn = cachePN;
             }
 
-            var (rooms, _, nextPn) = await _service.GetPartitionLiveListAsync(Data.Data, CurrentTag, pn);
+            // Also normalize a server-provided 综合 tag whose sort_type is empty.
+            // Refresh starts at pn=0 after evicting its offset; the SDK sends page=1.
+            var (rooms, _, nextPn) = await _service.GetPartitionLiveListAsync(Data.Data, WithUsableSort(CurrentTag), pn);
             _childPartitionOffsetCache[CurrentTag] = nextPn;
             TryAddRooms(rooms);
         }
         catch (Exception ex)
         {
             _preventLoadMore = true;
+            SetLoadError();
             _logger.LogError(ex, $"尝试加载 {Data.Data.Name}/{CurrentTag.Name} 分区视频时出错.");
         }
+    }
+
+    private static LiveTag WithUsableSort(LiveTag tag)
+        => string.IsNullOrWhiteSpace(tag.SortType) ? new LiveTag(tag.Id, tag.Name, DefaultSortType) : tag;
+
+    private void ClearLoadError()
+    {
+        HasLoadError = false;
+        LoadError = string.Empty;
+    }
+
+    private void SetLoadError()
+    {
+        HasLoadError = true;
+        LoadError = "直播分区加载失败，请点击刷新重试。";
     }
 
     private void TryAddRooms(IReadOnlyList<LiveInformation> rooms)

@@ -84,22 +84,19 @@ public sealed partial class LivePartitionPageViewModel : LayoutPageViewModelBase
     }
 
     [RelayCommand]
-    private void Refresh()
+    private async Task RefreshAsync()
     {
         if (SelectedDetail is null)
         {
             _recommendOffset = 0;
-            this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
-            {
-                RecommendRooms.Clear();
-                FollowRooms.Clear();
-                IsFollowRoomsEmpty = true;
-                await LoadRecommendRoomsAsync();
-            });
+            RecommendRooms.Clear();
+            FollowRooms.Clear();
+            IsFollowRoomsEmpty = true;
+            await LoadRecommendRoomsAsync();
         }
         else
         {
-            SelectedDetail.RefreshCommand.Execute(default);
+            await SelectedDetail.RefreshCommand.ExecuteAsync(default);
         }
     }
 

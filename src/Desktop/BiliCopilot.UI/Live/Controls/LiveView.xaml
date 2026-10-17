@@ -1,0 +1,627 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.Live.Controls.LiveView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:live="using:BiliCopilot.UI.Live"
+    xmlns:media="using:Richasy.BiliKernel.Models.Media"
+    IsTabStop="False">
+
+    <!--
+        Visual contract: the embedded VOD player.
+        - Page header       = EmbeddedPlayerView HeaderRow (56, CardBackgroundFillColorDefaultBrush, divider row).
+        - Transport         = IslandTransportControls card (bottom, Margin 12, MaxWidth 800, OverlayCornerRadius,
+                              CardStrokeColorDefaultBrush, Padding 12,8, ColumnSpacing 8, CircleIconButtonStyle, 14px glyphs,
+                              Margin 0,0,8,0 between right-hand commands, Placement=Top flyouts, Show/Hide fade).
+        - Danmaku box       = IslandDanmakuBox ("弹" 36px round toggle + input in the middle column).
+        - Quality           = IslandFormatButton (Hd glyph, caption + 220px ItemsView, 40px card rows).
+        - Side panel toggle = SideSplitButton (36px transparent, filled 14px PanelRight glyph) at the header's right edge.
+        Airspace: the native video child covers VideoHost only. The transport therefore floats on the black stage directly
+        below the picture (never over it) and auto-hides by opacity so the picture never resizes.
+    -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <!--  LiveState* keys are read by code-behind (LocalBrush): Fluent status palette, per theme.  -->
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemFillColorSuccess}" />
+                    <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemFillColorCaution}" />
+                    <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemFillColorCritical}" />
+                    <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemFillColorNeutral}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemFillColorSuccess}" />
+                    <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemFillColorCaution}" />
+                    <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemFillColorCritical}" />
+                    <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemFillColorNeutral}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!--  Player stage stays black in every theme (same as the VOD video area).  -->
+            <SolidColorBrush x:Key="LiveVideoBackdropBrush" Color="Black" />
+
+            <!--
+                The VOD controls each declare this presenter style locally (IslandTransportControls / IslandFormatButton /
+                IslandDanmakuBox: "TransportButtonFlyoutPresenterStyle", Padding 12,10). It is not an app-level resource,
+                so it cannot be referenced from here; same key and value for parity.
+            -->
+            <Style
+                x:Key="TransportButtonFlyoutPresenterStyle"
+                BasedOn="{StaticResource DefaultFlyoutPresenterStyle}"
+                TargetType="FlyoutPresenter">
+                <Setter Property="Padding" Value="12,10" />
+            </Style>
+
+            <Style
+                x:Key="LiveMessageItemStyle"
+                BasedOn="{StaticResource DefaultListViewItemStyle}"
+                TargetType="ListViewItem">
+                <Setter Property="Padding" Value="12,4" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+            <!--  Secondary caption; code-behind may set a status Foreground and later ClearValue back to this.  -->
+            <Style
+                x:Key="LiveFeedbackTextStyle"
+                BasedOn="{StaticResource CaptionTextBlockStyle}"
+                TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="300" />
+            <ColumnDefinition x:Name="ChatColumn" Width="340" />
+        </Grid.ColumnDefinitions>
+
+        <!--  ============ Page header (EmbeddedPlayerView PlayerHeader: 56 / Padding 16,0 / card fill) ============  -->
+        <Grid
+            x:Name="PageHeader"
+            Grid.Row="0"
+            Grid.Column="0"
+            Padding="16,0"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <PersonPicture
+                x:Name="AnchorPicture"
+                Width="32"
+                Height="32"
+                VerticalAlignment="Center"
+                AutomationProperties.AccessibilityView="Raw"
+                IsTabStop="False" />
+
+            <!--  Title: same type as the VOD main header title (Bold, single line, trimmed).  -->
+            <Grid Grid.Column="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Padding="6,0,6,1"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AccessibilityView="Raw"
+                    Background="{ThemeResource SystemFillColorCriticalBrush}"
+                    CornerRadius="{ThemeResource ControlCornerRadius}">
+                    <TextBlock
+                        x:Name="BadgeText"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+                </Border>
+                <TextBlock
+                    x:Name="TitleText"
+                    Grid.Column="1"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    FontWeight="Bold"
+                    MaxLines="1"
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="NoWrap" />
+            </Grid>
+
+            <!--  Anchor meta (secondary caption, like the VOD header's right-hand info). Parts collapse while unknown.  -->
+            <StackPanel
+                x:Name="AnchorMetaRow"
+                Grid.Column="2"
+                MaxWidth="320"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8">
+                <TextBlock
+                    x:Name="AnchorNameText"
+                    MaxWidth="140"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    MaxLines="1"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="NoWrap" />
+                <Border
+                    x:Name="FollowTag"
+                    Padding="6,0,6,1"
+                    VerticalAlignment="Center"
+                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{ThemeResource ControlCornerRadius}"
+                    Visibility="Collapsed">
+                    <TextBlock
+                        x:Name="FollowText"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+                </Border>
+                <StackPanel
+                    x:Name="AudiencePanel"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4"
+                    Visibility="Collapsed">
+                    <ic:SymbolIcon
+                        VerticalAlignment="Center"
+                        AutomationProperties.AccessibilityView="Raw"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Symbol="People" />
+                    <TextBlock
+                        x:Name="AudienceText"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        MaxLines="1"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        TextWrapping="NoWrap" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel
+                Grid.Column="3"
+                MaxWidth="200"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Ellipse
+                    x:Name="PlaybackDot"
+                    Width="8"
+                    Height="8"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock
+                    x:Name="PlaybackStatusText"
+                    VerticalAlignment="Center"
+                    AutomationProperties.LiveSetting="Polite"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    MaxLines="1"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="NoWrap" />
+            </StackPanel>
+
+            <!--  Side panel toggle: SideSplitButton visuals (36, transparent, filled 14px glyph, Margin 4,0,0,0).  -->
+            <Button
+                x:Name="ChatToggle"
+                Grid.Column="4"
+                Width="36"
+                Height="36"
+                Margin="4,0,0,0"
+                Padding="0"
+                HorizontalContentAlignment="Center"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="OnChatToggleClick">
+                <ic:SymbolIcon
+                    x:Name="ChatToggleIcon"
+                    FontSize="14"
+                    IconVariant="Filled"
+                    Symbol="PanelRightContract" />
+            </Button>
+        </Grid>
+
+        <!--  Header divider (EmbeddedPlayerView HeaderDivider), spans both columns.  -->
+        <Border
+            x:Name="HeaderDivider"
+            Grid.Row="1"
+            Grid.ColumnSpan="2"
+            Height="1"
+            HorizontalAlignment="Stretch"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <!--  ============ Player stage: black like the VOD video area ============  -->
+        <Grid
+            x:Name="StageGrid"
+            Grid.Row="2"
+            Grid.Column="0"
+            Background="{StaticResource LiveVideoBackdropBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!--  Host-provided layout anchor. No transforms, opacity changes, rounded clips or controls on top: native video airspace.  -->
+            <Border
+                x:Name="VideoHost"
+                Grid.Row="0"
+                Background="{StaticResource LiveVideoBackdropBrush}" />
+
+            <!--  IslandTransportControls card. Opacity-only auto-hide keeps the row height, so the picture never resizes.  -->
+            <Grid
+                x:Name="TransportCard"
+                Grid.Row="1"
+                MaxWidth="800"
+                Margin="12"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Bottom"
+                Background="{ThemeResource AcrylicInAppFillColorCustomBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource OverlayCornerRadius}">
+                <Grid.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.2" />
+                </Grid.OpacityTransition>
+                <Grid Padding="12,8" RowSpacing="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!--  Row 0 takes the place of the VOD progress row: one caption line, collapsed while empty.  -->
+                    <Grid
+                        x:Name="FeedbackRow"
+                        ColumnSpacing="12"
+                        Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            x:Name="SendFeedbackText"
+                            AutomationProperties.LiveSetting="Assertive"
+                            Style="{StaticResource LiveFeedbackTextStyle}"
+                            TextWrapping="Wrap"
+                            Visibility="Collapsed" />
+                        <TextBlock
+                            x:Name="CommandFeedbackText"
+                            Grid.Column="1"
+                            MaxWidth="320"
+                            AutomationProperties.LiveSetting="Assertive"
+                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                            MaxLines="1"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextTrimming="CharacterEllipsis"
+                            Visibility="Collapsed" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!--  Play/pause: CircleIconButtonStyle + ButtonBackground + filled 14px glyph (VOD PlayPauseButton).  -->
+                        <Button
+                            x:Name="PlayPauseButton"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Background="{ThemeResource ButtonBackground}"
+                            Click="OnPlayPauseClick"
+                            Style="{StaticResource CircleIconButtonStyle}">
+                            <ic:SymbolIcon
+                                x:Name="PlayPauseIcon"
+                                FontSize="14"
+                                IconVariant="Filled"
+                                Symbol="Play" />
+                        </Button>
+
+                        <!--  Left slot (VOD: next video) → back to the live edge.  -->
+                        <Button
+                            x:Name="RefreshButton"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Click="OnRefreshClick"
+                            Style="{StaticResource CircleIconButtonStyle}">
+                            <ic:SymbolIcon FontSize="14" Symbol="ArrowSync" />
+                        </Button>
+
+                        <!--  Middle slot = IslandDanmakuBox: "弹" toggle + input (+ send, the live chat needs an explicit action).  -->
+                        <Grid Grid.Column="2" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ToggleButton
+                                x:Name="OverlayToggle"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                HorizontalContentAlignment="Center"
+                                VerticalAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                Click="OnOverlayToggleClick"
+                                Content="弹"
+                                CornerRadius="18"
+                                FontSize="12"
+                                FontWeight="Black"
+                                IsChecked="True" />
+                            <TextBox
+                                x:Name="ComposerBox"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
+                                AcceptsReturn="False"
+                                IsSpellCheckEnabled="False"
+                                KeyDown="OnComposerKeyDown"
+                                MaxLength="100"
+                                TextChanged="OnComposerTextChanged"
+                                TextWrapping="NoWrap" />
+                            <Button
+                                x:Name="SendButton"
+                                Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Click="OnSendClick"
+                                IsEnabled="False"
+                                Style="{StaticResource CircleIconButtonStyle}">
+                                <ic:SymbolIcon FontSize="14" Symbol="Send" />
+                            </Button>
+                        </Grid>
+
+                        <!--  Right slot = IslandFormatButton (quality).  -->
+                        <Button
+                            x:Name="QualityButton"
+                            Grid.Column="3"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CircleIconButtonStyle}"
+                            Visibility="Collapsed">
+                            <ic:SymbolIcon FontSize="14" Symbol="Hd" />
+                            <Button.Flyout>
+                                <Flyout
+                                    x:Name="QualityFlyout"
+                                    Closed="OnTransportFlyoutClosed"
+                                    FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
+                                    Opened="OnQualityFlyoutOpened"
+                                    Placement="Top"
+                                    ShouldConstrainToRootBounds="False">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock
+                                            x:Name="QualityCaption"
+                                            HorizontalAlignment="Left"
+                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                        <ItemsView
+                                            x:Name="QualityView"
+                                            Width="220"
+                                            IsItemInvokedEnabled="True"
+                                            ItemInvoked="OnQualityItemInvoked"
+                                            SelectionMode="Single">
+                                            <ItemsView.ItemTemplate>
+                                                <DataTemplate x:DataType="media:PlayerFormatInformation">
+                                                    <ItemContainer Style="{StaticResource AppItemContainerStyle}">
+                                                        <Grid
+                                                            MinHeight="40"
+                                                            Padding="12,0"
+                                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind Description}" />
+                                                        </Grid>
+                                                    </ItemContainer>
+                                                </DataTemplate>
+                                            </ItemsView.ItemTemplate>
+                                            <ItemsView.Layout>
+                                                <StackLayout Spacing="4" />
+                                            </ItemsView.Layout>
+                                        </ItemsView>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+
+                        <!--  VOD right stack: volume and window presentation.  -->
+                        <StackPanel Grid.Column="4" Orientation="Horizontal">
+                            <Button
+                                x:Name="VolumeButton"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource CircleIconButtonStyle}">
+                                <ic:SymbolIcon
+                                    x:Name="VolumeIcon"
+                                    FontSize="14"
+                                    Symbol="Speaker2" />
+                                <Button.Flyout>
+                                    <Flyout
+                                        x:Name="VolumeFlyout"
+                                        Closed="OnTransportFlyoutClosed"
+                                        FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
+                                        Opened="OnTransportFlyoutOpened"
+                                        Placement="Top"
+                                        ShouldConstrainToRootBounds="False">
+                                        <StackPanel>
+                                            <Grid>
+                                                <TextBlock
+                                                    x:Name="VolumeCaption"
+                                                    HorizontalAlignment="Left"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock
+                                                    x:Name="VolumeText"
+                                                    HorizontalAlignment="Right"
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                                            </Grid>
+                                            <Slider
+                                                x:Name="VolumeSlider"
+                                                Width="200"
+                                                IsThumbToolTipEnabled="True"
+                                                LargeChange="10"
+                                                Maximum="100"
+                                                Minimum="0"
+                                                SmallChange="5"
+                                                StepFrequency="1"
+                                                TickFrequency="1"
+                                                ValueChanged="OnVolumeChanged" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button
+                                x:Name="FullScreenButton"
+                                Margin="8,0,8,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource CircleIconButtonStyle}">
+                                <ic:SymbolIcon
+                                    x:Name="FullScreenIcon"
+                                    FontSize="14"
+                                    Symbol="FullScreenMaximize" />
+                            </Button>
+                            <Button
+                                x:Name="CompactOverlayButton"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource CircleIconButtonStyle}">
+                                <ic:SymbolIcon
+                                    x:Name="CompactOverlayIcon"
+                                    FontSize="14"
+                                    Symbol="ContractUpRight" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!--  ============ Side panel (VOD SideHeader + SideBody). Hiding it only collapses the view; chat stays connected. ============  -->
+        <Grid
+            x:Name="ChatPanel"
+            Grid.Row="0"
+            Grid.RowSpan="3"
+            Grid.Column="1"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="1,0,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid
+                Grid.Row="0"
+                Padding="16,0"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    x:Name="ChatHeaderText"
+                    VerticalAlignment="Center"
+                    FontWeight="Bold"
+                    MaxLines="1"
+                    TextTrimming="CharacterEllipsis" />
+                <Ellipse
+                    x:Name="ChatDot"
+                    Grid.Column="1"
+                    Width="8"
+                    Height="8"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock
+                    x:Name="ChatStatusText"
+                    Grid.Column="2"
+                    MaxWidth="160"
+                    VerticalAlignment="Center"
+                    AutomationProperties.LiveSetting="Polite"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    MaxLines="1"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+
+            <Border
+                Grid.Row="1"
+                Height="1"
+                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <Grid Grid.Row="2" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <ListView
+                    x:Name="MessageList"
+                    Padding="0,4"
+                    IsItemClickEnabled="False"
+                    ItemContainerStyle="{StaticResource LiveMessageItemStyle}"
+                    SelectionMode="None">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel VerticalAlignment="Bottom" ItemsUpdatingScrollMode="KeepLastItemInView" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemTemplate>
+                        <!--  One row = name (secondary) + body (primary).  -->
+                        <DataTemplate x:DataType="live:LiveChatMessage">
+                            <TextBlock
+                                IsTextSelectionEnabled="False"
+                                Style="{StaticResource BodyTextBlockStyle}"
+                                TextWrapping="Wrap">
+                                <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind UserName}" />
+                                <Run Text=" " />
+                                <Run Foreground="{ThemeResource TextFillColorPrimaryBrush}" Text="{x:Bind Text}" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <TextBlock
+                    x:Name="EmptyText"
+                    Margin="24"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    IsHitTestVisible="False"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+
+                <Button
+                    x:Name="JumpButton"
+                    Margin="0,0,0,12"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Click="OnJumpClick"
+                    CornerRadius="{ThemeResource OverlayCornerRadius}"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ic:SymbolIcon
+                            VerticalAlignment="Center"
+                            FontSize="14"
+                            Symbol="ArrowDown" />
+                        <TextBlock x:Name="JumpText" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -68,6 +68,26 @@
             Margin="-6,0,0,0"
             ViewModel="{x:Bind ViewModel.SelectedDetail, Mode=OneWay}"
             Visibility="{x:Bind ViewModel.SelectedDetail, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />
+        <!--
+            子分区加载失败：复用应用统一的 EmptyHolder 错误态（同 PlayerOverlay 错误态的图标 + 说明，动作元素同 Comment 面板）。
+            FallbackValue=Collapsed：SelectedDetail 为空时 x:Bind 不会回写，必须显式回落为隐藏。
+        -->
+        <base:EmptyHolder
+            Grid.Row="2"
+            Grid.Column="4"
+            Margin="-6,0,0,0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Description="{x:Bind ViewModel.SelectedDetail.LoadError, Mode=OneWay}"
+            Emoji="&#x1F494;"
+            Visibility="{x:Bind ViewModel.SelectedDetail.HasLoadError, Mode=OneWay, FallbackValue=Collapsed}">
+            <base:EmptyHolder.ActionElement>
+                <HyperlinkButton
+                    HorizontalAlignment="Center"
+                    Command="{x:Bind ViewModel.SelectedDetail.RefreshCommand, Mode=OneWay}"
+                    Content="{ext:Locale Name=Retry}" />
+            </base:EmptyHolder.ActionElement>
+        </base:EmptyHolder>
 
         <!--  左侧主分栏大小控制器  -->
         <base:ColumnSplitter

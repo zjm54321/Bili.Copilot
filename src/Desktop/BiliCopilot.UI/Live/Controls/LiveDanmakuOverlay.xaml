@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.Live.Controls.LiveDanmakuOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsHitTestVisible="False"
+    IsTabStop="False">
+
+    <!--  Hosted by the native video child's own XAML island. Transparent: no background anywhere.  -->
+    <Grid>
+        <Canvas x:Name="DanmakuCanvas" AutomationProperties.AccessibilityView="Raw" />
+
+        <!--
+            Playback guidance drawn over the video. Independent of the danmaku toggle; the bar carries the accessible copy.
+            Same surface as the VOD overlay hint pills in PlayerOverlay (progress/speed): AcrylicInAppFillColorCustomBrush,
+            Padding 20,12, CornerRadius 20, no stroke, default theme text. Only this card is filled; the root stays transparent.
+        -->
+        <Border
+            x:Name="StatusCard"
+            Margin="24"
+            Padding="20,12"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            AutomationProperties.AccessibilityView="Raw"
+            Background="{ThemeResource AcrylicInAppFillColorCustomBrush}"
+            CornerRadius="20"
+            Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <ProgressRing
+                    x:Name="StatusRing"
+                    Width="20"
+                    Height="20"
+                    VerticalAlignment="Center"
+                    IsActive="False"
+                    Visibility="Collapsed" />
+                <TextBlock
+                    x:Name="StatusText"
+                    MaxWidth="420"
+                    VerticalAlignment="Center"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -12,7 +12,6 @@ using Richasy.BiliKernel.Bili.User;
 using Richasy.BiliKernel.Models.Media;
 using Richasy.WinUIKernel.Share.Base;
 using Richasy.WinUIKernel.Share.ViewModels;
-using Windows.System;
 using WinRT;
 
 namespace BiliCopilot.UI.ViewModels.Items;
@@ -52,12 +51,7 @@ public sealed partial class LiveItemViewModel : ViewModelBase<LiveInformation>
     [RelayCommand]
     private async Task PlayAsync()
     {
-        if (await this.Get<AppViewModel>().TryOpenClassicAsync(Data))
-        {
-            return;
-        }
-
-        await Launcher.LaunchUriAsync(new Uri(GetWebUrl()));
+        await this.Get<AppViewModel>().OpenLiveAsync(Data);
     }
 
     [RelayCommand]
@@ -86,6 +80,4 @@ public sealed partial class LiveItemViewModel : ViewModelBase<LiveInformation>
         this.Get<PinnerViewModel>().AddItemCommand.Execute(pinItem);
     }
 
-    private string GetWebUrl()
-        => $"https://live.bilibili.com/{Data.Identifier.Id}";
 }
