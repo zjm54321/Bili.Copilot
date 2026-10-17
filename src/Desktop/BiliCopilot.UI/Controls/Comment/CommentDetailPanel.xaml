@@ -22,11 +22,17 @@
         <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadItemsCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
                 <StackPanel Margin="0,0,0,12" Spacing="12">
-                    <local:CommentItemControl IsMoreEnabled="False" ViewModel="{x:Bind ViewModel.Data, Mode=OneWay}" />
+                    <local:CommentItemControl
+                        IsMoreEnabled="False"
+                        SponsorSurface="Comment"
+                        ViewModel="{x:Bind ViewModel.Data, Mode=OneWay}" />
                     <repeater:AppRepeater ItemsSource="{x:Bind ViewModel.Comments, Mode=OneWay}">
                         <repeater:AppRepeater.ItemTemplate>
                             <DataTemplate x:DataType="items:CommentItemViewModel">
-                                <local:CommentItemControl Margin="0,2" ViewModel="{x:Bind}" />
+                                <local:CommentItemControl
+                                    Margin="0,2"
+                                    SponsorSurface="Reply"
+                                    ViewModel="{x:Bind}" />
                             </DataTemplate>
                         </repeater:AppRepeater.ItemTemplate>
                     </repeater:AppRepeater>

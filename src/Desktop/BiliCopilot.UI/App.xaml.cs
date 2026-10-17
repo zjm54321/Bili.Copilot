@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.Forms;
-using BiliCopilot.UI.Models;
 using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.Core;
 using H.NotifyIcon;
@@ -10,9 +9,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Windows.AppLifecycle;
 using Microsoft.Windows.AppNotifications;
-using Richasy.BiliKernel.Models.Media;
 using Serilog;
-using System.Text.Json;
 
 namespace BiliCopilot.UI;
 
@@ -21,9 +18,104 @@ namespace BiliCopilot.UI;
 /// </summary>
 public partial class App : Application
 {
-    private const string Id = "Richasy.BiliCopilot";
+    private static readonly string Id = AppChannelIdentity.InstanceKey;
     private readonly DispatcherQueue _dispatcherQueue;
     private AppNotificationManager _notificationManager;
+    private readonly object _exitSync = new();
+    private Task<bool>? _exitRequest;
+    private Task? _exitWorker;
+    private List<MainWindow>? _terminalMainWindows;
+    private Task? _sponsorInitialization;
+
+    // Existing App.Current.Exit callers (including account-init failure) must use this owned path.
+    // This does not intercept a deliberately base-typed Application.Exit or forced process exit.
+    public new static App Current => (App)Application.Current;
+
+    public new void Exit() => _ = RequestExitAsync();
+
+    /// <summary>False never forces exit. Later explicit requests may retry terminal work, never playback release.</summary>
+    public Task<bool> RequestExitAsync()
+    {
+        lock (_exitSync)
+        {
+            if (_exitRequest is not null) return _exitRequest;
+            var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _exitRequest = done.Task; // Publish before UI dispatch, cancellation or owner callbacks.
+            try
+            {
+                if (_dispatcherQueue.HasThreadAccess) _exitWorker = CompleteExitAsync(done);
+                else if (!_dispatcherQueue.TryEnqueue(() => _exitWorker = CompleteExitAsync(done))) CompleteRejectedExitAttempt(done);
+            }
+            catch { CompleteRejectedExitAttempt(done); }
+            return done.Task;
+        }
+    }
+
+    private async Task CompleteExitAsync(TaskCompletionSource<bool> done)
+    {
+        // Publish _exitWorker before application callbacks, even when shutdown is already completed.
+        await Task.Yield();
+        AppViewModel? app = null;
+        object? reservation = null;
+        var exitCallEntered = false;
+        try
+        {
+            // Redirect-only secondary instance never initializes DI and cannot own playback.
+            if (GlobalDependencies.Kernel is not null)
+            {
+                app = this.Get<AppViewModel>();
+                if (!await app.PreparePlaybackShutdownAsync())
+                {
+                    CompleteRejectedExitAttempt(done);
+                    return;
+                }
+                await app.DrainPlaybackTerminationNoticesAsync();
+                reservation = app.TryClaimPlaybackTermination();
+                if (reservation is null)
+                {
+                    CompleteRejectedExitAttempt(done);
+                    return;
+                }
+            }
+            TrayIcon?.Dispose();
+            TrayIcon = null;
+            _notificationManager?.Unregister();
+            _notificationManager = null;
+            if (app is not null)
+            {
+                // Retain unfinished chrome even if a failed finalization removed it from app.Windows.
+                _terminalMainWindows ??= app.Windows.OfType<MainWindow>().ToList();
+                this.Get<BiliCopilot.UI.SponsorBlock.Integration.SponsorRuntime>().AuthorizeNativeExit();
+                foreach (var mainWindow in _terminalMainWindows.ToArray())
+                {
+                    mainWindow.FinalizeAndClose();
+                    _terminalMainWindows.Remove(mainWindow); // A later failure must not close it twice.
+                }
+            }
+            exitCallEntered = true; // Invocation boundary, not proof that native exit completed.
+            base.Exit(); // Only after actual pending opens, sends, controls, closes and release have drained.
+            done.TrySetResult(true);
+        }
+        catch
+        {
+            // Only this attempt's claim may be released, and never after an uncertain native exit.
+            if (reservation is not null && !exitCallEntered) app!.ReleasePlaybackTermination(reservation);
+            app?.ReportLiveFailure();
+            CompleteRejectedExitAttempt(done);
+        }
+    }
+
+    private void CompleteRejectedExitAttempt(TaskCompletionSource<bool> done)
+    {
+        lock (_exitSync)
+        {
+            // Clear only this attempt, before publishing false to a later explicit caller.
+            // The AppViewModel still owns its cached actual shutdown and any uncertain native release.
+            // The retained worker has no callbacks/awaits after this branch; queued UI work follows it.
+            if (ReferenceEquals(_exitRequest, done.Task)) _exitRequest = null;
+            done.TrySetResult(false);
+        }
+    }
 
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code
@@ -52,9 +144,22 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
+        if (_initialActivationSelected) return;
+        _initialActivationSelected = true;
+        // Register ran in the constructor. Read this process's activation, never the remote primary's.
+        AppActivationArguments? activatedArgs = null;
+        try
+        {
+            activatedArgs = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+        }
+        catch (Exception)
+        {
+            Log.Warning("启动激活参数不可用。"); // No DI, exception details or private activation data.
+        }
         var instance = Microsoft.Windows.AppLifecycle.AppInstance.FindOrRegisterForKey(Id);
         if (instance.IsCurrent)
         {
+            _isPrimaryInstance = true;
             var rootFolder = Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalFolder;
             var fullPath = $"{rootFolder.Path}\\Logger";
             LoggerFolder = fullPath;
@@ -66,12 +171,18 @@ public partial class App : Application
             instance.Activated += OnInstanceActivated;
             Richasy.WinUIKernel.Share.Base.ImageExBase.EnableBackgroundDecoding = false;
             GlobalDependencies.Initialize();
+            InitializeNotificationRouting();
+            if (activatedArgs is not null) CaptureActivation(activatedArgs, initial: true);
+            _sponsorInitialization = GlobalDependencies.Kernel
+                .GetRequiredService<BiliCopilot.UI.SponsorBlock.Integration.SponsorRuntime>().InitializeAsync();
             GlobalDependencies.Kernel.GetRequiredService<AppViewModel>().LaunchCommand.Execute(default);
         }
         else
         {
-            var activatedArgs = instance.GetActivatedEventArgs();
-            _ = instance.RedirectActivationToAsync(activatedArgs).AsTask().ContinueWith(_ => Current.Exit());
+            _notifications.Reject(); // No DI or playback in a redirect-only secondary.
+            _activationRedirect = activatedArgs is null
+                ? RequestExitAsync()
+                : RedirectInitialActivationAsync(instance, activatedArgs);
         }
     }
 
@@ -80,7 +191,7 @@ public partial class App : Application
 
     private void OnInstanceActivated(object? sender, AppActivationArguments e)
     {
-        _dispatcherQueue.TryEnqueue(() => GetMainWindow()?.Activate());
+        CaptureActivation(e);
     }
 
     private void InitializeTrayIcon()
@@ -110,10 +221,6 @@ public partial class App : Application
 
     private void ExitApp()
     {
-        TrayIcon?.Dispose();
-        TrayIcon = null;
-        _notificationManager?.Unregister();
-        _notificationManager = null;
         Exit();
     }
 
@@ -131,29 +238,7 @@ public partial class App : Application
     }
 
     private void OnAppNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
-    {
-        if (args.Arguments.TryGetValue("page", out var type))
-        {
-            var argsStr = args.Arguments.TryGetValue("args", out var a) ? a : string.Empty;
-            if (string.IsNullOrEmpty(argsStr))
-            {
-                return;
-            }
-
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                var identifier = JsonSerializer.Deserialize(argsStr, GlobalSerializeContext.Default.MediaIdentifier);
-                if (type == "video")
-                {
-                    this.Get<AppViewModel>().OpenPlayerCommand.Execute(new MediaSnapshot(new VideoInformation(identifier, default)));
-                }
-                else if (type == "episode")
-                {
-                    this.Get<AppViewModel>().OpenPlayerCommand.Execute(new MediaSnapshot(default, new EpisodeInformation(identifier)));
-                }
-            });
-        }
-    }
+        => CaptureNotification(args);
 
     private void OnQuitCommandExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args)
         => ExitApp();

@@ -16,19 +16,16 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
     public static readonly DependencyProperty RefreshCommandProperty =
         DependencyProperty.Register(nameof(RefreshCommand), typeof(IAsyncRelayCommand), typeof(IncrementVerticalScrollControl), new PropertyMetadata(default, OnRefreshCommandChanged));
 
+    public static readonly DependencyProperty ScrollPaddingProperty =
+        DependencyProperty.Register(nameof(ScrollPadding), typeof(Thickness), typeof(IncrementVerticalScrollControl), new PropertyMetadata(new Thickness(20, 0, 20, 0)));
+
     private bool _isControlLoaded;
-    private bool _isCheckPending;
-    private long _loadGeneration;
-    private long _refreshGeneration;
-    private RefreshRequest? _activeRefreshRequest;
     private RefreshContainer? _refreshContainer;
 
     public IncrementVerticalScrollControl()
     {
         InitializeComponent();
-
-        // The shared base detaches its Loaded/Unloaded hooks after the first unload,
-        // so this control manages its repeatable lifecycle explicitly.
+        // The shared base detaches its own lifecycle hooks after the first unload.
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -51,15 +48,24 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
         set => SetValue(RefreshCommandProperty, value);
     }
 
+    public Thickness ScrollPadding
+    {
+        get => (Thickness)GetValue(ScrollPaddingProperty);
+        set => SetValue(ScrollPaddingProperty, value);
+    }
+
+    /// <summary>x:Bind helper: append failure + retry, hidden while a new append is running.</summary>
+    public static Visibility AppendErrorFooterVisibility(bool hasAppendError, bool isAppending)
+        => hasAppendError && !isAppending ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>x:Bind helper: quiet end line; never with an empty list, an error, or a running append.</summary>
+    public static Visibility ExhaustedFooterVisibility(bool isExhausted, bool hasAppendError, bool isAppending, int itemCount)
+        => isExhausted && !hasAppendError && !isAppending && itemCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+
     public async Task DelayCheckItemsAsync()
     {
-        var generation = _loadGeneration;
-        var refreshGeneration = _refreshGeneration;
         await Task.Delay(500);
-        if (_isControlLoaded && generation == _loadGeneration && refreshGeneration == _refreshGeneration)
-        {
-            CheckItemsCount();
-        }
+        CheckItemsCount();
     }
 
     public void ResetScrollPosition()
@@ -83,14 +89,7 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
     }
 
     private static void OnRefreshCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-    {
-        var control = (IncrementVerticalScrollControl)d;
-        control._refreshGeneration++;
-        // Retire only this control's bookkeeping. The old async stack still owns its task/deferral.
-        control._activeRefreshRequest = null;
-        control._isCheckPending = false;
-        control.UpdateRefreshContainer();
-    }
+        => ((IncrementVerticalScrollControl)d).UpdateRefreshContainer();
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -100,7 +99,6 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
         }
 
         _isControlLoaded = true;
-        ++_loadGeneration;
         View.ViewChanged += OnViewChanged;
         View.SizeChanged += OnViewSizeChanged;
         UpdateRefreshContainer();
@@ -109,10 +107,6 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _isControlLoaded = false;
-        ++_loadGeneration;
-        ++_refreshGeneration;
-        _activeRefreshRequest = null;
-        _isCheckPending = false;
         View.ViewChanged -= OnViewChanged;
         View.SizeChanged -= OnViewSizeChanged;
     }
@@ -153,26 +147,22 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
     private async void OnRefreshRequested(RefreshContainer sender, RefreshRequestedEventArgs args)
     {
         var deferral = args.GetDeferral();
-        RefreshRequest? request = null;
+        var command = RefreshCommand;
         try
         {
-            request = new RefreshRequest(RefreshCommand, _refreshGeneration, _loadGeneration, _isControlLoaded);
-            var command = request.Command;
-            if (command is null || !ReferenceEquals(sender, _refreshContainer)
-                || !IsCurrentRequest(request) || HasCurrentRefreshRequest)
+            if (!_isControlLoaded || command is null || !ReferenceEquals(sender, _refreshContainer))
             {
                 return;
             }
 
             var canExecute = command.IsRunning || command.CanExecute(null);
-            // CanExecute can synchronously replace the binding, unload, or start another request.
-            if (!ReferenceEquals(sender, _refreshContainer) || !IsCurrentRequest(request)
-                || HasCurrentRefreshRequest || (!canExecute && !command.IsRunning))
+            // CanExecute may synchronously change the binding or unload this control.
+            if (!_isControlLoaded || !ReferenceEquals(command, RefreshCommand)
+                || !ReferenceEquals(sender, _refreshContainer) || (!canExecute && !command.IsRunning))
             {
                 return;
             }
 
-            _activeRefreshRequest = request;
             await RunRefreshCommandAsync(command);
         }
         catch (Exception ex)
@@ -182,11 +172,13 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
         }
         finally
         {
-            var ownsRequest = request is not null && ReferenceEquals(_activeRefreshRequest, request);
-            if (ownsRequest) _activeRefreshRequest = null;
+            // This invocation owns its deferral even if the binding changes or the control unloads.
             deferral.Complete();
-            // At most one queued recheck, only for the generation whose refresh just ended.
-            if (ownsRequest && IsCurrentRequest(request!)) CheckItemsCount();
+        }
+
+        if (_isControlLoaded && ReferenceEquals(command, RefreshCommand) && ReferenceEquals(sender, _refreshContainer))
+        {
+            CheckItemsCount();
         }
     }
 
@@ -204,15 +196,6 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
         await command.ExecuteAsync(null);
     }
 
-    private bool IsCurrentRequest(RefreshRequest request)
-        => _isControlLoaded && request.IsLoaded && request.Generation == _refreshGeneration
-            && request.LoadGeneration == _loadGeneration && ReferenceEquals(request.Command, RefreshCommand);
-
-    private bool HasCurrentRefreshRequest
-        => _activeRefreshRequest is { } request && IsCurrentRequest(request);
-
-    private bool IsRefreshRunning => HasCurrentRefreshRequest || RefreshCommand?.IsRunning == true;
-
     private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         CheckItemsCount();
@@ -228,40 +211,17 @@ public sealed partial class IncrementVerticalScrollControl : LayoutUserControlBa
 
     private void CheckItemsCount()
     {
-        if (!_isControlLoaded || _isCheckPending || IsRefreshRunning)
+        if (!_isControlLoaded)
         {
             return;
         }
 
-        var generation = _loadGeneration;
-        var refreshGeneration = _refreshGeneration;
-        _isCheckPending = true;
-        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            // A callback from before unload/rebind must not consume the new owner's slot.
-            if (!_isControlLoaded || generation != _loadGeneration || refreshGeneration != _refreshGeneration)
-            {
-                return;
-            }
-
-            _isCheckPending = false;
-
-            // Refresh republishes the first page; a queued incremental check must
-            // not admit a load-more while it is running.
-            if (IsRefreshRunning)
-            {
-                return;
-            }
-
-            if (View.ExtentHeight - View.ViewportHeight - View.VerticalOffset <= 800)
+            if (_isControlLoaded && View.ExtentHeight - View.ViewportHeight - View.VerticalOffset <= 1600)
             {
                 LoadMoreCommand?.Execute(default);
             }
-        }))
-        {
-            _isCheckPending = false;
-        }
+        });
     }
-
-    private sealed record RefreshRequest(IAsyncRelayCommand? Command, long Generation, long LoadGeneration, bool IsLoaded);
 }

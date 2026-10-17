@@ -44,6 +44,7 @@ public sealed partial class VideoSearchSectionDetailViewModel : ViewModelBase, I
         IsEmpty = false;
         _isPreventLoadMore = false;
         _canRequest = false;
+        OnPropertyChanged(nameof(CanAttemptLoadMore));
         this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, Items.Clear);
     }
 
@@ -51,10 +52,12 @@ public sealed partial class VideoSearchSectionDetailViewModel : ViewModelBase, I
     {
         _canRequest = true;
         _currentPage = initialOffset;
+        OnPropertyChanged(nameof(CanAttemptLoadMore));
         this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             Items.Clear();
             _isPreventLoadMore = videos is null || videos.Count == 0;
+            OnPropertyChanged(nameof(CanAttemptLoadMore));
 
             if (!_isPreventLoadMore)
             {
@@ -126,6 +129,7 @@ public sealed partial class VideoSearchSectionDetailViewModel : ViewModelBase, I
             Clear();
             _keyword = keyword;
             _canRequest = true;
+            OnPropertyChanged(nameof(CanAttemptLoadMore));
             await LoadItemsAsync();
         });
 

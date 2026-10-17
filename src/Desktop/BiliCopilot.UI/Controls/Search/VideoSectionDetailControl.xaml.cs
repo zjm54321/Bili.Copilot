@@ -10,25 +10,41 @@ namespace BiliCopilot.UI.Controls.Search;
 /// </summary>
 public sealed partial class VideoSectionDetailControl : VideoSectionDetailControlBase
 {
+    public VideoCategorySource CategorySource { get; }
+    private VideoSearchSectionDetailViewModel? _observed;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="VideoSectionDetailControl"/> class.
     /// </summary>
-    public VideoSectionDetailControl() => InitializeComponent();
-
-    /// <inheritdoc/>
-    protected override void OnControlLoaded()
+    public VideoSectionDetailControl()
     {
-        ViewModel.ListUpdated += OnListUpdatedAsync;
+        CategorySource = new VideoCategorySource(this, () => ViewModel?.Items, () => ViewModel);
+        InitializeComponent();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
-    /// <inheritdoc/>
-    protected override void OnControlUnloaded()
+    private void OnLoaded(object sender, RoutedEventArgs args) => BindModel(ViewModel);
+    private void OnUnloaded(object sender, RoutedEventArgs args) => BindModel(null);
+    protected override void OnViewModelChanged(VideoSearchSectionDetailViewModel? oldValue, VideoSearchSectionDetailViewModel? newValue)
     {
-        ViewModel.ListUpdated -= OnListUpdatedAsync;
+        CategorySource?.Rebind();
+        BindModel(newValue);
+    }
+    private void BindModel(VideoSearchSectionDetailViewModel? model)
+    {
+        if (_observed is not null) _observed.ListUpdated -= OnListUpdatedAsync;
+        _observed = IsLoaded ? model : null;
+        if (_observed is not null) _observed.ListUpdated += OnListUpdatedAsync;
+        if (View is null) return;
+        if (model is null) View.ClearValue(IncrementVerticalScrollControl.LoadMoreCommandProperty);
+        else View.LoadMoreCommand = model.LoadItemsCommand;
     }
 
     private async void OnListUpdatedAsync(object? sender, EventArgs e)
     {
+        if (!IsLoaded || !ReferenceEquals(sender, _observed)) return;
+        CategorySource.RawCommitted();
         await View.DelayCheckItemsAsync();
     }
 }

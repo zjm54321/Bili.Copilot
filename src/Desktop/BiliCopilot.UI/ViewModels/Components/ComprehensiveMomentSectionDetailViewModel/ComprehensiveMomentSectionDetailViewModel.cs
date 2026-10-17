@@ -20,6 +20,8 @@ public sealed partial class ComprehensiveMomentSectionDetailViewModel : LayoutPa
     {
         _service = service;
         _logger = this.Get<ILogger<VideoMomentSectionDetailViewModel>>();
+        _account = this.Get<AccountViewModel>();
+        _accountGeneration = _account.AccountGeneration;
     }
 
     /// <inheritdoc/>
@@ -27,159 +29,111 @@ public sealed partial class ComprehensiveMomentSectionDetailViewModel : LayoutPa
         => "ComprehensiveMoment";
 
     [RelayCommand]
-    private Task InitializeAsync()
+    private async Task InitializeAsync()
     {
-        if (!_operationTask.IsCompleted)
+        if (IsLoading || _isRefreshing) return;
+        if (Upers.Count > 0 && _accountGeneration == _account.AccountGeneration)
         {
-            // Join the owner's full initialize/refresh operation without holding a gate or becoming its prerequisite.
-#pragma warning disable VSTHRD003
-            return _operationTask;
-#pragma warning restore VSTHRD003
-        }
-
-        if (Upers.Count > 0)
-        {
-            return SelectedUper?.InitializeCommand.ExecuteAsync(null) ?? Task.CompletedTask;
-        }
-
-        return StartOperation(refresh: false);
-    }
-
-    [RelayCommand]
-    private Task RefreshAsync()
-        => !_refreshTask.IsCompleted ? _refreshTask : StartOperation(refresh: true);
-
-    private Task StartOperation(bool refresh)
-    {
-        var previousOperation = _operationTask;
-        var selected = SelectedUper;
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _operationTask = completion.Task;
-        if (refresh)
-        {
-            _refreshTask = completion.Task;
-        }
-
-        _ = CompleteOperationAsync(previousOperation, completion, refresh, selected);
-        return completion.Task;
-    }
-
-    private async Task CompleteOperationAsync(
-        Task previousOperation,
-        TaskCompletionSource completion,
-        bool refresh,
-        MomentUperSectionViewModel? selected)
-    {
-        try
-        {
-            try
-            {
-                // Captured before successor publication; this gate-free successor is not the predecessor's prerequisite.
-#pragma warning disable VSTHRD003
-                await previousOperation;
-#pragma warning restore VSTHRD003
-            }
-            catch
-            {
-                // A failed initialization/refresh must not prevent the next attempt.
-            }
-
-            if (refresh && selected is { IsTotal: false })
-            {
-                // Capture the owner at invocation; a later selection must not redirect it.
-                await selected.RefreshCommand.ExecuteAsync(null);
-            }
-            else
-            {
-                await RebuildAsync();
-            }
-
-            completion.SetResult();
-        }
-        catch (Exception ex)
-        {
-            completion.SetException(ex);
-        }
-    }
-
-    [RelayCommand]
-    private async Task SelectUperAsync(MomentUperSectionViewModel? item)
-    {
-        // Ignore selection notifications from a replaced list, including equal profiles.
-        if (item is null || _isRebuilding || !Upers.Any(uper => ReferenceEquals(uper, item)))
-        {
+            if (SelectedUper is not null) await SelectedUper.InitializeCommand.ExecuteAsync(null);
             return;
         }
 
-        SelectedUper = item;
-        await item.InitializeCommand.ExecuteAsync(null);
-        // No selection/list writes after awaiting an item from this generation.
+        await RebuildAsync();
     }
 
     private async Task RebuildAsync()
     {
         _isRebuilding = true;
         IsLoading = true;
+        ++_selectionGeneration;
         try
         {
-            // Retire every old section before awaiting any of them. In particular, an
-            // old total page must finish before reset, and cannot enqueue another page.
-            var pendingLoads = Upers.Select(uper => uper.RetireAsync()).ToArray();
-            try
-            {
-                await Task.WhenAll(pendingLoads);
-            }
-            catch
-            {
-                // Failures belong to old callers; rebuilding is still a valid retry.
-            }
-
+            // Retire all old rows first; reset SDK cursors only after real requests drain.
+            await Task.WhenAll(Upers.Select(uper => uper.RetireAsync()).ToArray());
             SelectedUper = default;
             Upers.Clear();
+            _accountGeneration = _account.AccountGeneration;
             var total = new MomentUperSectionViewModel(default, RefreshCommand);
+            Upers.Add(total);
             await LoadUpersAsync(total);
+            if (_accountGeneration != _account.AccountGeneration) return;
             SelectedUper = total;
-            await total.InitializeCommand.ExecuteAsync(null);
-            IsEmpty = total.IsEmpty;
-            // Notify only after selection exposes the seeded total to its view.
+            IsEmpty = total.Items.Count == 0;
             total.NotifyListUpdated();
+            Initialized?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
             _isRebuilding = false;
             IsLoading = false;
         }
+    }
 
-        Initialized?.Invoke(this, EventArgs.Empty);
+    [RelayCommand]
+    private async Task RefreshAsync()
+    {
+        if (IsLoading || _isRefreshing) return;
+        _isRefreshing = true;
+        ++_selectionGeneration;
+        try
+        {
+            if (_accountGeneration == _account.AccountGeneration && SelectedUper is { IsTotal: false } selected)
+            {
+                await selected.RefreshCommand.ExecuteAsync(null);
+                IsEmpty = selected.IsEmpty;
+            }
+            else await RebuildAsync();
+        }
+        finally { _isRefreshing = false; }
+    }
+
+    [RelayCommand]
+    private async Task SelectUperAsync(MomentUperSectionViewModel? item)
+    {
+        if (item is null || _isRebuilding || _isRefreshing || !Upers.Any(uper => ReferenceEquals(uper, item)))
+        {
+            return;
+        }
+
+        if (_accountGeneration != _account.AccountGeneration)
+        {
+            await RebuildAsync();
+            return;
+        }
+        var generation = ++_selectionGeneration;
+        var drains = Upers.Where(uper => !ReferenceEquals(uper, item)).Select(uper => uper.CancelAndDrainAsync()).ToArray();
+        await Task.WhenAll(drains);
+        if (generation != _selectionGeneration || _isRebuilding || _isRefreshing
+            || _accountGeneration != _account.AccountGeneration) return;
+        SelectedUper = item;
+        await item.InitializeCommand.ExecuteAsync(null);
     }
 
     private async Task LoadUpersAsync(MomentUperSectionViewModel total)
     {
         try
         {
-            var response = await _service.GetComprehensiveMomentsAsync();
-            // Seed synchronously on the captured UI context before exposing this total.
-            total.InjectFirstPageData(response);
-            Upers.Add(total);
+            var generation = _account.AccountGeneration;
+            var token = _account.AccountCancellationToken;
+            var response = await _service.GetComprehensiveMomentsAsync(default, default, token);
+            if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
             var upers = response.Users;
             if (upers?.Count > 0)
             {
                 foreach (var item in upers)
                 {
+                    if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
                     Upers.Add(new MomentUperSectionViewModel(item));
                 }
             }
+
+            total.InjectFirstPageData(response);
         }
+        catch (OperationCanceledException) when (_account.AccountCancellationToken.IsCancellationRequested
+            || _accountGeneration != _account.AccountGeneration) { }
         catch (Exception ex)
         {
             _logger.LogError(ex, "尝试获取综合动态时发生错误.");
-            // Keep owner refresh reachable on failure, but do not fall back to a total
-            // Initialize request that would load items without rebuilding the UP list.
-            total.IsEmpty = total.Items.Count == 0;
-            if (!Upers.Any(uper => ReferenceEquals(uper, total)))
-            {
-                Upers.Add(total);
-            }
         }
     }
 }

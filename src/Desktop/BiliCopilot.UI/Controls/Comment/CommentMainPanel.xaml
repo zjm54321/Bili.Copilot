@@ -63,6 +63,7 @@
                         <local:CommentItemControl
                             Margin="0,0,0,4"
                             ShowMoreCommand="{x:Bind ViewModel.TopItem.ShowMoreCommand, Mode=OneWay}"
+                            SponsorSurface="Comment"
                             ViewModel="{x:Bind ViewModel.TopItem.Data, Mode=OneWay}"
                             Visibility="{x:Bind ViewModel.TopItem, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />
                         <repeater:AppRepeater ItemsSource="{x:Bind ViewModel.Comments, Mode=OneWay}">
@@ -71,6 +72,7 @@
                                     <local:CommentItemControl
                                         Margin="0,2"
                                         ShowMoreCommand="{x:Bind ShowMoreCommand}"
+                                        SponsorSurface="Comment"
                                         ViewModel="{x:Bind Data}" />
                                 </DataTemplate>
                             </repeater:AppRepeater.ItemTemplate>

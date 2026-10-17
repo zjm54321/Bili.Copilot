@@ -5,10 +5,10 @@ using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Pages;
 using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.Core;
+using BiliCopilot.UI.ViewModels.Components;
 using BiliCopilot.UI.ViewModels.Items;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Dispatching;
 using Richasy.BiliKernel.Bili.Media;
 
 namespace BiliCopilot.UI.ViewModels.View;
@@ -27,6 +27,8 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
     {
         _service = discoveryService;
         _logger = logger;
+        _account = this.Get<AccountViewModel>();
+        _cacheAccountGeneration = _account.AccountGeneration;
     }
 
     /// <inheritdoc/>
@@ -37,6 +39,7 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
     {
         if (Sections.Count > 0)
         {
+            if (_cacheAccountGeneration != _account.AccountGeneration) await RefreshVideoAsync();
             return;
         }
 
@@ -72,22 +75,20 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
     }
 
     [RelayCommand]
-    private void SelectSection(IPopularSectionItemViewModel vm)
+    private async Task SelectSectionAsync(IPopularSectionItemViewModel vm)
     {
         if (vm is null || vm == SelectedSection)
         {
             return;
         }
 
-        // The previous selection may still be waiting in the dispatcher queue.
-        // Cache the list under its actual owner, not the pending selection.
-        if (_displayedSection is not null && Videos.Count > 0)
+        if (_cacheAccountGeneration == _account.AccountGeneration && _displayedSection is not null && Videos.Count > 0)
         {
             _videoCache[_displayedSection] = Videos.ToList();
         }
 
         var generation = ++_videoGeneration;
-        IsVideoLoading = true;
+        _isSelectingSection = true;
         SelectedSection = vm;
         var sectionId = vm switch
         {
@@ -97,126 +98,138 @@ public sealed partial class PopularPageViewModel : LayoutPageViewModelBase
         };
         SettingsToolkit.WriteLocalSetting(SettingNames.PopularPageLastSelectedSectionId, sectionId);
 
-        if (!this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () => await ApplySectionAsync(vm, generation)))
-        {
-            // Do not leave a pending selection permanently blocking retries.
-            _ = ApplySectionAsync(vm, generation);
-        }
-    }
-
-    private async Task ApplySectionAsync(IPopularSectionItemViewModel vm, long generation)
-    {
-        if (!IsCurrentVideoGeneration(generation))
-        {
-            return;
-        }
-
-        Videos.Clear();
-        _displayedSection = vm;
-        IsVideoLoading = false;
-        if (_videoCache.TryGetValue(vm, out var cacheVideos))
-        {
-            foreach (var video in cacheVideos)
-            {
-                Videos.Add(video);
-            }
-
-            VideoListUpdated?.Invoke(this, EventArgs.Empty);
-        }
-        else
-        {
-            await LoadVideosAsync();
-        }
-    }
-
-    [RelayCommand]
-    private async Task LoadVideosAsync()
-    {
-        if (IsVideoLoading || SelectedSection is null)
-        {
-            return;
-        }
-
-        if (SelectedSection is PopularSectionItemViewModel section2 && section2.Type == PopularSectionType.Rank && Videos.Count > 0)
-        {
-            return;
-        }
-
-        var generation = _videoGeneration;
-        IsVideoLoading = true;
         try
         {
-            if (SelectedSection is PopularSectionItemViewModel section)
+            var cancellation = _videoCancellation;
+            var loadTask = _videoLoadTask;
+            if (cancellation is not null) await cancellation.CancelAsync();
+            // Join the actual canceled SDK request before another section reuses its cursor.
+#pragma warning disable VSTHRD003
+            try { await loadTask; } catch { /* The previous request already reported its failure. */ }
+#pragma warning restore VSTHRD003
+            if (generation != _videoGeneration) return;
+            ResetAccountCacheIfNeeded();
+            Videos.Clear();
+            _displayedSection = vm;
+            HasAppendError = false;
+            IsPrefetchExhausted = false;
+            if (_videoCache.TryGetValue(vm, out var cacheVideos))
             {
-                if (section.Type == PopularSectionType.Recommend)
+                foreach (var video in cacheVideos)
                 {
-                    await LoadRecommendVideosAsync(generation);
+                    if (generation != _videoGeneration || _cacheAccountGeneration != _account.AccountGeneration) return;
+                    Videos.Add(video);
                 }
-                else if (section.Type == PopularSectionType.Hot)
-                {
-                    await LoadHotVideosAsync(generation);
-                }
-                else if (section.Type == PopularSectionType.Rank && Videos.Count == 0)
-                {
-                    await LoadTotalRankVideosAsync(generation);
-                }
-            }
-            else if (SelectedSection is PopularRankPartitionViewModel partition && Videos.Count == 0)
-            {
-                await LoadPartitionRankVideosAsync(partition.Data, generation);
-            }
 
-            if (IsCurrentVideoGeneration(generation))
-            {
+                if (generation != _videoGeneration || _cacheAccountGeneration != _account.AccountGeneration) return;
+                if (vm is PopularRankPartitionViewModel || vm is PopularSectionItemViewModel { Type: PopularSectionType.Rank })
+                    IsPrefetchExhausted = true;
                 VideoListUpdated?.Invoke(this, EventArgs.Empty);
             }
         }
         finally
         {
-            if (IsCurrentVideoGeneration(generation)
-                && !this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () =>
-                {
-                    if (IsCurrentVideoGeneration(generation))
-                    {
-                        IsVideoLoading = false;
-                    }
-                }))
+            if (generation == _videoGeneration) _isSelectingSection = false;
+        }
+        if (generation == _videoGeneration && Videos.Count == 0) await LoadVideosAsync();
+    }
+
+    [RelayCommand]
+    private Task LoadVideosAsync()
+    {
+        if (IsVideoLoading || _isSelectingSection || _isRefreshing || SelectedSection is null) return Task.CompletedTask;
+        if (_cacheAccountGeneration != _account.AccountGeneration) return RefreshVideoAsync();
+        if (!ReferenceEquals(SelectedSection, _displayedSection)) return Task.CompletedTask;
+        if (Videos.Count > 0 && (SelectedSection is PopularRankPartitionViewModel
+            || SelectedSection is PopularSectionItemViewModel { Type: PopularSectionType.Rank })) return Task.CompletedTask;
+        IsVideoLoading = true;
+        IsAppending = Videos.Count > 0;
+        HasAppendError = false;
+        _videoCancellation = CancellationTokenSource.CreateLinkedTokenSource(_account.AccountCancellationToken);
+        var loadTask = LoadCurrentVideosAsync(_videoGeneration, _account.AccountGeneration, SelectedSection, _videoCancellation);
+        _videoLoadTask = loadTask;
+        return loadTask;
+    }
+
+    private async Task LoadCurrentVideosAsync(long generation, long accountGeneration,
+        IPopularSectionItemViewModel selected, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            if (selected is PopularSectionItemViewModel section)
             {
-                IsVideoLoading = false;
+                if (section.Type == PopularSectionType.Recommend)
+                    await LoadRecommendVideosAsync(generation, accountGeneration, cancellation.Token);
+                else if (section.Type == PopularSectionType.Hot)
+                    await LoadHotVideosAsync(generation, accountGeneration, cancellation.Token);
+                else if (section.Type == PopularSectionType.Rank)
+                    await LoadTotalRankVideosAsync(generation, accountGeneration, cancellation.Token);
             }
+            else if (selected is PopularRankPartitionViewModel partition)
+                await LoadPartitionRankVideosAsync(partition.Data, generation, accountGeneration, cancellation.Token);
+
+            if (!IsCurrentVideoRequest(generation, accountGeneration, cancellation.Token)) return;
+            _videoCache[selected] = Videos.ToList();
+            if (!HasAppendError && (selected is PopularRankPartitionViewModel
+                || selected is PopularSectionItemViewModel { Type: PopularSectionType.Rank })) IsPrefetchExhausted = true;
+            VideoListUpdated?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            if (ReferenceEquals(_videoCancellation, cancellation)) _videoCancellation = null;
+            cancellation.Dispose();
+            IsVideoLoading = false;
+            IsAppending = false;
         }
     }
 
     [RelayCommand]
     private async Task RefreshVideoAsync()
     {
-        if (SelectedSection is null)
+        if (_isRefreshing || _isSelectingSection || SelectedSection is null) return;
+        _isRefreshing = true;
+        var generation = ++_videoGeneration;
+        try
         {
-            return;
-        }
-
-        // Refresh is a new generation even when the selected section is unchanged.
-        ++_videoGeneration;
-        Videos.Clear();
-        _displayedSection = SelectedSection;
-        _videoCache.Remove(SelectedSection);
-        if (SelectedSection is PopularSectionItemViewModel section)
-        {
-            if (section.Type == PopularSectionType.Recommend)
+            var cancellation = _videoCancellation;
+            var loadTask = _videoLoadTask;
+            if (cancellation is not null) await cancellation.CancelAsync();
+            // Reset raw SDK offsets only after its previous physical fetch has completed.
+#pragma warning disable VSTHRD003
+            try { await loadTask; } catch { /* The previous request already reported its failure. */ }
+#pragma warning restore VSTHRD003
+            if (generation != _videoGeneration) return;
+            ResetAccountCacheIfNeeded();
+            Videos.Clear();
+            _videoCache.Remove(SelectedSection);
+            _displayedSection = SelectedSection;
+            HasAppendError = false;
+            IsPrefetchExhausted = false;
+            if (SelectedSection is PopularSectionItemViewModel section)
             {
-                _recommendOffset = 0;
-            }
-            else if (section.Type == PopularSectionType.Hot)
-            {
-                _hotOffset = 0;
+                if (section.Type == PopularSectionType.Recommend) _recommendOffset = 0;
+                else if (section.Type == PopularSectionType.Hot) _hotOffset = 0;
             }
         }
-
-        IsVideoLoading = false;
-        await LoadVideosAsync();
+        finally { _isRefreshing = false; }
+        if (generation == _videoGeneration) await LoadVideosAsync();
     }
 
-    private bool IsCurrentVideoGeneration(long generation) => generation == _videoGeneration;
+    [RelayCommand]
+    private Task RetryAppendAsync() => LoadVideosAsync();
+
+    private bool IsCurrentVideoRequest(long generation, long accountGeneration, CancellationToken token)
+        => !token.IsCancellationRequested && generation == _videoGeneration && accountGeneration == _account.AccountGeneration;
+
+    private void ResetAccountCacheIfNeeded()
+    {
+        if (_cacheAccountGeneration == _account.AccountGeneration) return;
+        _videoCache.Clear();
+        Videos.Clear();
+        _recommendOffset = 0;
+        _hotOffset = 0;
+        _cacheAccountGeneration = _account.AccountGeneration;
+    }
 
     [RelayCommand]
     private async Task PlayCuratedListAsync()

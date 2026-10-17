@@ -9,6 +9,7 @@
     xmlns:ext="using:BiliCopilot.UI.Extensions"
     xmlns:local="using:BiliCopilot.UI.Controls.Components"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <Grid Padding="12" RowSpacing="12">
@@ -30,13 +31,24 @@
             VerticalAlignment="Stretch"
             CornerRadius="{StaticResource ControlCornerRadius}"
             DecodeWidth="600"
-            Source="{x:Bind ViewModel.VideoCover, Mode=OneWay}" />
+            Source="{x:Bind ViewModel.VideoCover, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.SponsorContent.IsBodyVisible, Mode=OneWay}" />
         <base:TrimTextBlock
             Grid.Row="2"
             HorizontalAlignment="Left"
             FontSize="13"
             MaxLines="1"
-            Text="{x:Bind ViewModel.VideoTitle, Mode=OneWay}" />
+            Text="{x:Bind ViewModel.VideoTitle, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.SponsorContent.IsBodyVisible, Mode=OneWay}" />
+        <!--
+            空降助手：推广标记（封面区域）。只标记时是封面左上角的小标签；折叠时占满封面区域并给出“显示内容”，
+            卡片高度不变、不留空洞。放在封面之后以便叠在封面上。
+        -->
+        <sponsor:SponsorContentNotice
+            Grid.Row="1"
+            IsCoverLayout="True"
+            State="{x:Bind ViewModel.SponsorContent, Mode=OneWay}"
+            Surface="Dynamic" />
         <local:MomentItemOperationPanel Grid.Row="3" ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
     </Grid>
 </local:MomentCardPresenter>

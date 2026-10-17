@@ -9,6 +9,7 @@
     xmlns:local="using:BiliCopilot.UI.Controls.Components"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:moment="using:BiliCopilot.UI.Controls.Moment"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <Grid Padding="12">
@@ -53,17 +54,23 @@
                     TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </Grid>
-        <local:EmoteTextBlock
+        <!--  空降助手：推广标记（行内）。折叠时正文与附件一并收起，标记条上可随时“显示内容”。  -->
+        <sponsor:SponsorContentNotice
             Grid.Row="1"
             Margin="0,0,0,12"
-            MaxLines="8"
-            Text="{x:Bind ViewModel.Description, Mode=OneWay}"
-            Visibility="{x:Bind ViewModel.Description, Converter={StaticResource ObjectToVisibilityConverter}, Mode=OneWay}" />
-        <moment:MomentPresenter
-            Grid.Row="2"
-            Margin="0,0,0,12"
-            ViewModel="{x:Bind ViewModel, Mode=OneWay}"
-            Visibility="{x:Bind ViewModel.NoData, Converter={StaticResource BoolToVisibilityReverseConverter}, Mode=OneWay}" />
+            State="{x:Bind ViewModel.SponsorContent, Mode=OneWay}"
+            Surface="Dynamic" />
+        <StackPanel Grid.Row="2" Visibility="{x:Bind ViewModel.SponsorContent.IsBodyVisible, Mode=OneWay}">
+            <local:EmoteTextBlock
+                Margin="0,0,0,12"
+                MaxLines="8"
+                Text="{x:Bind ViewModel.Description, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.Description, Converter={StaticResource ObjectToVisibilityConverter}, Mode=OneWay}" />
+            <moment:MomentPresenter
+                Margin="0,0,0,12"
+                ViewModel="{x:Bind ViewModel, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.NoData, Converter={StaticResource BoolToVisibilityReverseConverter}, Mode=OneWay}" />
+        </StackPanel>
         <local:MomentItemOperationPanel Grid.Row="3" ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
     </Grid>
 </local:MomentCardPresenter>

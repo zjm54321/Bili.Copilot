@@ -1,19 +1,33 @@
-// Copyright (c) Bili Copilot. All rights reserved.
+Ôªø// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.Pages;
 using BiliCopilot.UI.ViewModels.View;
-using CommunityToolkit.WinUI.Animations;
 using Richasy.WinUIKernel.Share.Base;
 
 namespace BiliCopilot.UI.Controls;
 
-public sealed partial class MainFrame : LayoutUserControlBase
+public sealed partial class MainFrame : LayoutUserControlBase, IPageActivationHost
 {
-    public MainFrame() => InitializeComponent();
+    private readonly PageArrivalTransition _transition = new();
+    private bool _isSwitching;
+
+    public MainFrame()
+    {
+        InitializeComponent();
+        ActivationScope = new PageActivationScope();
+        ActivationScope.ActivationChanged += OnActivationChanged;
+        Loaded += OnFrameLoaded;
+        Unloaded += OnFrameUnloaded;
+        RegisterPropertyChangedCallback(VisibilityProperty, OnFrameVisibilityChanged);
+    }
+
+    internal PageActivationScope ActivationScope { get; }
+
+    PageActivationScope IPageActivationHost.ActivationScope => ActivationScope;
 
     public object GetCurrentContent()
     {
-        // ∑µªÿµ±«∞ø…º˚µƒ◊”‘™Àÿ
+        // Returns the currently visible cached page.
         foreach (var child in RootGrid.Children)
         {
             if (child.Visibility == Visibility.Visible)
@@ -32,15 +46,57 @@ public sealed partial class MainFrame : LayoutUserControlBase
             return;
         }
 
+        var previous = GetCurrentContent() as UIElement;
+
+        // An explicit main navigation is a forward step: it supersedes any pending back arrival.
+        ActivationScope.WithdrawMainBackArrival();
+
+        // Restore the prior one-shot and deactivate every page synchronously before selection/collapse.
+        _transition.Cancel();
+        _isSwitching = true;
+        ActivationScope.NotifyChanged();
+
+        UIElement? targetElement;
+        try
+        {
+            targetElement = SelectPage(pageType, parameter);
+        }
+        finally
+        {
+            _isSwitching = false;
+        }
+
+        if (targetElement is not null
+            && !ReferenceEquals(previous, targetElement)
+            && Visibility == Visibility.Visible)
+        {
+            _transition.Start(targetElement, PageArrivalKind.Forward);
+        }
+
+        ActivationScope.NotifyChanged();
+    }
+
+    bool IPageActivationHost.OwnsPage(UIElement page)
+        => RootGrid.Children.Contains(page);
+
+    bool IPageActivationHost.IsPageActive(UIElement page)
+        => IsLoaded
+            && !_isSwitching
+            && Visibility == Visibility.Visible
+            && !ActivationScope.IsMainCovered
+            && page.Visibility == Visibility.Visible
+            && RootGrid.Children.Contains(page);
+
+    private UIElement? SelectPage(Type pageType, object? parameter)
+    {
         UIElement? targetElement = null;
 
-        // ≤È’“ «∑Ò“—¥Ê‘⁄∏√¿‡–Õµƒøÿº˛
+        // Reuse an existing cached page of the same type.
         foreach (var item in RootGrid.Children)
         {
             if (item.GetType() == pageType)
             {
                 targetElement = item;
-                // »Áπ˚ µœ÷¡À IMainFramePage£¨‘Úµ˜”√ SetParameter
                 if (item is IParameterPage mainFramePage)
                 {
                     mainFramePage.SetParameter(parameter);
@@ -55,49 +111,28 @@ public sealed partial class MainFrame : LayoutUserControlBase
 
         if (targetElement == null)
         {
-            // Œ¥’“µΩ£¨¥¥Ω®–¬ µ¿˝
+            // Not cached yet: create the page instance once.
             var instance = Activator.CreateInstance(pageType);
             if (instance is UIElement element)
             {
                 targetElement = element;
-                // »Áπ˚ µœ÷¡À IMainFramePage£¨‘Úµ˜”√ SetParameter
                 if (element is IParameterPage mainFramePage)
                 {
                     mainFramePage.SetParameter(parameter);
                 }
 
-                var showOpacityAnimation = new OpacityAnimation
-                {
-                    Duration = TimeSpan.FromMilliseconds(200),
-                    From = 0,
-                    To = 1,
-                };
-                var hideOpacityAnimation = new OpacityAnimation
-                {
-                    Duration = TimeSpan.FromMilliseconds(100),
-                    From = 1,
-                    To = 0,
-                };
-                var showSet = new ImplicitAnimationSet
-                {
-                    showOpacityAnimation
-                };
-                var hideSet = new ImplicitAnimationSet
-                {
-                    hideOpacityAnimation
-                };
-                Implicit.SetShowAnimations(element, showSet);
-                Implicit.SetHideAnimations(element, hideSet);
+                // Arrival motion is owned by PageArrivalTransition; no implicit show/hide animations
+                // are attached so there is a single opacity writer.
                 RootGrid.Children.Add(element);
             }
             else
             {
-                // ¿‡–Õ≤ª « UIElement£¨÷±Ω”∑µªÿ
-                return;
+                // Not a UIElement: nothing to show.
+                return null;
             }
         }
 
-        // …Ë÷√ø…º˚–‘
+        // Visibility selection remains authoritative.
         foreach (var child in RootGrid.Children)
         {
             child.Visibility = child == targetElement ? Visibility.Visible : Visibility.Collapsed;
@@ -106,5 +141,56 @@ public sealed partial class MainFrame : LayoutUserControlBase
                 cancelPageViewModel.CancelLoading();
             }
         }
+
+        return targetElement;
+    }
+
+    private void OnFrameLoaded(object sender, RoutedEventArgs e)
+    {
+        _transition.Attach(DispatcherQueue);
+        ActivationScope.NotifyChanged();
+    }
+
+    private void OnFrameUnloaded(object sender, RoutedEventArgs e)
+    {
+        ActivationScope.WithdrawMainBackArrival();
+        _transition.Detach();
+        ActivationScope.NotifyChanged();
+    }
+
+    /// <summary>
+    /// Consumes the overlay's one-shot back-arrival intent only at the moment the selected
+    /// main page is actually visible and uncovered. Hidden pages are never animated.
+    /// </summary>
+    private void OnActivationChanged(object? sender, EventArgs e)
+    {
+        if (!ActivationScope.IsMainBackArrivalPending || _isSwitching)
+        {
+            return;
+        }
+
+        if (GetCurrentContent() is not UIElement page)
+        {
+            // Nothing to arrive at; drop the intent so it cannot fire on a later unrelated show.
+            ActivationScope.WithdrawMainBackArrival();
+            return;
+        }
+
+        if (((IPageActivationHost)this).IsPageActive(page) && ActivationScope.TryConsumeMainBackArrival())
+        {
+            // Back arrival is fade-only, same source curve as overlay back steps.
+            _transition.Start(page, PageArrivalKind.Back);
+        }
+    }
+
+    private void OnFrameVisibilityChanged(DependencyObject sender, DependencyProperty dp)
+    {
+        if (Visibility != Visibility.Visible)
+        {
+            // Never keep animating a hidden frame.
+            _transition.Cancel();
+        }
+
+        ActivationScope.NotifyChanged();
     }
 }

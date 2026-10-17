@@ -16,7 +16,10 @@ public sealed partial class EntertainmentIndexViewModel
 {
     private readonly IEntertainmentDiscoveryService _service;
     private readonly ILogger<EntertainmentIndexViewModel> _logger;
-    private int _pageNumer;
+
+    // B 站索引接口页码从 1 开始；page=0 返回空 data，SDK 会抛“无法获取到有效的剧集列表”.
+    private int _pageNumer = 1;
+    private bool _hasMoreSeasons = true;
 
     [ObservableProperty]
     private List<IndexFilterViewModel>? _filters;

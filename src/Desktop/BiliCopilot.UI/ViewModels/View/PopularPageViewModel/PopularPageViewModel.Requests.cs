@@ -13,76 +13,70 @@ namespace BiliCopilot.UI.ViewModels.View;
 /// </summary>
 public sealed partial class PopularPageViewModel
 {
-    private async Task LoadRecommendVideosAsync(long generation)
+    private async Task LoadRecommendVideosAsync(long generation, long accountGeneration, CancellationToken token)
     {
         try
         {
-            var (videos, nextOffset) = await _service.GetRecommendVideoListAsync(_recommendOffset);
-            if (!IsCurrentVideoGeneration(generation))
-            {
-                return;
-            }
-
+            var (videos, nextOffset) = await _service.GetRecommendVideoListAsync(_recommendOffset, token);
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
             _recommendOffset = nextOffset;
-            TryAddVideos(videos, VideoCardStyle.Recommend);
+            TryAddVideos(videos, VideoCardStyle.Recommend, generation, accountGeneration, token);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            HasAppendError = true;
             _logger.LogError(ex, "尝试加载推荐视频时出错.");
         }
     }
 
-    private async Task LoadHotVideosAsync(long generation)
+    private async Task LoadHotVideosAsync(long generation, long accountGeneration, CancellationToken token)
     {
         try
         {
-            var (videos, nextOffset) = await _service.GetHotVideoListAsync(_hotOffset);
-            if (!IsCurrentVideoGeneration(generation))
-            {
-                return;
-            }
-
+            var (videos, nextOffset) = await _service.GetHotVideoListAsync(_hotOffset, token);
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
             _hotOffset = nextOffset;
-            TryAddVideos(videos, VideoCardStyle.Hot);
+            TryAddVideos(videos, VideoCardStyle.Hot, generation, accountGeneration, token);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            HasAppendError = true;
             _logger.LogError(ex, "尝试加载热门视频时出错.");
         }
     }
 
-    private async Task LoadTotalRankVideosAsync(long generation)
+    private async Task LoadTotalRankVideosAsync(long generation, long accountGeneration, CancellationToken token)
     {
         try
         {
             var videos = await _service.GetGlobalRankingListAsync();
-            if (!IsCurrentVideoGeneration(generation))
-            {
-                return;
-            }
-
-            TryAddVideos(videos, VideoCardStyle.Rank);
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            TryAddVideos(videos, VideoCardStyle.Rank, generation, accountGeneration, token);
         }
         catch (Exception ex)
         {
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            HasAppendError = true;
             _logger.LogError(ex, "尝试加载全站排行榜视频时出错.");
         }
     }
 
-    private async Task LoadPartitionRankVideosAsync(Partition partition, long generation)
+    private async Task LoadPartitionRankVideosAsync(Partition partition, long generation, long accountGeneration, CancellationToken token)
     {
         try
         {
             var videos = await _service.GetPartitionRankingListAsync(partition);
-            if (!IsCurrentVideoGeneration(generation))
-            {
-                return;
-            }
-
-            TryAddVideos(videos, VideoCardStyle.Rank);
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            TryAddVideos(videos, VideoCardStyle.Rank, generation, accountGeneration, token);
         }
         catch (Exception ex)
         {
+            if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+            HasAppendError = true;
             _logger.LogError(ex, $"尝试加载 {partition.Name} 分区排行榜视频时出错.");
         }
     }
@@ -111,13 +105,18 @@ public sealed partial class PopularPageViewModel
         IsPartitionLoading = false;
     }
 
-    private void TryAddVideos(IReadOnlyList<VideoInformation> videos, VideoCardStyle style)
+    private void TryAddVideos(IReadOnlyList<VideoInformation> videos, VideoCardStyle style,
+        long generation, long accountGeneration, CancellationToken token)
     {
         if (videos is not null)
         {
             foreach (var item in videos)
             {
-                Videos.Add(new VideoItemViewModel(item, style));
+                if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+                if (Videos.Any(video => video.Data.Identifier.Id == item.Identifier.Id)) continue;
+                var card = new VideoItemViewModel(item, style);
+                if (!IsCurrentVideoRequest(generation, accountGeneration, token)) return;
+                Videos.Add(card);
             }
         }
     }

@@ -24,9 +24,11 @@ public sealed partial class VideoSearchSectionDetailViewModel
     private bool _isPreventLoadMore;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAttemptLoadMore))]
     private bool _isEmpty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAttemptLoadMore))]
     private bool _isLoading;
 
     [ObservableProperty]
@@ -47,4 +49,8 @@ public sealed partial class VideoSearchSectionDetailViewModel
     /// 条目列表.
     /// </summary>
     public ObservableCollection<VideoItemViewModel> Items { get; } = new();
+
+    /// <summary>原加载命令的当前准入条件；仅允许尝试，不保证服务器还有结果。</summary>
+    public bool CanAttemptLoadMore
+        => _canRequest && !IsEmpty && !_isPreventLoadMore && !IsLoading && _currentPage is not null;
 }

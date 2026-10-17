@@ -23,10 +23,26 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     private NavigationView _navigationView;
     private MainFrame? _navFrame;
     private OverlayFrame? _overFrame;
+    private long _navigationSequence;
 
     /// <summary>Observable completion/failure for the legacy void navigation interface.</summary>
     public Task LastNavigationTask { get; private set; } = Task.CompletedTask;
     public Exception? LastNavigationError { get; private set; }
+
+    /// <summary>Start the optional selected command and snapshot the actual initial navigation barrier.</summary>
+    internal Task NavigateInitialAsync(Action? selectAndNavigate)
+    {
+        if (selectAndNavigate is not null)
+        {
+            var previous = _navigationSequence;
+            selectAndNavigate();
+            if (previous == _navigationSequence)
+                throw new InvalidOperationException("Initial navigation did not enqueue an operation.");
+        }
+        // No completion wrapper: the producer's real close/navigation failure reaches the root.
+        var navigation = LastNavigationTask;
+        return navigation;
+    }
 
     public void NavigateTo(Type pageType, object? parameter = null) => QueueNavigation(() => NavigateToCore(pageType, parameter));
     public void NavigateToOver(Type pageType, object? parameter = null) => QueueNavigation(() => NavigateToOverCore(pageType, parameter));
@@ -42,6 +58,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     {
         var previous = LastNavigationTask;
         var close = this.Get<AppViewModel>().CloseEmbeddedPlayerAsync();
+        _navigationSequence++;
         LastNavigationTask = NavigateAfterCloseAsync(previous, close, navigate);
         OnPropertyChanged(nameof(LastNavigationTask));
         _ = ObserveNavigationAsync(LastNavigationTask);

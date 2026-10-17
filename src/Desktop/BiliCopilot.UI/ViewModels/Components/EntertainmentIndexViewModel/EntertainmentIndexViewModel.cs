@@ -68,7 +68,8 @@ public sealed partial class EntertainmentIndexViewModel : ViewModelBase, IPgcSec
     [RelayCommand]
     private Task Refresh()
     {
-        _pageNumer = 0;
+        _pageNumer = 1;
+        _hasMoreSeasons = true;
         this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
         {
             Items.Clear();
@@ -82,7 +83,7 @@ public sealed partial class EntertainmentIndexViewModel : ViewModelBase, IPgcSec
     [RelayCommand]
     private async Task RequestIndexAsync()
     {
-        if (Filters is null || Filters.Count == 0 || IsSeasonLoading)
+        if (Filters is null || Filters.Count == 0 || IsSeasonLoading || !_hasMoreSeasons)
         {
             return;
         }
@@ -99,6 +100,7 @@ public sealed partial class EntertainmentIndexViewModel : ViewModelBase, IPgcSec
                     Items.Add(new SeasonItemViewModel(item, SeasonCardStyle.Index));
                 }
 
+                _hasMoreSeasons = hasNext;
                 if (hasNext)
                 {
                     _pageNumer++;
@@ -119,7 +121,8 @@ public sealed partial class EntertainmentIndexViewModel : ViewModelBase, IPgcSec
 
     private void RequestForConditionChanged()
     {
-        _pageNumer = 0;
+        _pageNumer = 1;
+        _hasMoreSeasons = true;
         this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             Items.Clear();

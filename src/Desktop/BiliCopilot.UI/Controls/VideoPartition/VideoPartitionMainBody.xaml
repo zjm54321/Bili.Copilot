@@ -8,6 +8,7 @@
     xmlns:controls="using:BiliCopilot.UI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:ic="using:FluentIcons.WinUI"
     xmlns:items="using:BiliCopilot.UI.ViewModels.Items"
     xmlns:local="using:BiliCopilot.UI.Controls.VideoPartition"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -15,16 +16,20 @@
     mc:Ignorable="d">
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadVideosCommand, Mode=OneWay}">
+        <controls:IncrementVerticalScrollControl x:Name="View" ScrollPadding="16,0" LoadMoreCommand="{x:Bind ViewModel.LoadVideosCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
-                <Grid Margin="0,16">
+                <Grid Margin="0,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <repeater:AppRepeater
                         x:Name="VideoRepeater"
-                        ItemsSource="{x:Bind ViewModel.Videos, Mode=OneWay}"
+                        ItemsSource="{x:Bind CategorySource.VisibleItems, Mode=OneTime}"
                         Layout="{StaticResource VideoLayout}">
                         <repeater:AppRepeater.ItemTemplate>
                             <DataTemplate x:DataType="items:VideoItemViewModel">
-                                <components:VideoCardControl Style="{StaticResource PartitionVideoCardStyle}" ViewModel="{x:Bind}" />
+                                <components:VideoCardControl Style="{StaticResource PartitionVideoCardStyle}" ViewModel="{x:Bind}" controls:VideoCategorySource.ItemRow="{x:Bind}" />
                             </DataTemplate>
                         </repeater:AppRepeater.ItemTemplate>
                     </repeater:AppRepeater>

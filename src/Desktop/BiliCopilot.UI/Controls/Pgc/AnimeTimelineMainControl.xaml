@@ -19,7 +19,7 @@
             x:Name="View"
             Padding="16,0"
             Style="{StaticResource PageScrollViewerStyle}">
-            <Grid Margin="0,16">
+            <Grid Margin="0,12">
                 <repeater:AppRepeater
                     x:Name="SeasonRepeater"
                     ItemsSource="{x:Bind ViewModel.SelectedTimeline.Items, Mode=OneWay}"

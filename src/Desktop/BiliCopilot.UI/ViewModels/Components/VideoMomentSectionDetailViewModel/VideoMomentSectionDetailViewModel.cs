@@ -23,132 +23,118 @@ public sealed partial class VideoMomentSectionDetailViewModel : ViewModelBase, I
     {
         _service = service;
         _logger = this.Get<ILogger<VideoMomentSectionDetailViewModel>>();
+        _account = this.Get<AccountViewModel>();
+        _accountGeneration = _account.AccountGeneration;
     }
 
     [RelayCommand]
-    private Task InitializeAsync()
+    private async Task InitializeAsync()
     {
-        if (!_loadTask.IsCompleted)
+        if (_accountGeneration == _account.AccountGeneration && (Items.Count > 0 || _preventLoadMore))
         {
-            // Join the prepublished load/refresh owner, including ID saving; this caller holds no gate and is not its prerequisite.
-#pragma warning disable VSTHRD003
-            return _loadTask;
-#pragma warning restore VSTHRD003
+            return;
         }
 
-        if (Items.Count > 0 || IsEmpty || _preventLoadMore)
-        {
-            return Task.CompletedTask;
-        }
-
-        return StartLoad(refresh: false, saveIds: true);
+        await LoadItemsAsync();
     }
 
     [RelayCommand]
-    private Task RefreshAsync()
-        => !_refreshTask.IsCompleted ? _refreshTask : StartLoad(refresh: true, saveIds: true);
+    private async Task RefreshAsync()
+    {
+        if (_isRefreshing) return;
+        _isRefreshing = true;
+        try
+        {
+            var cancellation = _requestCancellation;
+            var loadTask = _loadTask;
+            if (cancellation is not null) await cancellation.CancelAsync();
+#pragma warning disable VSTHRD003
+            await loadTask; // The actual physical request, not a canceled waiter.
+#pragma warning restore VSTHRD003
+            ResetItems();
+        }
+        finally { _isRefreshing = false; }
+        await LoadItemsAsync();
+    }
 
     [RelayCommand]
     private Task LoadItemsAsync()
     {
-        if (!_loadTask.IsCompleted)
-        {
-            // Paging joins the full prepublished refresh instead of overtaking it; no gate or owner dependency is introduced.
-#pragma warning disable VSTHRD003
-            return _loadTask;
-#pragma warning restore VSTHRD003
-        }
-
-        return IsEmpty || _preventLoadMore
-            ? Task.CompletedTask
-            : StartLoad(refresh: false, saveIds: false);
+        if (IsLoading || _isRefreshing) return Task.CompletedTask;
+        if (_accountGeneration != _account.AccountGeneration) ResetItems();
+        if (IsEmpty || _preventLoadMore) return Task.CompletedTask;
+        IsLoading = true;
+        IsAppending = Items.Count > 0;
+        HasAppendError = false;
+        _requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_account.AccountCancellationToken);
+        var loadTask = FetchItemsAsync(_accountGeneration, _requestCancellation);
+        _loadTask = loadTask;
+        return loadTask;
     }
 
-    private Task StartLoad(bool refresh, bool saveIds)
+    private async Task FetchItemsAsync(long generation, CancellationTokenSource cancellation)
     {
-        var previousLoad = _loadTask;
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        // UI-thread commands reserve the slot before notifications can re-enter.
-        // Pagination/initialization join a pending refresh instead of overtaking it.
-        _loadTask = completion.Task;
-        if (refresh)
-        {
-            _refreshTask = completion.Task;
-        }
-
-        _ = CompleteLoadAsync(previousLoad, completion, refresh, saveIds);
-        return completion.Task;
-    }
-
-    private async Task CompleteLoadAsync(Task previousLoad, TaskCompletionSource completion, bool refresh, bool saveIds)
-    {
+        var token = cancellation.Token;
+        var first = Items.Count == 0;
         try
         {
-            try
-            {
-                // The predecessor was captured before publishing this slot; hold no gate and drain it before reset/new-page work.
-#pragma warning disable VSTHRD003
-                await previousLoad;
-#pragma warning restore VSTHRD003
-            }
-            catch
-            {
-                // Prior callers observe their failure; refreshing must remain retryable.
-            }
-
-            if (refresh)
-            {
-                _offset = default;
-                _baseline = default;
-                IsEmpty = false;
-                _preventLoadMore = false;
-                Items.Clear();
-            }
-
-            await LoadItemsCoreAsync();
-            if (saveIds)
-            {
-                SaveLastTenMomentIds();
-            }
-
-            completion.SetResult();
-        }
-        catch (Exception ex)
-        {
-            completion.SetException(ex);
-        }
-    }
-
-    private async Task LoadItemsCoreAsync()
-    {
-        try
-        {
-            IsLoading = true;
-            var view = await _service.GetVideoMomentsAsync(_offset, _baseline);
+            var view = await _service.GetVideoMomentsAsync(_offset, _baseline, token);
+            if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
             if (view is not null)
             {
                 _offset = view.Offset;
                 _baseline = view.UpdateBaseline;
                 _preventLoadMore = view.HasMoreMoments != true;
+                IsPrefetchExhausted = _preventLoadMore;
                 foreach (var item in view.Moments.Select(p => new MomentItemViewModel(p, Models.Constants.MomentCardStyle.Video, ShowComment)))
                 {
+                    if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
+                    if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
                     Items.Add(item);
                 }
 
+                if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
+                if (first) SaveLastTenMomentIds();
                 ListUpdated?.Invoke(this, EventArgs.Empty);
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
             _preventLoadMore = true;
+            HasAppendError = true;
             _logger.LogError(ex, "加载动态列表失败.");
         }
         finally
         {
-            IsEmpty = Items.Count == 0;
+            if (!token.IsCancellationRequested && generation == _account.AccountGeneration) IsEmpty = Items.Count == 0;
+            if (ReferenceEquals(_requestCancellation, cancellation)) _requestCancellation = null;
+            cancellation.Dispose();
+            IsAppending = false;
             IsLoading = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task RetryAppendAsync()
+    {
+        if (IsLoading || _isRefreshing || !HasAppendError) return;
+        _preventLoadMore = false;
+        IsEmpty = false;
+        await LoadItemsAsync();
+    }
+
+    private void ResetItems()
+    {
+        _accountGeneration = _account.AccountGeneration;
+        _offset = default;
+        _baseline = default;
+        _preventLoadMore = false;
+        IsEmpty = false;
+        HasAppendError = false;
+        IsPrefetchExhausted = false;
+        Items.Clear();
     }
 
     private void ShowComment(MomentItemViewModel item)

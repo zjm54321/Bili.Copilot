@@ -15,26 +15,48 @@
     mc:Ignorable="d">
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadItemsCommand, Mode=OneWay}" RefreshCommand="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}">
+        <controls:IncrementVerticalScrollControl x:Name="View" ScrollPadding="16,0" LoadMoreCommand="{x:Bind ViewModel.LoadItemsCommand, Mode=OneWay}" RefreshCommand="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
                 <Grid Margin="0,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <repeater:AppRepeater
                         x:Name="MomentRepeater"
-                        ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}">
-                        <repeater:AppRepeater.Layout>
-                            <UniformGridLayout
-                                ItemsStretch="Fill"
-                                MinColumnSpacing="16"
-                                MinItemHeight="292"
-                                MinItemWidth="240"
-                                MinRowSpacing="16" />
-                        </repeater:AppRepeater.Layout>
+                        ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+                        Layout="{StaticResource MomentLayout}">
                         <repeater:AppRepeater.ItemTemplate>
                             <DataTemplate x:DataType="items:MomentItemViewModel">
                                 <components:MomentCardControl Style="{StaticResource VideoMomentCardStyle}" ViewModel="{x:Bind}" />
                             </DataTemplate>
                         </repeater:AppRepeater.ItemTemplate>
                     </repeater:AppRepeater>
+                    <!--  追加页脚：失败时可显式重试；到底时安静提示  -->
+                    <Grid Grid.Row="1" HorizontalAlignment="Center">
+                        <StackPanel
+                            Margin="0,12,0,0"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Visibility="{x:Bind controls:IncrementVerticalScrollControl.AppendErrorFooterVisibility(ViewModel.HasAppendError, ViewModel.IsAppending), Mode=OneWay}">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="{ext:Locale Name=LoadMoreFailed}" />
+                            <HyperlinkButton
+                                Padding="4,2"
+                                VerticalAlignment="Center"
+                                Command="{x:Bind ViewModel.RetryAppendCommand, Mode=OneWay}"
+                                Content="{ext:Locale Name=Retry}" />
+                        </StackPanel>
+                        <TextBlock
+                            Margin="0,12,0,0"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{ext:Locale Name=NoMoreContent}"
+                            Visibility="{x:Bind controls:IncrementVerticalScrollControl.ExhaustedFooterVisibility(ViewModel.IsPrefetchExhausted, ViewModel.HasAppendError, ViewModel.IsAppending, ViewModel.Items.Count), Mode=OneWay}" />
+                    </Grid>
                 </Grid>
             </controls:IncrementVerticalScrollControl.Element>
         </controls:IncrementVerticalScrollControl>

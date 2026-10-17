@@ -12,6 +12,7 @@ using Richasy.WinUIKernel.Share.Toolkits;
 using Richasy.WinUIKernel.Share.ViewModels;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Windows.ApplicationModel.Core;
 using Windows.Storage;
 using Windows.System;
 using WinUIEx;
@@ -46,10 +47,37 @@ public sealed partial class AppViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private static void Restart()
+    private Task RestartAsync()
+        => RestartAfterPlaybackShutdownAsync(
+            () => Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().UnregisterKey(),
+            Microsoft.Windows.AppLifecycle.AppInstance.Restart);
+
+    // Same-assembly delegate seam permits deferred source cases without invoking a native restart.
+    internal async Task RestartAfterPlaybackShutdownAsync(Action beforeRestart,
+        Func<string, AppRestartFailureReason> restart)
     {
-        Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().UnregisterKey();
-        Microsoft.Windows.AppLifecycle.AppInstance.Restart(default);
+        if (!await PreparePlaybackShutdownAsync()) return;
+        await DrainPlaybackTerminationNoticesAsync();
+        var reservation = TryClaimPlaybackTermination();
+        if (reservation is null) return;
+        var restartCallEntered = false;
+        try
+        {
+            beforeRestart();
+            restartCallEntered = true; // Invocation boundary, NOT a success/acceptance flag.
+            var reason = restart(string.Empty);
+            if (reason is AppRestartFailureReason.NotInForeground
+                or AppRestartFailureReason.InvalidUser or AppRestartFailureReason.Other)
+                ReleasePlaybackTermination(reservation);
+            // No enum value is success. RestartPending and unknown values retain exclusion.
+            ReportLiveFailure();
+        }
+        catch
+        {
+            // No documented exception type proves Restart did not commit once its call was entered.
+            if (!restartCallEntered) ReleasePlaybackTermination(reservation);
+            ReportLiveFailure();
+        }
     }
 
     [RelayCommand]
@@ -80,7 +108,9 @@ public sealed partial class AppViewModel : ViewModelBase
         if (_tokenResolver.GetToken() is not null)
         {
             IsInitialLoading = true;
-            new MainWindow().Activate();
+            var mainWindow = new MainWindow();
+            BindSponsorMainWindow(mainWindow);
+            mainWindow.Activate();
             InitializeExternalCommand.Execute(default);
         }
         else
@@ -94,7 +124,7 @@ public sealed partial class AppViewModel : ViewModelBase
     {
         foreach (var window in Windows)
         {
-            (window.Content as FrameworkElement).RequestedTheme = theme;
+            if (window.Content is FrameworkElement root) root.RequestedTheme = theme;
         }
 
         foreach (var player in Players)

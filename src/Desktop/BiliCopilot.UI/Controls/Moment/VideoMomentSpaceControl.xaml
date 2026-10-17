@@ -15,20 +15,13 @@
     mc:Ignorable="d">
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.LoadItemsCommand, Mode=OneWay}">
+        <controls:IncrementVerticalScrollControl x:Name="View" ScrollPadding="16,0" LoadMoreCommand="{x:Bind ViewModel.LoadItemsCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
                 <Grid Margin="0,12">
                     <repeater:AppRepeater
                         x:Name="MomentRepeater"
-                        ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}">
-                        <repeater:AppRepeater.Layout>
-                            <UniformGridLayout
-                                ItemsStretch="Fill"
-                                MinColumnSpacing="16"
-                                MinItemHeight="292"
-                                MinItemWidth="240"
-                                MinRowSpacing="16" />
-                        </repeater:AppRepeater.Layout>
+                        ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+                        Layout="{StaticResource MomentLayout}">
                         <repeater:AppRepeater.ItemTemplate>
                             <DataTemplate x:DataType="items:MomentItemViewModel">
                                 <components:MomentCardControl Style="{StaticResource PersonalVideoMomentCardStyle}" ViewModel="{x:Bind}" />

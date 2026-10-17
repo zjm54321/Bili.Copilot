@@ -35,9 +35,11 @@ public sealed partial class VideoPartitionDetailViewModel
     private bool _isRecommend;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAttemptLoadMore))]
     private bool _isVideoLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAttemptLoadMore))]
     private PartitionViewModel _currentPartition;
 
     /// <summary>
@@ -54,4 +56,7 @@ public sealed partial class VideoPartitionDetailViewModel
     /// 显示的视频列表.
     /// </summary>
     public ObservableCollection<VideoItemViewModel> Videos { get; } = new();
+
+    /// <summary>已选择分区且未加载时可尝试；现有 VM 未记录结束或错误停止状态，不代表服务器还有内容。</summary>
+    public bool CanAttemptLoadMore => CurrentPartition is not null && !IsVideoLoading;
 }

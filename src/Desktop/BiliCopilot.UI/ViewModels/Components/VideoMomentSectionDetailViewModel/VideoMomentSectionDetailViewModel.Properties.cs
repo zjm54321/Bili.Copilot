@@ -17,12 +17,23 @@ public sealed partial class VideoMomentSectionDetailViewModel
     private readonly IMomentDiscoveryService _service;
     private readonly ILogger<VideoMomentSectionDetailViewModel> _logger;
 
-    private Task _loadTask = Task.CompletedTask;
-    private Task _refreshTask = Task.CompletedTask;
-
     private bool _preventLoadMore;
     private string? _offset;
     private string? _baseline;
+    private readonly AccountViewModel _account;
+    private long _accountGeneration;
+    private CancellationTokenSource? _requestCancellation;
+    private Task _loadTask = Task.CompletedTask;
+    private bool _isRefreshing;
+
+    [ObservableProperty]
+    private bool _isAppending;
+
+    [ObservableProperty]
+    private bool _hasAppendError;
+
+    [ObservableProperty]
+    private bool _isPrefetchExhausted;
 
     [ObservableProperty]
     private bool _isEmpty;

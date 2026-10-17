@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.Items;
+using BiliCopilot.UI.ViewModels.Components;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.Media;
@@ -19,8 +20,23 @@ public sealed partial class PopularPageViewModel
 
     private long _recommendOffset;
     private long _hotOffset;
+    private readonly AccountViewModel _account;
+    private long _cacheAccountGeneration;
     private long _videoGeneration;
     private IPopularSectionItemViewModel? _displayedSection;
+    private Task _videoLoadTask = Task.CompletedTask;
+    private CancellationTokenSource? _videoCancellation;
+    private bool _isSelectingSection;
+    private bool _isRefreshing;
+
+    [ObservableProperty]
+    private bool _isAppending;
+
+    [ObservableProperty]
+    private bool _hasAppendError;
+
+    [ObservableProperty]
+    private bool _isPrefetchExhausted;
 
     [ObservableProperty]
     private bool _isPartitionLoading;

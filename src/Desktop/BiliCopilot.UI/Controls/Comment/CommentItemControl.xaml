@@ -11,6 +11,7 @@
     xmlns:ic="using:FluentIcons.WinUI"
     xmlns:local="using:BiliCopilot.UI.Controls.Comment"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -101,12 +102,18 @@
                     Text="{x:Bind ViewModel.RelativeTime, Mode=OneWay}"
                     ToolTipService.ToolTip="{x:Bind ViewModel.ActualTime, Mode=OneWay}" />
             </Grid>
-            <Grid Grid.Row="1">
+            <StackPanel Grid.Row="1" Spacing="6">
+                <!--
+                    空降助手：推广标记。评论 / 回复由所在面板通过 SponsorSurface 明确告知；未告知时不判断、不显示。
+                    折叠只收起正文（作者、时间、点赞、回复按钮保留），标记条上可随时“显示内容”。
+                -->
+                <sponsor:SponsorContentNotice State="{x:Bind ViewModel.SponsorContent, Mode=OneWay}" Surface="{x:Bind SponsorSurface, Mode=OneWay}" />
                 <comp:EmoteTextBlock
                     x:Name="ReplyContentBlock"
                     HorizontalAlignment="Left"
-                    Text="{x:Bind ViewModel.Content, Mode=OneWay}" />
-            </Grid>
+                    Text="{x:Bind ViewModel.Content, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.SponsorContent.IsBodyVisible, Mode=OneWay}" />
+            </StackPanel>
             <Grid Grid.Row="2" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -118,12 +125,15 @@
                     Grid.Column="1"
                     HorizontalAlignment="Left"
                     Visibility="{x:Bind ViewModel.ChildCount, Converter={StaticResource ObjectToVisibilityConverter}, Mode=OneWay}">
-                    <HyperlinkButton
-                        x:Name="MoreButton"
-                        Command="{x:Bind ShowMoreCommand, Mode=OneWay}"
-                        Visibility="{x:Bind IsMoreEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock FontSize="12" Text="{x:Bind ViewModel.ChildCount, Converter={StaticResource ChildCommentTextConverter}, Mode=OneWay}" />
-                    </HyperlinkButton>
+                    <!--  空降助手：回复被收起时隐藏回复入口（标记条上有“显示回复”）  -->
+                    <Border Visibility="{x:Bind ViewModel.SponsorContent.AreRepliesVisible, Mode=OneWay}">
+                        <HyperlinkButton
+                            x:Name="MoreButton"
+                            Command="{x:Bind ShowMoreCommand, Mode=OneWay}"
+                            Visibility="{x:Bind IsMoreEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock FontSize="12" Text="{x:Bind ViewModel.ChildCount, Converter={StaticResource ChildCommentTextConverter}, Mode=OneWay}" />
+                        </HyperlinkButton>
+                    </Border>
                 </StackPanel>
                 <Button
                     x:Name="ReplyButton"

@@ -64,39 +64,39 @@
 
             <UniformGridLayout
                 x:Key="VideoLayout"
-                ItemsStretch="Uniform"
-                MinColumnSpacing="20"
-                MinItemHeight="238"
-                MinItemWidth="232"
-                MinRowSpacing="20" />
+                ItemsStretch="Fill"
+                MinColumnSpacing="16"
+                MinItemHeight="240"
+                MinItemWidth="200"
+                MinRowSpacing="16" />
 
             <UniformGridLayout
                 x:Key="PgcLayout"
-                ItemsStretch="Uniform"
-                MinColumnSpacing="20"
-                MinItemHeight="280"
+                ItemsStretch="Fill"
+                MinColumnSpacing="16"
+                MinItemHeight="266"
                 MinItemWidth="148"
-                MinRowSpacing="24" />
+                MinRowSpacing="16" />
 
             <UniformGridLayout
                 x:Key="LiveLayout"
-                ItemsStretch="Uniform"
-                MinColumnSpacing="20"
+                ItemsStretch="Fill"
+                MinColumnSpacing="16"
                 MinItemHeight="200"
-                MinItemWidth="220"
-                MinRowSpacing="20" />
+                MinItemWidth="200"
+                MinRowSpacing="16" />
 
             <UniformGridLayout
                 x:Key="ArticleLayout"
-                ItemsStretch="Uniform"
-                MinColumnSpacing="20"
-                MinItemHeight="220"
-                MinItemWidth="220"
-                MinRowSpacing="20" />
+                ItemsStretch="Fill"
+                MinColumnSpacing="16"
+                MinItemHeight="200"
+                MinItemWidth="200"
+                MinRowSpacing="16" />
 
             <UniformGridLayout
                 x:Key="UserLayout"
-                ItemsStretch="Uniform"
+                ItemsStretch="Fill"
                 MinColumnSpacing="16"
                 MinItemHeight="84"
                 MinItemWidth="220"
@@ -104,11 +104,11 @@
 
             <UniformGridLayout
                 x:Key="MomentLayout"
-                ItemsStretch="Uniform"
-                MinColumnSpacing="20"
-                MinItemHeight="280"
-                MinItemWidth="260"
-                MinRowSpacing="20" />
+                ItemsStretch="Fill"
+                MinColumnSpacing="16"
+                MinItemHeight="292"
+                MinItemWidth="240"
+                MinRowSpacing="16" />
 
         </ResourceDictionary>
     </Application.Resources>

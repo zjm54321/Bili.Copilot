@@ -16,9 +16,11 @@ public sealed partial class ComprehensiveMomentSectionDetailViewModel
 {
     private readonly IMomentDiscoveryService _service;
     private readonly ILogger<VideoMomentSectionDetailViewModel> _logger;
-    private Task _operationTask = Task.CompletedTask;
-    private Task _refreshTask = Task.CompletedTask;
+    private readonly AccountViewModel _account;
+    private long _accountGeneration;
+    private long _selectionGeneration;
     private bool _isRebuilding;
+    private bool _isRefreshing;
 
     [ObservableProperty]
     private bool _isEmpty;

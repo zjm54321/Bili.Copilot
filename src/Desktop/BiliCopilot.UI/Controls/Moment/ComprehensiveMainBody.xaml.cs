@@ -9,38 +9,35 @@ namespace BiliCopilot.UI.Controls.Moment;
 /// </summary>
 public sealed partial class ComprehensiveMainBody : MomentUperSectionControlBase
 {
+    private MomentUperSectionViewModel? _observed;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ComprehensiveMainBody"/> class.
     /// </summary>
-    public ComprehensiveMainBody() => InitializeComponent();
-
-    /// <inheritdoc/>
-    protected override void OnControlUnloaded()
+    public ComprehensiveMainBody()
     {
-        if (ViewModel is not null)
-        {
-            ViewModel.ListUpdated -= OnListUpdatedAsync;
-        }
+        InitializeComponent();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
+
+    private void OnLoaded(object sender, RoutedEventArgs args) => BindModel(ViewModel);
+    private void OnUnloaded(object sender, RoutedEventArgs args) => BindModel(null);
 
     /// <inheritdoc/>
     protected override void OnViewModelChanged(MomentUperSectionViewModel? oldValue, MomentUperSectionViewModel? newValue)
+        => BindModel(newValue);
+
+    private void BindModel(MomentUperSectionViewModel? model)
     {
-        if (oldValue is not null)
-        {
-            oldValue.ListUpdated -= OnListUpdatedAsync;
-        }
-
-        if (newValue is null)
-        {
-            return;
-        }
-
-        newValue.ListUpdated += OnListUpdatedAsync;
+        if (_observed is not null) _observed.ListUpdated -= OnListUpdatedAsync;
+        _observed = IsLoaded ? model : null;
+        if (_observed is not null) _observed.ListUpdated += OnListUpdatedAsync;
     }
 
     private async void OnListUpdatedAsync(object? sender, EventArgs e)
     {
+        if (!IsLoaded || !ReferenceEquals(sender, _observed)) return;
         await View.DelayCheckItemsAsync();
     }
 }

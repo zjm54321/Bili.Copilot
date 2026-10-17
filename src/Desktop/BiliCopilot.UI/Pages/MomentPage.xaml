@@ -10,6 +10,7 @@
     xmlns:local="using:BiliCopilot.UI.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:moment="using:BiliCopilot.UI.Controls.Moment"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <Page.Resources>
@@ -37,8 +38,10 @@
             HorizontalAlignment="Stretch"
             Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
         <moment:MomentHeader VerticalAlignment="Center" />
+        <!--  空降助手：显式声明这里是普通动态流（不是 UP 主个人空间）；只作用于动态区，不含评论浮层。  -->
         <ContentControl
             Grid.Row="2"
+            sponsor:SponsorContentPlace.Kind="Feed"
             Content="{x:Bind ViewModel.SelectedSection, Mode=OneWay}"
             ContentTemplateSelector="{StaticResource Selector}"
             Style="{StaticResource AppContentControlStyle}" />

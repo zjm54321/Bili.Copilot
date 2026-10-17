@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
+using BiliCopilot.UI.SponsorBlock.Content;
 using BiliCopilot.UI.ViewModels.Items;
 using Richasy.WinUIKernel.Share.Base;
 using System.Windows.Input;
@@ -24,6 +25,12 @@ public sealed partial class CommentItemControl : CommentItemControlBase
         DependencyProperty.Register(nameof(IsMoreEnabled), typeof(bool), typeof(CommentItemControl), new PropertyMetadata(true));
 
     /// <summary>
+    /// <see cref="SponsorSurface"/> 的依赖属性.
+    /// </summary>
+    public static readonly DependencyProperty SponsorSurfaceProperty =
+        DependencyProperty.Register(nameof(SponsorSurface), typeof(ContentSurface), typeof(CommentItemControl), new PropertyMetadata(ContentSurface.Unknown));
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="CommentItemControl"/> class.
     /// </summary>
     public CommentItemControl()
@@ -45,6 +52,15 @@ public sealed partial class CommentItemControl : CommentItemControlBase
     {
         get => (bool)GetValue(IsMoreEnabledProperty);
         set => SetValue(IsMoreEnabledProperty, value);
+    }
+
+    /// <summary>
+    /// 空降助手推广标记所用的内容界面（评论 / 回复），由所在面板明确设置；默认未知，不判断.
+    /// </summary>
+    public ContentSurface SponsorSurface
+    {
+        get => (ContentSurface)GetValue(SponsorSurfaceProperty);
+        set => SetValue(SponsorSurfaceProperty, value);
     }
 }
 

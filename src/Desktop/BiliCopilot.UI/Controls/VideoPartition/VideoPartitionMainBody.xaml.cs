@@ -9,38 +9,43 @@ namespace BiliCopilot.UI.Controls.VideoPartition;
 /// </summary>
 public sealed partial class VideoPartitionMainBody : VideoPartitionDetailControlBase
 {
+    public VideoCategorySource CategorySource { get; }
+    private VideoPartitionDetailViewModel? _observed;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="VideoPartitionMainBody"/> class.
     /// </summary>
-    public VideoPartitionMainBody() => InitializeComponent();
-
-    /// <inheritdoc/>
-    protected override void OnControlUnloaded()
+    public VideoPartitionMainBody()
     {
-        if (ViewModel is not null)
-        {
-            ViewModel.VideoListUpdated -= OnVideoListUpdatedAsync;
-        }
+        CategorySource = new VideoCategorySource(this, () => ViewModel?.Videos, () => ViewModel);
+        InitializeComponent();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
+
+    private void OnLoaded(object sender, RoutedEventArgs args) => BindModel(ViewModel);
+    private void OnUnloaded(object sender, RoutedEventArgs args) => BindModel(null);
 
     /// <inheritdoc/>
     protected override void OnViewModelChanged(VideoPartitionDetailViewModel? oldValue, VideoPartitionDetailViewModel? newValue)
     {
-        if (oldValue is not null)
-        {
-            oldValue.VideoListUpdated -= OnVideoListUpdatedAsync;
-        }
-
-        if (newValue is null)
-        {
-            return;
-        }
-
-        newValue.VideoListUpdated += OnVideoListUpdatedAsync;
+        CategorySource?.Rebind();
+        BindModel(newValue);
+    }
+    private void BindModel(VideoPartitionDetailViewModel? model)
+    {
+        if (_observed is not null) _observed.VideoListUpdated -= OnVideoListUpdatedAsync;
+        _observed = IsLoaded ? model : null;
+        if (_observed is not null) _observed.VideoListUpdated += OnVideoListUpdatedAsync;
+        if (View is null) return;
+        if (model is null) View.ClearValue(IncrementVerticalScrollControl.LoadMoreCommandProperty);
+        else View.LoadMoreCommand = model.LoadVideosCommand;
     }
 
     private async void OnVideoListUpdatedAsync(object? sender, EventArgs e)
     {
+        if (!IsLoaded || !ReferenceEquals(sender, _observed)) return;
+        CategorySource.RawCommitted();
         await View.DelayCheckItemsAsync();
     }
 }

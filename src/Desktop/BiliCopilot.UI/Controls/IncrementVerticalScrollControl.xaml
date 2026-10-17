@@ -12,7 +12,7 @@
     <Grid x:Name="Root">
         <ScrollViewer
             x:Name="View"
-            Padding="20,0"
+            Padding="{x:Bind ScrollPadding, Mode=OneWay}"
             Style="{StaticResource PageScrollViewerStyle}">
             <ContentPresenter Content="{x:Bind Element}" />
         </ScrollViewer>

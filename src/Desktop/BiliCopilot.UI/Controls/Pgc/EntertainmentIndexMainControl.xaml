@@ -15,9 +15,9 @@
     mc:Ignorable="d">
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View" LoadMoreCommand="{x:Bind ViewModel.RequestIndexCommand, Mode=OneWay}">
+        <controls:IncrementVerticalScrollControl x:Name="View" ScrollPadding="16,0" LoadMoreCommand="{x:Bind ViewModel.RequestIndexCommand, Mode=OneWay}">
             <controls:IncrementVerticalScrollControl.Element>
-                <Grid Margin="0,16">
+                <Grid Margin="0,12">
                     <repeater:AppRepeater
                         x:Name="SeasonRepeater"
                         ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
