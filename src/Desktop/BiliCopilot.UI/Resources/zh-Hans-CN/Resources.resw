@@ -1296,6 +1296,9 @@
   <data name="OpenFolder" xml:space="preserve">
     <value>打开文件夹</value>
   </data>
+  <data name="OpenUserHomeInBrowser" xml:space="preserve">
+    <value>在浏览器中打开主页</value>
+  </data>
   <data name="OpenInBrowser" xml:space="preserve">
     <value>在浏览器中打开</value>
   </data>
@@ -2400,6 +2403,24 @@
   <data name="ArticleContentEmpty" xml:space="preserve">
     <value>没有获取到有效的文章内容</value>
   </data>
+  <data name="ArticleLoadFailed" xml:space="preserve">
+    <value>文章加载失败</value>
+  </data>
+  <data name="ArticleLoadFailedDescription" xml:space="preserve">
+    <value>网络或服务暂时不可用，请稍后重试，也可以在浏览器中查看原文。</value>
+  </data>
+  <data name="ArticleContentEmptyDescription" xml:space="preserve">
+    <value>这篇文章暂时无法在应用内阅读，可以重试，或在浏览器中查看原文。</value>
+  </data>
+  <data name="ArticleRenderFailed" xml:space="preserve">
+    <value>正文显示失败</value>
+  </data>
+  <data name="ArticleRenderFailedDescription" xml:space="preserve">
+    <value>阅读器没有正常显示这篇文章，请重试，也可以在浏览器中查看原文。</value>
+  </data>
+  <data name="ArticleContentTooLargeDescription" xml:space="preserve">
+    <value>文章篇幅过长，暂时无法在应用内显示，可以在浏览器中查看原文。</value>
+  </data>
   <data name="Generating" xml:space="preserve">
     <value>生成中...</value>
   </data>
@@ -2818,10 +2839,10 @@
     <value>单次后退的时长（秒）</value>
   </data>
   <data name="TemporaryPlaybackRate" xml:space="preserve">
-    <value>临时播放倍速</value>
+    <value>临时加速系数</value>
   </data>
   <data name="TemporaryPlaybackRateDescription" xml:space="preserve">
-    <value>在播放界面长按屏幕或者长按方向键的临时倍速值</value>
+    <value>长按播放界面或按住加速快捷键时，以当前倍率乘以此系数，松开后恢复原倍率。例如系数为 1.5 时，1 倍临时变为 1.5 倍，2 倍临时变为 3 倍；结果不超过播放器的最大倍率。</value>
   </data>
   <data name="SendDanmaku" xml:space="preserve">
     <value>发送弹幕</value>
@@ -2909,5 +2930,17 @@
   </data>
   <data name="HideSidePanel" xml:space="preserve">
     <value>隐藏侧栏</value>
+  </data>
+  <data name="LoadMore" xml:space="preserve">
+    <value>加载更多</value>
+  </data>
+  <data name="LoadMoreFailed" xml:space="preserve">
+    <value>加载失败</value>
+  </data>
+  <data name="Retry" xml:space="preserve">
+    <value>重试</value>
+  </data>
+  <data name="NoMoreContent" xml:space="preserve">
+    <value>没有更多内容了</value>
   </data>
 </root>
