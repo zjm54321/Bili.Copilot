@@ -6,6 +6,7 @@
     <title>哔哩助理专栏阅读器</title>
     <meta http-equiv="X-UA-Compatible" content="IE =edge">
     <meta name="referrer" content="no-referrer" />
+    <meta name="bili-reader-render" content="$nonce$" />
     <meta name="viewport" content="width =device-width,initial-scale =1.0, maximum-scale=1.0, user-scalable=0; ">
     <script>
         var getHtml = function () {
@@ -71,30 +72,14 @@
                 const content = p.textContent.trim();
 
                 // 如果内容为空或者只有换行符
-                if (content === "" || content === "\n") {
+                if ((content === "" || content === "\n") && !p.querySelector("img, video, audio, iframe, svg, math")) {
                     // 移除该 <p> 标签
                     p.remove();
                 }
             });
         });
 
-        var links = document.getElementsByTagName('a');
-        // 拦截所有导航事件
-        if (links.length > 0) {
-            for (var i = 0; i < links.length; i++) {
-                links[i].addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    let target = e.currentTarget;
-                    let link = target.getAttribute('href');
-                    let data = {
-                        Name: 'LinkClick',
-                        Data: link
-                    }
-                    window.chrome.webview.postMessage(JSON.stringify(data));
-                })
-            }
-        }
+        // 链接点击交由宿主的原生导航事件处理（仅用户点击会在系统浏览器中打开）.
     </script>
 
 </body>

@@ -29,11 +29,6 @@
         </MenuFlyout>
     </UserControl.Resources>
 
-    <Grid>
-        <WebView2
-            x:Name="MainView"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch"
-            DefaultBackgroundColor="Transparent" />
-    </Grid>
+    <!--  WebView2 由代码按控件生命周期创建与释放，以便卸载后重新加载、或初始化失败后重试.  -->
+    <Grid x:Name="WebViewHost" />
 </base:LayoutUserControlBase>

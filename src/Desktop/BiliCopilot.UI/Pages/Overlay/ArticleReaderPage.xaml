@@ -19,12 +19,45 @@
             x:Name="Reader"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch" />
+
+        <!--  正文加载失败、为空或无法显示时的提示. 评论与左侧工具栏仍可使用.  -->
+        <base:EmptyHolder
+            MaxWidth="420"
+            Margin="96,24"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Description="{x:Bind ViewModel.ErrorDescription, Mode=OneWay}"
+            Emoji="&#x1F4C4;"
+            Title="{x:Bind ViewModel.ErrorTitle, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
+            <base:EmptyHolder.ActionElement>
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        MinWidth="96"
+                        Command="{x:Bind ViewModel.RetryCommand, Mode=OneWay}"
+                        Content="{ext:Locale Name=Retry}"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <Button
+                        MinWidth="96"
+                        Command="{x:Bind ViewModel.OpenInBrowserCommand, Mode=OneWay}"
+                        Content="{ext:Locale Name=OpenInBrowser}"
+                        Visibility="{x:Bind ViewModel.CanOpenInBrowser, Mode=OneWay}" />
+                </StackPanel>
+            </base:EmptyHolder.ActionElement>
+        </base:EmptyHolder>
+
         <article:ArticleReaderToolBar
             Margin="12"
             HorizontalAlignment="Left"
             VerticalAlignment="Top"
             Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
-        <base:LoadingWidget Text="{ext:Locale Name=LoadingAndWait}" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}" />
+        <base:LoadingWidget
+            x:Name="LoadingView"
+            Text="{ext:Locale Name=LoadingAndWait}"
+            Visibility="Collapsed" />
         <comment:CommentOverlayPanel IsPanelOpened="{x:Bind ViewModel.IsCommentsOpened, Mode=TwoWay}" ViewModel="{x:Bind ViewModel.CommentModule, Mode=OneWay}" />
     </Grid>
 </local:ArticleReaderPageBase>
