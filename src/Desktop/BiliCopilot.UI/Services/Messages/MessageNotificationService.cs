@@ -102,7 +102,7 @@ public sealed class MessageNotificationService(
             throw new MessageNotificationException("系统通知响应格式无效，请重试。");
         }
 
-        return result.Data.Select(item => new SystemMessageRow(item!.Id, item.Cursor, item.Title, item.Content, item.TimeAt)).ToArray();
+        return result.Data.Select(item => new SystemMessageRow(item!.Id, item.Cursor, item.Title, MessageBodyDecoder.Decode(item.Content), item.TimeAt)).ToArray();
     }
 
     public async Task MarkReadAsync(long cursor, CancellationToken cancellationToken)
@@ -129,6 +129,7 @@ public sealed class MessageNotificationService(
 
     private static BiliAuthorizeExecutionSettings CookieSettings(bool markRead = false) => new()
     {
+        ApiType = Richasy.BiliKernel.Models.BiliApiType.Web,
         ForceNoToken = true,
         RequireCookie = true,
         NeedCSRF = markRead,

@@ -50,11 +50,11 @@
                                             Style="{StaticResource CaptionTextBlockStyle}"
                                             Text="{x:Bind TimeAt}" />
                                     </Grid>
-                                    <TextBlock
+                                    <RichTextBlock
                                         Grid.Row="1"
+                                        local:SystemMessageText.Text="{x:Bind Content, Mode=OneTime}"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         IsTextSelectionEnabled="True"
-                                        Text="{x:Bind Content}"
                                         TextWrapping="Wrap" />
                                 </Grid>
                             </Border>

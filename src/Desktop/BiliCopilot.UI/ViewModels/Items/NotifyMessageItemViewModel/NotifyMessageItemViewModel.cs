@@ -1,8 +1,13 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
+using BiliCopilot.UI.Models.Constants;
+using BiliCopilot.UI.Pages.Overlay;
 using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.ViewModels.Core;
 using CommunityToolkit.Mvvm.Input;
 using Humanizer;
+using Richasy.BiliKernel.Models.Article;
+using Richasy.BiliKernel.Models.Media;
 using Richasy.BiliKernel.Models.User;
 using Richasy.WinUIKernel.Share.ViewModels;
 using Windows.System;
@@ -48,15 +53,24 @@ public sealed partial class NotifyMessageItemViewModel : ViewModelBase<NotifyMes
     [RelayCommand]
     private async Task ActiveAsync()
     {
-        var sourceId = Data.SourceId;
-        if (string.IsNullOrEmpty(sourceId))
+        var target = NotifyMessageTarget.Resolve(Data);
+        if (target.Kind == NotifyMessageTargetKind.Video && target.Id is string videoId)
         {
+            // Use the same player command as home/search video cards, including player ownership.
+            var video = new VideoInformation(new MediaIdentifier(videoId, default, default), default);
+            new VideoItemViewModel(video, VideoCardStyle.Search).PlayCommand.Execute(default);
             return;
         }
 
-        if (sourceId.StartsWith("http"))
+        if (target.Kind == NotifyMessageTargetKind.Article && target.Id is string articleId)
         {
-            await Launcher.LaunchUriAsync(new Uri(sourceId)).AsTask();
+            this.Get<NavigationViewModel>().NavigateToOver(typeof(ArticleReaderPage), new ArticleIdentifier(articleId, SourceContent, default, default));
+            return;
+        }
+
+        if (target.WebUri is Uri uri)
+        {
+            await Launcher.LaunchUriAsync(uri).AsTask();
         }
     }
 }

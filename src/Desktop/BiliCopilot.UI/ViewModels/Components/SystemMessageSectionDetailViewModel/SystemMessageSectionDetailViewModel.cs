@@ -187,7 +187,11 @@ public sealed partial class SystemMessageSectionDetailViewModel : ViewModelBase,
         }
         catch (Exception ex)
         {
-            if (IsCurrent(generation) && !token.IsCancellationRequested) ReportError(ex, "系统通知加载失败，请重试。");
+            if (IsCurrent(generation) && !token.IsCancellationRequested)
+            {
+                BiliCopilot.UI.Toolkits.SafeFailureContext.TryWrite(BiliCopilot.UI.Toolkits.FailureStage.SystemNotificationLoad, ex, () => _logger);
+                ReportError(ex, "系统通知加载失败，请重试。");
+            }
         }
         finally
         {
