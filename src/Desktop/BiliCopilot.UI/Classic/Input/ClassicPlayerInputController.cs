@@ -255,8 +255,7 @@ public sealed class ClassicPlayerInputController
         if (action.Intent == PlayerTapIntent.None || !TapCurrent(action.Context)) return;
         if (action.Intent == PlayerTapIntent.Single && action.Context.Touch)
         { ToggleControlsRequested?.Invoke(this, EventArgs.Empty); return; }
-        var command = action.Intent == PlayerTapIntent.Double && !action.Context.Touch
-            ? HostCommands.ToggleFullScreen : ToggleCommand;
+        var command = ToggleCommand; // Mouse clicks never invoke fullscreen; keyboard/host commands remain separate.
         if (command is not null && command.CanExecute(null) && TapCurrent(action.Context)) await command.ExecuteAsync(null);
     }
     private void ResetContact()

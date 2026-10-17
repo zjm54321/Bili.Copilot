@@ -16,7 +16,10 @@ public sealed partial class AppViewModel
     private int _classicOpenCount;
     private readonly List<ExternalPlaybackBackend> _pendingClassicExternalCleanup = [];
     private bool _offeringExternalCleanupRetry;
-    public bool HasClassicWork => ClassicPlayers.Count > 0 || _classicOpenCount > 0 || _pendingClassicExternalCleanup.Count > 0;
+    // Compatibility keepalive seam used by the unchanged MainWindow close policy.
+    // Live remains separately owned; it is NOT added to ClassicPlayers or blanket Classic close.
+    private bool HasClassicOwnerWork => ClassicPlayers.Count > 0 || _classicOpenCount > 0 || _pendingClassicExternalCleanup.Count > 0;
+    public bool HasClassicWork => HasClassicOwnerWork || HasApplicationPlaybackKeepAlive;
     public bool HasPendingClassicExternalCleanup => _pendingClassicExternalCleanup.Count > 0;
     public void RetainClassicExternalCleanup(ExternalPlaybackBackend backend)
     {
@@ -34,13 +37,22 @@ public sealed partial class AppViewModel
 
     public Task<bool> TryOpenClassicAsync(MediaSnapshot snapshot)
         => TryOpenClassicCoreAsync(() => ClassicRequestMapper.FromSnapshot(snapshot));
-    public Task<bool> TryOpenClassicAsync(LiveInformation live)
-        => TryOpenClassicCoreAsync(() => ClassicRequestMapper.FromLive(live));
+    public async Task<bool> TryOpenClassicAsync(LiveInformation live)
+    {
+        await OpenLiveAsync(live);
+        return true; // Legacy callers must not fall back to a browser for Live.
+    }
 
     /// <summary>Explicit single-video external action, independent of the saved playback route.</summary>
-    public async Task OpenExternalAsync(ClassicPlaybackRequest request, ExternalPlayerProtocol protocol,
+    public Task OpenExternalAsync(ClassicPlaybackRequest request, ExternalPlayerProtocol protocol,
         CancellationToken cancellationToken)
+        => OwnApplicationPlaybackAsync(token => OpenExternalCoreAsync(request, protocol, cancellationToken, token));
+
+    private async Task OpenExternalCoreAsync(ClassicPlaybackRequest request, ExternalPlayerProtocol protocol,
+        CancellationToken callerToken, CancellationToken applicationToken)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, applicationToken);
+        var cancellationToken = linked.Token;
         ++_classicOpenCount;
         try
         {
@@ -86,7 +98,7 @@ public sealed partial class AppViewModel
         finally
         {
             --_classicOpenCount;
-            if (!HasClassicWork && Players.Count == 0 && !IsClosed && !IsMainWindowVisible())
+            if (!HasClassicOwnerWork && !HasLiveWork && Players.Count == 0 && !IsPlaybackStopping && !IsMainWindowVisible())
                 Windows.OfType<MainWindow>().FirstOrDefault()?.Activate();
         }
     }
@@ -94,32 +106,43 @@ public sealed partial class AppViewModel
     private void CheckExternalOpenAdmission(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ObjectDisposedException.ThrowIf(IsClosed, this);
+        ObjectDisposedException.ThrowIf(IsPlaybackStopping, this);
     }
 
     private async Task<bool> TryOpenClassicCoreAsync(Func<ClassicPlaybackRequest> capture)
     {
+        if (IsPlaybackStopping) return true;
         var settings = this.Get<ISettingsToolkit>();
         // Do not capture requests/options, resolve PlayerViewModel or instantiate an engine for New.
         if (ClassicSessionOptions.ReadExperience(settings) != PlaybackExperience.Classic) return false;
-        // Island is now the main-window New/mpv route. Live keeps its existing browser entry.
+        // Island is the shared main-window route. Other Classic backends remain independent windows.
         if (ClassicSessionOptions.Capture(settings).Backend == ClassicBackendKind.Island) return false;
-        ++_classicOpenCount;
+        ClassicPlaybackRequest request;
+        ClassicSessionOptions options;
         try
         {
-            var request = capture();
-            var options = ClassicSessionOptions.Capture(settings);
-            if (request.Item.Type == BiliMediaType.Live && options.UseWebPlayerWhenLive)
-                options = options with { Backend = ClassicBackendKind.Web }; // Explicit captured live preference.
-            await this.Get<ClassicPlayerLauncher>().OpenAsync(request, options);
+            request = capture();
+            options = ClassicSessionOptions.Capture(settings);
         }
-        catch (Exception ex) { ReportClassicFailure(ex); }
-        finally
+        catch (Exception ex) { ReportClassicFailure(ex); return true; }
+        // Do not arbitrate unrelated standalone Classic players through the shared Live/VOD lease.
+        await OwnApplicationPlaybackAsync(async cancellationToken =>
         {
-            --_classicOpenCount;
-            if (!HasClassicWork && Players.Count == 0 && !IsClosed && !IsMainWindowVisible())
-                Windows.OfType<MainWindow>().FirstOrDefault()?.Activate();
-        }
+            ++_classicOpenCount;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await this.Get<ClassicPlayerLauncher>().OpenAsync(request, options, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch (Exception ex) { ReportClassicFailure(ex); }
+            finally
+            {
+                --_classicOpenCount;
+                if (!HasClassicOwnerWork && !HasLiveWork && Players.Count == 0 && !IsPlaybackStopping && !IsMainWindowVisible())
+                    Windows.OfType<MainWindow>().FirstOrDefault()?.Activate();
+            }
+        });
         return true; // An unavailable explicit Classic choice must NEVER fall through to New/browser.
     }
 

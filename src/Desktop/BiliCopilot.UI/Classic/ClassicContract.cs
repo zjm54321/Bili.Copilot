@@ -118,11 +118,20 @@ public sealed class ClassicResolvedMedia
     public DashSegmentInformation? VideoSegment { get; init; }
     public DashSegmentInformation? AudioSegment { get; init; }
     public LiveMediaInformation? Live { get; init; }
+    public IReadOnlyList<ClassicLiveStreamCandidate> LiveCandidates { get; init; } = Array.Empty<ClassicLiveStreamCandidate>();
     public Uri? VideoUri { get; init; }
     public Uri? AudioUri { get; init; }
     public Uri? PageUri { get; init; }
     public required IReadOnlyDictionary<string, string> Headers { get; init; }
     public double StartSeconds { get; init; }
+}
+
+// No generated ToString: the URI contains signed credentials.
+public sealed class ClassicLiveStreamCandidate
+{
+    public required Uri Uri { get; init; }
+    public required string Format { get; init; }
+    public required string Codec { get; init; }
 }
 
 public sealed record ClassicBackendStatus(ClassicPlaybackState State, double PositionSeconds,

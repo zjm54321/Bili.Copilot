@@ -157,24 +157,24 @@ public sealed class ClassicMediaSourceService
             throw new ClassicSourceException("Playable video quality or matching video segment is unavailable.");
         var audio = dash?.Audios?.OrderByDescending(a => int.TryParse(a.Id, out var id) ? id : 0).FirstOrDefault();
         Uri? videoUri = video is null ? null : SegmentUri(video);
+        IReadOnlyList<ClassicLiveStreamCandidate> liveCandidates = Array.Empty<ClassicLiveStreamCandidate>();
         if (live is not null)
         {
-            var url = live.Lines?.Where(l => selected is null || l.Quality == selected.Quality)
-                .SelectMany(l => l.Urls).FirstOrDefault();
-            if (url is not null) videoUri = new Uri(url.ToString(), UriKind.Absolute);
+            liveCandidates = SelectLiveCandidates(live, selected);
+            videoUri = liveCandidates.FirstOrDefault()?.Uri;
         }
         if (videoUri is null && audio is null) throw new ClassicSourceException("Playable media is unavailable.");
         cancellationToken.ThrowIfCancellationRequested();
         // Headers never enter diagnostic records or messages.
         var headers = new Dictionary<string, string>
         {
-            ["Referer"] = InternalHttpExtensions.VideoReferer,
+            ["Referer"] = live is not null ? "https://live.bilibili.com/" : InternalHttpExtensions.VideoReferer,
             ["User-Agent"] = InternalHttpExtensions.VideoUserAgent,
             ["Cookie"] = _cookies.GetCookieString(),
         };
         return new()
         {
-            Media = new() { Request = request with { Item = item }, Dash = dash, Live = live,
+            Media = new() { Request = request with { Item = item }, Dash = dash, Live = live, LiveCandidates = liveCandidates,
                 VideoSegment = video, AudioSegment = audio, VideoUri = videoUri,
                 AudioUri = audio is null ? null : SegmentUri(audio), PageUri = PageUri(item),
                 Headers = headers, StartSeconds = start },
@@ -183,6 +183,52 @@ public sealed class ClassicMediaSourceService
             Recommendations = Array.AsReadOnly(recommendations), Qualities = Array.AsReadOnly(qualities),
             SelectedQuality = selected, ProgressIdentity = progress,
         };
+    }
+
+    private static IReadOnlyList<ClassicLiveStreamCandidate> SelectLiveCandidates(LiveMediaInformation live, PlayerFormatInformation? selected)
+    {
+        var candidates = new List<ClassicLiveStreamCandidate>();
+        foreach (var line in live.Lines.Where(line => selected is null || line.Quality == selected.Quality))
+        {
+            var codec = line.Name.Equals("avc", StringComparison.OrdinalIgnoreCase) ? "avc"
+                : line.Name.Equals("hevc", StringComparison.OrdinalIgnoreCase) ? "hevc" : "other";
+            foreach (var url in line.Urls)
+            {
+                if (!Uri.TryCreate(url.ToString(), UriKind.Absolute, out var uri)
+                    || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+                    || candidates.Any(candidate => candidate.Uri == uri)) continue;
+                // The SDK drops format_name. Classify only known path markers; never log route/query.
+                var path = uri.AbsolutePath;
+                var format = path.Contains("fmp4", StringComparison.OrdinalIgnoreCase)
+                    || path.EndsWith(".m4s", StringComparison.OrdinalIgnoreCase) ? "fmp4"
+                    : path.EndsWith(".flv", StringComparison.OrdinalIgnoreCase) ? "flv"
+                    : path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase) ? "ts"
+                    : path.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase) ? "hls" : "unknown";
+                candidates.Add(new() { Uri = uri, Format = format, Codec = codec });
+            }
+        }
+
+        var ordered = candidates.OrderBy(candidate => candidate.Codec switch { "avc" => 0, "hevc" => 1, _ => 2 })
+            .ThenBy(candidate => candidate.Format switch { "flv" => 0, "ts" => 1, "hls" => 2, "fmp4" => 3, _ => 4 }).ToList();
+        if (ordered.Count == 0) return Array.Empty<ClassicLiveStreamCandidate>();
+        var first = ordered[0];
+        var attempts = new List<ClassicLiveStreamCandidate> { first };
+        var otherHost = ordered.FirstOrDefault(candidate => candidate.Codec == first.Codec && candidate.Format == first.Format
+            && !string.Equals(candidate.Uri.Host, first.Uri.Host, StringComparison.OrdinalIgnoreCase));
+        if (otherHost is not null) attempts.Add(otherHost);
+        var otherFormat = ordered.FirstOrDefault(candidate => candidate.Format != first.Format)
+            // ts/fmp4 HLS may both end in .m3u8 after SDK flattening. A different
+            // route still supplies an alternate stream family without exposing it in logs.
+            ?? ordered.FirstOrDefault(candidate => candidate.Codec == first.Codec
+                && candidate.Uri.AbsolutePath != first.Uri.AbsolutePath);
+        if (otherFormat is not null && !attempts.Contains(otherFormat)) attempts.Add(otherFormat);
+        foreach (var candidate in ordered)
+        {
+            if (attempts.Count == 3) break;
+            if (!attempts.Contains(candidate)) attempts.Add(candidate);
+        }
+
+        return attempts.AsReadOnly();
     }
 
     private PlayerFormatInformation? SelectQuality(ClassicMediaItem item, IReadOnlyList<PlayerFormatInformation> qualities)

@@ -62,7 +62,7 @@ public sealed class ClassicInputBridge : IDisposable
     private bool Blocked => _disposed || _window.IsClosing || _window.Session?.IsClosing != false || (_view.IsInputBlocked?.Invoke() ?? false);
     private bool TapAllowed() => !Blocked && ReferenceEquals(_session, _window.Session) && _view.Root.IsLoaded && _view.InputSurface.IsLoaded
         && _view.Root.Visibility == Visibility.Visible && _view.InputSurface.Visibility == Visibility.Visible
-        && PInvoke.GetForegroundWindow().Value == WinRT.Interop.WindowNative.GetWindowHandle(_window)
+        && (nint)PInvoke.GetForegroundWindow() == WinRT.Interop.WindowNative.GetWindowHandle(_window)
         && Allowed(FocusManager.GetFocusedElement(_view.Root.XamlRoot));
     private async void OnRootPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -210,7 +210,12 @@ public sealed class ClassicInputBridge : IDisposable
     }
     private async void ObserveInput(Task task)
     {
-        try { await task; } catch (Exception ex) { _report(ex); }
+        try {
+            // T6-01: The input operation was already issued; this observer is not its completion producer and only reports its outcome.
+            #pragma warning disable VSTHRD003
+            await task;
+            #pragma warning restore VSTHRD003
+        } catch (Exception ex) { _report(ex); }
     }
     private async void OnWheel(object sender, PointerRoutedEventArgs e)
     {
