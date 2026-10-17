@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Richasy.MpvKernel.Core.Enums;
 using Richasy.WinUIKernel.Share.Base;
 using Richasy.WinUIKernel.Share.Toolkits;
@@ -16,6 +17,7 @@ using System.Numerics;
 using System.Windows.Input;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml.Hosting;
+using WinUIEx;
 
 namespace BiliCopilot.UI.Controls.Core;
 
@@ -41,6 +43,21 @@ public sealed partial class PlayerOverlay : PlayerControlBase
     private PlayerPresentationMode _lastPresentation;
     private TransportRelocation? _relocation;
     private long _relocationEpoch;
+    private CompactHeaderDrag? _compactHeaderDrag;
+
+    private sealed class CompactHeaderDrag(PlayerViewModel owner, MainPlayerHost host, FrameworkElement surface,
+        Microsoft.UI.Xaml.Input.Pointer pointer, Point screenOrigin, Windows.Graphics.PointInt32 windowOrigin,
+        double thresholdX, double thresholdY)
+    {
+        internal readonly PlayerViewModel Owner = owner;
+        internal readonly MainPlayerHost Host = host;
+        internal readonly FrameworkElement Surface = surface;
+        internal readonly Microsoft.UI.Xaml.Input.Pointer Pointer = pointer;
+        internal readonly Point ScreenOrigin = screenOrigin;
+        internal readonly Windows.Graphics.PointInt32 WindowOrigin = windowOrigin;
+        internal readonly double ThresholdX = thresholdX, ThresholdY = thresholdY;
+        internal bool Started;
+    }
 
     /// <summary>One header click: the overlay VM and input epoch captured when the click started.</summary>
     private sealed record EmbeddedHeaderRequest(PlayerViewModel Owner, long Epoch);
@@ -173,11 +190,6 @@ public sealed partial class PlayerOverlay : PlayerControlBase
     internal static Thickness GetEmbeddedNoticeMargin(bool isEmbedded, PlayerPresentationMode presentation)
         => isEmbedded && presentation == PlayerPresentationMode.CompactOverlay ? new Thickness(0, 48, 0, 0) : new Thickness(0);
 
-    internal static string GetEmbeddedPinTip(bool isTopMost)
-        => BiliCopilot.UI.Toolkits.ResourceToolkit.GetLocalizedString(isTopMost
-            ? BiliCopilot.UI.Models.Constants.StringNames.CancelTopWindow
-            : BiliCopilot.UI.Models.Constants.StringNames.TopWindow);
-
     internal static string GetEmbeddedCompactTip(PlayerPresentationMode presentation)
         => BiliCopilot.UI.Toolkits.ResourceToolkit.GetLocalizedString(presentation == PlayerPresentationMode.CompactOverlay
             ? BiliCopilot.UI.Models.Constants.StringNames.ExitCompactOverlay
@@ -217,14 +229,20 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         RefreshEmbeddedInteractionNotice();
         // Reapply the latest header width dropped by a previous unload (idempotent visual state only).
         QueueHeaderWidthUpdate();
+        // Re-associate SponsorBlock views registered through BindSponsorViews (view state only).
+        ApplySponsorViews();
+        RequestHostChromeRegionUpdate();
     }
 
     private void OnLocalUnloaded(object sender, RoutedEventArgs args)
     {
         if (!_loaded) return;
         _loaded = false;
+        RequestHostChromeRegionUpdate();
         CancelTransportRelocation();
         CancelPendingInput();
+        // Drop SponsorBlock view subscriptions; the registration is kept for a later reload.
+        DetachSponsorViews();
         if (IslandTransport is not null)
         {
             IslandTransport.InteractionStateChanged -= OnTransportInteractionChanged;
@@ -247,6 +265,8 @@ public sealed partial class PlayerOverlay : PlayerControlBase
 
     protected override void OnViewModelChanged(PlayerViewModel? oldValue, PlayerViewModel? newValue)
     {
+        // SponsorBlock views belong to the old player's attachment; the composer rebinds for the new one.
+        if (oldValue is not null && !ReferenceEquals(oldValue, newValue)) UnbindSponsorViews();
         ClearEmbeddedInteractionNotice();
         ClearTips(tip => !ReferenceEquals(tip.Owner, newValue));
         CancelTransportRelocation();
@@ -258,6 +278,7 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         RefreshEmbeddedInteractionNotice();
         // Retire a width callback captured for the old VM; requeue only the latest width for the new one.
         if (_headerWidthTicket is not null) QueueHeaderWidthUpdate();
+        RequestHostChromeRegionUpdate();
     }
 
     private void SubscribeViewModel(PlayerViewModel? viewModel)
@@ -306,6 +327,7 @@ public sealed partial class PlayerOverlay : PlayerControlBase
     /// <summary>Window owner may call before close, deactivation or media replacement.</summary>
     public void CancelPendingInput()
     {
+        CancelCompactHeaderDrag();
         ++_inputEpoch;
         _popups.Cancel();
         CancelSurfaceInput();
@@ -422,16 +444,24 @@ public sealed partial class PlayerOverlay : PlayerControlBase
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!ReferenceEquals(sender, _subscribedViewModel)) return;
+        if (e.PropertyName is null or "" or nameof(PlayerViewModel.Presentation)
+            or nameof(PlayerViewModel.IsEmbedded) or nameof(PlayerViewModel.IsPlaybackClosing))
+        {
+            RequestHostChromeRegionUpdate();
+        }
+        OnSponsorHostPropertyChanged(e.PropertyName);
         if (e.PropertyName is null or "" or nameof(PlayerViewModel.Connector) or nameof(PlayerViewModel.MediaGeneration)
             or nameof(PlayerViewModel.Presentation) or nameof(PlayerViewModel.IsEmbedded) or nameof(PlayerViewModel.Player)
             or nameof(PlayerViewModel.IsConnecting) or nameof(PlayerViewModel.IsPlaybackClosing) or nameof(PlayerViewModel.ErrorMessage)
             or nameof(PlayerViewModel.IsPopupVisible) or nameof(PlayerViewModel.IsExtraPanelVisible) or nameof(PlayerViewModel.IsSubtitleSettingsVisible))
         {
             RefreshEmbeddedInteractionNotice();
+            QueueHeaderWidthUpdate();
             if (!ReferenceEquals(sender, _subscribedViewModel) || !ReferenceEquals(sender, ViewModel)) return;
         }
         if (e.PropertyName == nameof(ViewModel.IsControlsVisible))
         {
+            RequestHostChromeRegionUpdate();
             if (ViewModel.IsControlsVisible)
             {
                 RestartControlTimer();
@@ -653,9 +683,6 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         }
     }
 
-    private void OnCloseButtonClick(object sender, RoutedEventArgs e)
-        => ViewModel.Close();
-
     private void OnCloseTipButtonClick(object sender, RoutedEventArgs e)
         => ViewModel.ErrorMessage = default;
 
@@ -694,6 +721,7 @@ public sealed partial class PlayerOverlay : PlayerControlBase
 
     private void OnEmbeddedHeaderSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        RequestHostChromeRegionUpdate();
         if (e.NewSize.Width == 0)
         {
             return;
@@ -701,6 +729,70 @@ public sealed partial class PlayerOverlay : PlayerControlBase
 
         _embeddedHeaderWidth = e.NewSize.Width;
         if (_headerWidthTicket is null) QueueHeaderWidthUpdate();
+    }
+
+    private void OnEmbeddedCompactHeaderPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        CancelCompactHeaderDrag();
+        if (e.Handled || e.IsGenerated || !_loaded || ViewModel is not { } owner || owner.IsPlaybackClosing
+            || owner.IsPopupVisible || owner.Presentation != PlayerPresentationMode.CompactOverlay
+            || owner.Window is not MainPlayerHost host || host.IsClosed || host.IsPresenterChanging
+            || EmbeddedHeader is not { } header || host.XamlRoot is null) return;
+        if (e.Pointer.PointerDeviceType != PointerDeviceType.Mouse || !e.GetCurrentPoint(header).Properties.IsLeftButtonPressed) return;
+        // Never turn a header button, selector or other interactive child into a drag surface.
+        for (var node = e.OriginalSource as DependencyObject; node is not null && !ReferenceEquals(node, header); node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is Control) return;
+        }
+
+        if (!PInvoke.GetCursorPos(out var screen)) return;
+        var dpi = HwndExtensions.GetDpiForWindow(host.OwnerHwnd);
+        var thresholdX = Math.Max(1, PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CXDRAG, dpi) / 2d);
+        var thresholdY = Math.Max(1, PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CYDRAG, dpi) / 2d);
+        _compactHeaderDrag = new CompactHeaderDrag(owner, host, header, e.Pointer,
+            new Point(screen.X, screen.Y), host.GetWindow().Position, thresholdX, thresholdY);
+        if (!header.CapturePointer(e.Pointer)) CancelCompactHeaderDrag();
+        e.Handled = true;
+    }
+
+    private void OnEmbeddedCompactHeaderPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_compactHeaderDrag is not { } drag || drag.Pointer.PointerId != e.Pointer.PointerId) return;
+        if (e.IsGenerated) return; // Moving the HWND can synthesize pointer updates.
+        if (!_loaded || !ReferenceEquals(ViewModel, drag.Owner)
+            || !e.GetCurrentPoint(drag.Surface).Properties.IsLeftButtonPressed || !PInvoke.GetCursorPos(out var screen))
+        {
+            CancelCompactHeaderDrag();
+            return;
+        }
+
+        var dx = screen.X - drag.ScreenOrigin.X;
+        var dy = screen.Y - drag.ScreenOrigin.Y;
+        if (!drag.Started && Math.Abs(dx) < drag.ThresholdX && Math.Abs(dy) < drag.ThresholdY) return;
+        drag.Started = true;
+        e.Handled = true;
+        if (!drag.Host.TryMoveCompactWindow(drag.Owner, new Windows.Graphics.PointInt32(
+            drag.WindowOrigin.X + (int)Math.Round(dx), drag.WindowOrigin.Y + (int)Math.Round(dy))))
+            CancelCompactHeaderDrag();
+    }
+
+    private void OnEmbeddedCompactHeaderPointerEnded(object sender, PointerRoutedEventArgs e)
+    {
+        if (_compactHeaderDrag is not { } drag || drag.Pointer.PointerId != e.Pointer.PointerId) return;
+        e.Handled = true;
+        CancelCompactHeaderDrag();
+    }
+
+    internal void CancelCompactHeaderDrag()
+    {
+        var drag = _compactHeaderDrag;
+        _compactHeaderDrag = null; // ReleasePointerCapture can synchronously deliver CaptureLost.
+        if (drag?.Host.XamlRoot is not null) drag.Surface.ReleasePointerCapture(drag.Pointer);
+    }
+
+    private void OnEmbeddedRightButtonPanelSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        RequestHostChromeRegionUpdate();
     }
 
     private void QueueHeaderWidthUpdate()
@@ -731,7 +823,8 @@ public sealed partial class PlayerOverlay : PlayerControlBase
                 if (EmbeddedHeader is not null && _embeddedHeaderWidth > 0)
                 {
                     var layout = PlayerHeaderLayout.ForEmbeddedWidth(_embeddedHeaderWidth);
-                    if (EmbeddedStatusPanel is { } status) status.Visibility = layout.ShowStatus ? Visibility.Visible : Visibility.Collapsed;
+                    var isCompact = ViewModel?.Presentation == PlayerPresentationMode.CompactOverlay;
+                    if (EmbeddedStatusPanel is { } status) status.Visibility = (!isCompact && layout.ShowStatus) ? Visibility.Visible : Visibility.Collapsed;
                     if (EmbeddedTitle is { } title) title.Visibility = layout.ShowTitle ? Visibility.Visible : Visibility.Collapsed;
                 }
             })) return;
@@ -773,12 +866,6 @@ public sealed partial class PlayerOverlay : PlayerControlBase
     private async void OnEmbeddedBackClick(object sender, RoutedEventArgs e)
         => await RunEmbeddedHeaderCommandAsync(owner => owner.BackToDefaultModeCommand);
 
-    private async void OnEmbeddedPinClick(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel?.Presentation != PlayerPresentationMode.CompactOverlay) return;
-        await RunEmbeddedHeaderCommandAsync(owner => owner.ToggleTopMostCommand);
-    }
-
     private async void OnEmbeddedCompactClick(object sender, RoutedEventArgs e)
         => await RunEmbeddedHeaderCommandAsync(owner => owner.ToggleCompactOverlayCommand);
 
@@ -792,16 +879,40 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         host.RequestOwnerClose(request.Owner);
     }
 
-    /// <summary>
-    /// 仅透明背景本身的按下才会到达这里（标题文字不参与命中，按钮会自行处理）；宿主再校验小窗/鼠标左键/控件祖先后开始拖动.
-    /// 触摸拖动未实现，宿主会拒绝.
-    /// </summary>
-    private void OnEmbeddedHeaderPointerPressed(object sender, PointerRoutedEventArgs e)
+    internal bool TryGetCompactHeaderGeometry(UIElement islandRoot, out Rect headerRect, out Rect buttonPanelRect)
     {
-        if (sender is not UIElement background || CaptureEmbeddedHeaderRequest() is not { } request
-            || request.Owner.Presentation != PlayerPresentationMode.CompactOverlay
-            || request.Owner.Window is not MainPlayerHost host) return;
-        host.TryBeginCaptionDrag(request.Owner, e, background);
+        headerRect = default;
+        buttonPanelRect = default;
+
+        if (!_loaded || !IsLoaded || Visibility != Visibility.Visible || ViewModel is not { } vm
+            || !vm.IsEmbedded || vm.IsPlaybackClosing || vm.Presentation != PlayerPresentationMode.CompactOverlay
+            || XamlRoot is null || !ReferenceEquals(XamlRoot, islandRoot.XamlRoot)
+            || !vm.IsControlsVisible || EmbeddedHeader is not { } header || header.Visibility != Visibility.Visible
+            || !header.IsLoaded || !ReferenceEquals(header.XamlRoot, islandRoot.XamlRoot)
+            || header.ActualWidth <= 0 || header.ActualHeight <= 0
+            || EmbeddedRightButtonPanel is not { Visibility: Visibility.Visible } panel
+            || !panel.IsLoaded || !ReferenceEquals(panel.XamlRoot, islandRoot.XamlRoot)
+            || panel.ActualWidth <= 0 || panel.ActualHeight <= 0)
+        {
+            return false;
+        }
+
+        for (DependencyObject? ancestor = header; !ReferenceEquals(ancestor, islandRoot); ancestor = VisualTreeHelper.GetParent(ancestor))
+        {
+            if (ancestor is null || ancestor is UIElement { Visibility: not Visibility.Visible }) return false;
+        }
+
+        headerRect = header.TransformToVisual(islandRoot).TransformBounds(new Rect(0, 0, header.ActualWidth, header.ActualHeight));
+        buttonPanelRect = panel.TransformToVisual(islandRoot).TransformBounds(new Rect(0, 0, panel.ActualWidth, panel.ActualHeight));
+        return true;
+    }
+
+    private void RequestHostChromeRegionUpdate()
+    {
+        if (ViewModel?.Window is MainPlayerHost host)
+        {
+            host.RequestChromeRegionUpdate();
+        }
     }
 
     private static bool AreAnimationsEnabled()
@@ -1097,8 +1208,9 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         flyout.Hide();
     }
 
-    private void OnOverlayFlyoutOpened(object sender, object e)
+    private void OnOverlayFlyoutOpened(object? sender, object e)
     {
+        if (sender is null) return;
         if (!_loaded || ViewModel?.IsControlsVisible != true || ViewModel.IsWindowDeactivated
             || ViewModel.IsPlaybackClosing || ViewModel.IsConnecting)
         {

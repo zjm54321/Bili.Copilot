@@ -106,14 +106,15 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
         foreach (var retired in _retiredMediaCancellations) retired.Dispose();
         _retiredMediaCancellations.Clear();
         _lifetime.Dispose();
-        if (!IsEmbedded && UseIntegrationOperation && _independentInitializationCompleted)
-            this.Get<AppViewModel>().Windows.OfType<MainWindow>().FirstOrDefault()?.Close();
+        if (!IsEmbedded && UseIntegrationOperation && _independentInitializationCompleted
+            && this.Get<AppViewModel>().Windows.OfType<MainWindow>().FirstOrDefault() is not null)
+            _ = App.Current.RequestExitAsync();
     }
 
     private async Task DrainPlayerWorkAsync()
     {
         Exception? inputError = null;
-        try { await CancelPlayerInputAsync(); }
+        try { await DrainInputAndSponsorAsync(seal: false); }
         catch (Exception ex) { inputError = ex; }
         // A failed input restoration or cancellation callback cannot make live work disappear.
         while (_ownedWork.Count > 0)
@@ -125,6 +126,8 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
 
         await DrainTransportCommandsAsync();
         if (inputError is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inputError).Throw();
+        // OwnWork may have included an initialization/replay that was already running at close.
+        await DrainInputAndSponsorAsync(seal: true);
     }
 
     private async Task InitializeMediaAsync(MediaSnapshot snapshot)
@@ -250,7 +253,12 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
             Player.UpdateResolvers(_sourceResolver, _historyResolver);
         }
 
-        await Player.InitializeAsync();
+        CheckMediaAdmission();
+        CheckHostReady();
+        // MpvPlayer.InitializeAsync owns the SDK PlayAsync call; sample its complete managed boundary.
+        LogEmbeddedPlaybackSnapshot("InitializePlayBefore");
+        try { await Player.InitializeAsync(); }
+        finally { LogEmbeddedPlaybackSnapshot("InitializePlayAfter"); }
 
         CheckMediaAdmission();
 
@@ -269,10 +277,16 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
     public void UpdateTheme(ElementTheme theme)
         => Window?.SetTheme(theme);
 
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(Window))]
+    private void CheckHostReady()
+    {
+        if (!_hostReady || Window is null || Window.IsClosed || Window.IsDisposed || Window.RenderHwnd == IntPtr.Zero)
+            throw new InvalidOperationException("The owned player host must be ready before media initialization.");
+    }
+
     private void ShowPlayerWindow()
     {
-        if (!_hostReady || Window is null || Window.RenderHwnd == IntPtr.Zero)
-            throw new InvalidOperationException("The owned player host must be ready before media initialization.");
+        CheckHostReady();
         if (IsEmbedded)
         {
             BindHost();
@@ -299,7 +313,10 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
                 var windowTop = SettingsToolkit.ReadLocalSetting(SettingNames.MainWindowPositionTop, 0);
                 var windowWidth = SettingsToolkit.ReadLocalSetting(SettingNames.MainWindowWidth, 1120d);
                 var windowHeight = SettingsToolkit.ReadLocalSetting(SettingNames.MainWindowHeight, 740d);
-                Window.GetWindow().MoveAndResize(new Windows.Graphics.RectInt32(windowLeft, windowTop, Convert.ToInt32(windowWidth * scaleFactor), Convert.ToInt32(windowHeight * scaleFactor)));
+                if (windowLeft != 0 || windowTop != 0)
+                {
+                    Window.GetWindow().MoveAndResize(new Windows.Graphics.RectInt32(windowLeft, windowTop, Convert.ToInt32(windowWidth * scaleFactor), Convert.ToInt32(windowHeight * scaleFactor)));
+                }
                 if (SettingsToolkit.ReadLocalSetting(SettingNames.IsMainWindowMaximized, false))
                 {
                     (Window.GetWindow().Presenter as OverlappedPresenter)?.Maximize();
@@ -341,6 +358,7 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
         Window.PresentationChanged += OnHostPresentationChanged;
         var overlay = new PlayerOverlay { ViewModel = this, IsTabStop = true };
         _playerOverlay = overlay;
+        BindSponsorApplication(overlay);
         overlay.KeyDown += OnPlayerKeyDown;
         overlay.AddHandler(UIElement.KeyUpEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler(OnPlayerKeyUp), true);
         overlay.LostFocus += OnPlayerInputLostFocus;

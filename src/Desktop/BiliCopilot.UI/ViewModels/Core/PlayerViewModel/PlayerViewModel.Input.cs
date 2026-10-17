@@ -1,10 +1,12 @@
 using BiliCopilot.UI.Controls.Core;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.SponsorBlock.Playback;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Richasy.WinUIKernel.Share.Toolkits;
 using Windows.System;
 
 namespace BiliCopilot.UI.ViewModels.Core;
@@ -13,21 +15,50 @@ public sealed partial class PlayerViewModel
 {
     private const int TouchSpeedOwner = 1;
     private const int AltSpeedOwner = 2;
+    // Existing speed sliders, quick-speed choices and keyboard commands all top out at 3x.
+    private const double MaximumPlaybackRate = 3d;
+    private const string TemporaryAccelerationFactorKey = "TemporaryAccelerationFactor";
+    private const double DefaultTemporaryAccelerationFactor = 1.5d;
     private readonly TemporaryPlaybackRateState _temporarySpeed = new();
     private PlayerOverlay? _playerOverlay;
     private bool _altSpeedHeld;
     private int _inputCancellations;
+    // Requested physical owners, including a begin waiting for the gate. Not a Sponsor bit.
+    private readonly Dictionary<int, long> _temporarySpeedIntentOwners = [];
+
+    internal static double ReadTemporaryAccelerationFactor()
+    {
+        var settings = GlobalDependencies.Kernel.GetRequiredService<ISettingsToolkit>();
+        if (settings.IsSettingKeyExist(TemporaryAccelerationFactorKey))
+            return NormalizeTemporaryAccelerationFactor(settings.ReadLocalSetting(TemporaryAccelerationFactorKey, DefaultTemporaryAccelerationFactor));
+
+        // The legacy key stored an absolute target. Its old default 3.0 is ambiguous, so
+        // migrate that exact value to 1.5; retain other reasonable customized factors.
+        var legacy = SettingsToolkit.ReadLocalSetting(SettingNames.TempPlaybackRate, 3d);
+        var factor = legacy == 3d ? DefaultTemporaryAccelerationFactor : NormalizeTemporaryAccelerationFactor(legacy);
+        settings.WriteLocalSetting(TemporaryAccelerationFactorKey, factor);
+        return factor;
+    }
+
+    internal static void WriteTemporaryAccelerationFactor(double value)
+        => GlobalDependencies.Kernel.GetRequiredService<ISettingsToolkit>().WriteLocalSetting(
+            TemporaryAccelerationFactorKey, NormalizeTemporaryAccelerationFactor(value));
+
+    private static double NormalizeTemporaryAccelerationFactor(double value)
+        => double.IsFinite(value) && value is >= 1.1d and <= 4d ? value : DefaultTemporaryAccelerationFactor;
 
     internal void FocusPlayerInput() => _playerOverlay?.Focus(FocusState.Pointer);
 
+    internal bool IsPlayerInputCancellationPending => _inputCancellations != 0;
+
     private bool CanAcceptPlayerInput => !IsPlaybackClosing && !IsConnecting
-        && !IsWindowDeactivated && _inputCancellations == 0
+        && !IsWindowDeactivated && !IsPlayerInputCancellationPending
         && Client?.IsDisposed == false && Player?.IsPlaybackInitialized == true
         && !IsPopupVisible && !IsExtraPanelVisible && !IsSubtitleSettingsVisible;
 
     private async Task BeginTemporarySpeedAsync(int owner)
     {
-        if (!CanAcceptPlayerInput || Player?.IsPlaying != true)
+        if (!CanAcceptPlayerInput || Player?.IsPlaying != true || _sponsor?.CanUseBinding != true)
         {
             return;
         }
@@ -35,51 +66,97 @@ public sealed partial class PlayerViewModel
         var client = Client!;
         var player = Player;
         var version = _mediaVersion;
-        var wasHeld = _temporarySpeed.IsHeld;
-        var pending = _temporarySpeed.HoldAsync(owner, player.PlaybackRate,
-            SettingsToolkit.ReadLocalSetting(SettingNames.TempPlaybackRate, 3d),
-            rate =>
-            {
-                // Native attempts (including retryable restoration) are real speed feedback.
-                RefreshTemporarySpeedState(showFeedback: true);
-                return client.SetSpeedAsync(rate);
-            },
-            () => version == _mediaVersion && ReferenceEquals(client, Client)
-                && ReferenceEquals(player, Player) && !client.IsDisposed);
-        RefreshTemporarySpeedState(showFeedback: wasHeld != _temporarySpeed.IsHeld);
+        var controller = _sponsor;
+        var ticket = controller.NoteUserIntent(PlayerIntentKind.PhysicalRate);
+        _temporarySpeedIntentOwners[owner] = ticket.IntentId;
+        var requestedHold = false;
+        await _physicalRateGate.WaitAsync();
         try
         {
-            await pending;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Temporary playback speed begin failed.");
-        }
+            if (!CanAcceptPlayerInput || !IsCurrentPlayback(version)) return;
+            var factor = ReadTemporaryAccelerationFactor();
+            _sponsorPhysicalRate ??= await controller.AcquirePhysicalRateAsync(ticket);
+            var handoff = _sponsorPhysicalRate;
+            if (!CanAcceptPlayerInput || !IsCurrentPlayback(version))
+            {
+                controller.ReleasePhysicalRate(handoff);
+                _sponsorPhysicalRate = null;
+                return;
+            }
+            var wasHeld = _temporarySpeed.IsHeld;
+            requestedHold = true;
+            // The physical handoff captures the pre-hold rate. Reuse it for overlapping
+            // owners/repeats, rather than multiplying the already accelerated player rate.
+            var temporaryRate = Math.Min(MaximumPlaybackRate, handoff.Baseline * factor);
+            var pending = _temporarySpeed.HoldAsync(owner, handoff.Baseline,
+                temporaryRate,
+                async rate =>
+                {
+                    RefreshTemporarySpeedState(showFeedback: true);
+                    await controller.WritePhysicalRateAsync(handoff, rate);
+                },
+                () => version == _mediaVersion && ReferenceEquals(client, Client)
+                    && ReferenceEquals(player, Player) && !client.IsDisposed);
+            RefreshTemporarySpeedState(showFeedback: wasHeld != _temporarySpeed.IsHeld);
+            try
+            {
+                await pending;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Temporary playback speed begin failed.");
+            }
 
-        if (IsCurrentPlayback(version))
+            if (IsCurrentPlayback(version)) RefreshTemporarySpeedState();
+        }
+        finally
         {
-            RefreshTemporarySpeedState();
+            if (!requestedHold && _temporarySpeedIntentOwners.TryGetValue(owner, out var intentId)
+                && intentId == ticket.IntentId) _temporarySpeedIntentOwners.Remove(owner);
+            controller.AbandonIntent(ticket);
+            _physicalRateGate.Release();
         }
     }
 
     private async Task ReleaseTemporarySpeedAsync(int owner)
     {
-        var version = _mediaVersion;
-        var wasHeld = _temporarySpeed.IsHeld;
-        var pending = _temporarySpeed.ReleaseAsync(owner);
-        RefreshTemporarySpeedState(showFeedback: wasHeld != _temporarySpeed.IsHeld);
+        // Classify synchronously: the surface callback during Cancel is cleanup, not a new
+        // user intent. A real independent release (even while begin awaits) still wins.
+        var independentRelease = _temporarySpeedIntentOwners.Remove(owner);
+        var ticket = independentRelease && _sponsor?.CanUseBinding == true
+            ? _sponsor.NoteUserIntent(PlayerIntentKind.PhysicalRate) : null;
+        await _physicalRateGate.WaitAsync();
         try
         {
-            await pending;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Temporary playback speed restore failed.");
-        }
+            var version = _mediaVersion;
+            var wasHeld = _temporarySpeed.IsHeld;
+            var pending = _temporarySpeed.ReleaseAsync(owner);
+            RefreshTemporarySpeedState(showFeedback: wasHeld != _temporarySpeed.IsHeld);
+            try
+            {
+                await pending;
+                ReleaseSponsorPhysicalIfRestored();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Temporary playback speed restore failed.");
+            }
 
-        if (IsCurrentPlayback(version))
+            if (IsCurrentPlayback(version)) RefreshTemporarySpeedState();
+        }
+        finally
         {
-            RefreshTemporarySpeedState();
+            if (ticket is not null) _sponsor?.AbandonIntent(ticket);
+            _physicalRateGate.Release();
+        }
+    }
+
+    private void ReleaseSponsorPhysicalIfRestored()
+    {
+        if (!_temporarySpeed.IsActive && _sponsorPhysicalRate is { } handoff)
+        {
+            _sponsor!.ReleasePhysicalRate(handoff);
+            _sponsorPhysicalRate = null;
         }
     }
 
@@ -127,20 +204,24 @@ public sealed partial class PlayerViewModel
         }
 
         ++_inputCancellations;
+        await _physicalRateGate.WaitAsync();
         try
         {
             _altSpeedHeld = false;
             IsTouching = false;
+            _temporarySpeedIntentOwners.Clear(); // Before synchronous surface -> RestoreSpeed callbacks.
             if (cancelTransport) _playerOverlay?.CancelPendingInput();
             else _playerOverlay?.CancelSurfaceInput();
             var wasHeld = _temporarySpeed.IsHeld;
             var pending = _temporarySpeed.CancelAsync();
             RefreshTemporarySpeedState(showFeedback: wasHeld != _temporarySpeed.IsHeld);
             await pending;
+            ReleaseSponsorPhysicalIfRestored();
         }
         finally
         {
             --_inputCancellations;
+            _physicalRateGate.Release();
         }
     }
 
@@ -251,7 +332,7 @@ public sealed partial class PlayerViewModel
                 _playerOverlay.ShowControlsForInput();
                 if (!args.KeyStatus.WasKeyDown)
                 {
-                    await Client!.SendKeyPressAsync(args.Key.ToString().Replace("Number", string.Empty, StringComparison.Ordinal));
+                    await SendOpaqueUserKeyAsync(args.Key.ToString().Replace("Number", string.Empty, StringComparison.Ordinal));
                 }
 
                 return;

@@ -463,7 +463,8 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
 
     private bool CanControlPlayback()
         => ViewModel?.Client?.IsDisposed == false && ViewModel.Player?.IsPlaybackInitialized == true
-            && !ViewModel.IsPlaybackClosing && !ViewModel.IsConnecting && !ViewModel.IsWindowDeactivated
+            && !ViewModel.IsPlaybackClosing && !ViewModel.IsPlayerInputCancellationPending
+            && !ViewModel.IsConnecting && !ViewModel.IsWindowDeactivated
             && ViewModel.Window is { IsPresenterChanging: false, IsClosed: false, IsDisposed: false }
             && !ViewModel.IsPopupVisible && !ViewModel.IsExtraPanelVisible && !ViewModel.IsSubtitleSettingsVisible;
 
@@ -477,7 +478,7 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
             || context != new PlayerTapContext(ViewModel, ViewModel.MediaGeneration, _inputEpoch,
                 context.Touch, XamlRoot?.RasterizationScale ?? 1, ActualWidth, ActualHeight)
             || ViewModel.IsHoldingSpeedChanging || ViewModel.Window is not { IsPresenterChanging: false, IsClosed: false, IsDisposed: false } host
-            || PInvoke.GetForegroundWindow().Value != host.OwnerHwnd || Visibility != Visibility.Visible) return false;
+            || (nint)PInvoke.GetForegroundWindow() != host.OwnerHwnd || Visibility != Visibility.Visible) return false;
         var focus = FocusManager.GetFocusedElement(XamlRoot);
         var ancestorFocused = false;
         for (DependencyObject? node = this; node is not null; node = VisualTreeHelper.GetParent(node))
@@ -497,8 +498,7 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
             owner.IsControlsVisible = !owner.IsControlsVisible;
             return;
         }
-        var command = action.Intent == PlayerTapIntent.Double && !action.Context.Touch
-            ? owner.ToggleFullScreenCommand : owner.PlayPauseCommand;
+        var command = owner.PlayPauseCommand; // Fullscreen remains a keyboard/button action, not a mouse double click.
         if (!command.CanExecute(null) || !TapCurrent(action.Context)) return;
         try { await command.ExecuteAsync(null); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Player tap failed: {ex.Message}"); }

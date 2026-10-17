@@ -38,3 +38,4 @@ ReleaseCapture
 SendMessage
 GetDoubleClickTime
 GetSystemMetricsForDpi
+IsWindow

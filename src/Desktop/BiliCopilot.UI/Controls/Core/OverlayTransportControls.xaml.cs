@@ -328,6 +328,9 @@ public sealed partial class OverlayTransportControls : PlayerControlBase
     private string GetFullScreenTip(PlayerPresentationMode presentation)
         => presentation == PlayerPresentationMode.FullScreen ? ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.ExitFullScreen) : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.EnterFullScreen);
 
+    private Visibility GetWindowModeButtonVisibility(PlayerPresentationMode presentation)
+        => presentation == PlayerPresentationMode.CompactOverlay ? Visibility.Collapsed : Visibility.Visible;
+
     private void OnViewModelProgressChanged(object? sender, double e)
     {
         if (CaptureInput() is not { } owner || !ReferenceEquals(sender, owner.ViewModel)

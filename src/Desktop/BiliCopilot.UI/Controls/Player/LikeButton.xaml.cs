@@ -161,6 +161,36 @@ internal sealed class ActionTipTicketState
         command.Execute(parameter);
         return true;
     }
+
+    /// <summary>
+    /// Identity check for cleanup after an execution: the opening captured before CanExecute/Execute is still the
+    /// open one (same unretired ticket and same claim object). A retired or replaced opening is never closed again.
+    /// </summary>
+    internal static bool IsSameOpening(Ticket? currentTicket, Ticket capturedTicket, object? currentClaim, object? capturedClaim)
+        => capturedClaim is not null && !capturedTicket.Retired
+            && ReferenceEquals(currentTicket, capturedTicket) && ReferenceEquals(currentClaim, capturedClaim);
+
+    /// <summary>
+    /// Action-button flow of one opening: capture its ticket and claim, run the captured command (currency is
+    /// re-checked around CanExecute), then close only that opening. Whether the command completes, throws, or
+    /// synchronously closes this tip and opens a newer one, the newer opening is never closed here.
+    /// </summary>
+    internal static void ExecuteAndCloseOpening(Func<Ticket?> currentTicket, Func<object?> currentClaim, int index,
+        object? parameter, Func<Ticket, bool> isCurrent, Action close)
+    {
+        if (currentTicket() is not { } ticket)
+        {
+            close();
+            return;
+        }
+
+        var claim = currentClaim();
+        try { TryExecute(ticket, index, parameter, () => isCurrent(ticket)); }
+        finally
+        {
+            if (IsSameOpening(currentTicket(), ticket, currentClaim(), claim)) close();
+        }
+    }
 }
 
 /// <summary>
@@ -232,12 +262,13 @@ internal sealed class PlayerActionTip
         return true;
     }
 
-    /// <summary>Run the captured command at <paramref name="index"/> if the opening is still current, then close.</summary>
+    /// <summary>
+    /// Run the captured command at <paramref name="index"/> if the opening is still current, then close only that
+    /// opening. CanExecute/Execute may synchronously close it and open a newer one; completion or an exception
+    /// from the old invocation must never close the newer opening or release its claim.
+    /// </summary>
     internal void ExecuteAndClose(int index, object? parameter)
-    {
-        if (_tickets.Current is { } ticket) ActionTipTicketState.TryExecute(ticket, index, parameter, () => IsCurrent(ticket));
-        Close();
-    }
+        => ActionTipTicketState.ExecuteAndCloseOpening(() => _tickets.Current, () => _claim, index, parameter, IsCurrent, Close);
 
     /// <summary>Close only this tip's current opening; a later opening is never affected by an older close.</summary>
     internal void Close()

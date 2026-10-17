@@ -116,6 +116,7 @@ public sealed partial class PlayerViewModel
             };
             var client = await MpvClient.CreateAsync(mpvPath, options, logger: logger);
             Client = client;
+            LogEmbeddedPlaybackSnapshot("CreateAsyncReturned");
             CheckMediaAdmission();
             Client.ErrorOccurred += OnClientErrorOccurred;
             Client.CacheStateChanged += OnClientCacheStateChanged;
@@ -276,6 +277,24 @@ public sealed partial class PlayerViewModel
         CheckMediaAdmission();
         await step();
         CheckMediaAdmission();
+    }
+
+    private void LogEmbeddedPlaybackSnapshot(string phase)
+    {
+        if (Window is not MainPlayerHost host) return;
+        string? videoOutput = null;
+        string? gpuContext = null;
+        int? hresult = null;
+        try
+        {
+            if (Client is { IsDisposed: false } client)
+            {
+                videoOutput = MpvNative.GetPropertyString(client.Handle, "vo");
+                gpuContext = MpvNative.GetPropertyString(client.Handle, "gpu-context");
+            }
+        }
+        catch (Exception error) { hresult = error.HResult; }
+        host.LogWindowSnapshot(phase, videoOutput, gpuContext, hresult: hresult);
     }
 
     private void OnTripleTimerTick(DispatcherQueueTimer sender, object args)
@@ -489,6 +508,10 @@ public sealed partial class PlayerViewModel
             return;
         }
 
+        // Notifications are reread prompts only; never feed this event's old payload into Sponsor.
+        if (e.PropertyName is nameof(Player.Position) or nameof(Player.Duration) or nameof(Player.PlaybackRate)
+            or nameof(Player.PlaybackState) or nameof(Player.IsPlaybackInitialized))
+            _sponsor?.RequestObservation();
         var mediaVersion = _mediaVersion;
         try
         {
@@ -618,10 +641,7 @@ public sealed partial class PlayerViewModel
         else if (e.PropertyName == nameof(Player.PlaybackRate) && Player.IsPlaybackInitialized)
         {
             Danmaku.ExtraSpeed = Player.PlaybackRate;
-            if (!_temporarySpeed.IsActive && SettingsToolkit.ReadLocalSetting(SettingNames.IsPlayerSpeedShare, true))
-            {
-                SettingsToolkit.WriteLocalSetting(SettingNames.PlayerSpeed, Player.PlaybackRate);
-            }
+            // Persistence belongs exclusively to confirmed persistent user-rate intent, not MPV echoes.
         }
         else if (e.PropertyName == nameof(Player.IsPlaybackInitialized) && Player.IsPlaybackInitialized && !(Window?.IsClosed ?? true))
         {
@@ -634,7 +654,8 @@ public sealed partial class PlayerViewModel
             var subtitleFontSize = SettingsToolkit.ReadLocalSetting(SettingNames.SubtitleFontSize, 32d);
             ChangeSubtitleFontSizeCommand.Execute(Math.Max(1, subtitleFontSize));
             // 强制关闭可能开启的统计信息覆盖层.
-            await Client!.SendKeyPressAsync("ESC");
+            if (_sponsor?.CanUseBinding == true) await SendOpaqueUserKeyAsync("ESC");
+            else if (_sponsor?.HasBinding != true) await Client!.SendKeyPressAsync("ESC"); // Initial source setup, before any Sponsor binding exists.
             if (!IsCurrentPlayback(mediaVersion))
             {
                 return;
@@ -645,7 +666,8 @@ public sealed partial class PlayerViewModel
             // Make sure playing.
             if (Player.PlaybackState != MpvPlayerState.Playing)
             {
-                await Client!.ResumeAsync();
+                if (_sponsor?.CanUseBinding == true) await SetUserPausedAsync(false);
+                else if (_sponsor?.HasBinding != true) await Client!.ResumeAsync();
                 if (!IsCurrentPlayback(mediaVersion))
                 {
                     return;

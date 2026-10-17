@@ -42,7 +42,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task IncreaseVolumeAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null)
         {
             return;
@@ -62,7 +62,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task DecreaseVolumeAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null)
         {
             return;
@@ -82,37 +82,29 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task IncreaseSpeedAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null)
         {
             return;
         }
 
-        var newSpeed = Math.Abs(Player.PlaybackRate - 0.1) < 0.01 ? 0.25 : Math.Min(3, Player.PlaybackRate + 0.25);
-        if (Math.Abs(newSpeed - Player.PlaybackRate) > 0.01)
-        {
-            IsSpeedChanging = true;
-            LastSpeedChangingTime = DateTimeOffset.Now;
-            await Client!.SetSpeedAsync(newSpeed);
-        }
+        var baseline = _sponsor?.UserRateBaseline ?? Player.PlaybackRate;
+        var newSpeed = Math.Abs(baseline - 0.1) < 0.01 ? 0.25 : Math.Min(MaximumPlaybackRate, baseline + 0.25);
+        await ChangeSpeedAsync(newSpeed);
     }
 
     [RelayCommand]
     private async Task DecreaseSpeedAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null)
         {
             return;
         }
 
-        var newSpeed = Math.Max(0.1, Player.PlaybackRate - 0.25);
-        if (Math.Abs(newSpeed - Player.PlaybackRate) > 0.01)
-        {
-            IsSpeedChanging = true;
-            LastSpeedChangingTime = DateTimeOffset.Now;
-            await Client!.SetSpeedAsync(newSpeed);
-        }
+        var baseline = _sponsor?.UserRateBaseline ?? Player.PlaybackRate;
+        var newSpeed = Math.Clamp(baseline - 0.25, 0.1, MaximumPlaybackRate);
+        await ChangeSpeedAsync(newSpeed);
     }
 
     [RelayCommand]
@@ -132,7 +124,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private Task SkipBackwardAsync()
     {
-        if (IsPlaybackClosing || Player is null) return Task.CompletedTask;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending || Player is null) return Task.CompletedTask;
         var backwardSeconds = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.StepBackwardSecond, 10d);
         IsProgressChanging = true;
         LastProgressChangingTime = DateTimeOffset.Now;
@@ -142,7 +134,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private Task SkipForwardAsync()
     {
-        if (IsPlaybackClosing || Player is null) return Task.CompletedTask;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending || Player is null) return Task.CompletedTask;
         var forwardSeconds = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.StepForwardSecond, 30d);
         IsProgressChanging = true;
         LastProgressChangingTime = DateTimeOffset.Now;
@@ -154,16 +146,16 @@ public sealed partial class PlayerViewModel
     /// </summary>
     /// <returns><see cref="Task"/>.</returns>
     public Task ChangePositionAsync(double position)
-        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(ChangePositionCoreAsync(position));
+        => IsPlaybackClosing || IsPlayerInputCancellationPending ? Task.CompletedTask : OwnWork(ChangePositionCoreAsync(position));
 
     private async Task ChangePositionCoreAsync(double position)
     {
-        if (Player is null || position < 0 || position > Player.Duration || Math.Abs(Player.Position - position) < 2)
+        if (Player is null || !double.IsFinite(position) || position < 0 || position > Player.Duration)
         {
             return;
         }
 
-        await Client!.SetCurrentPositionAsync(position);
+        await SeekUserAsync(position);
     }
 
     /// <summary>
@@ -171,7 +163,7 @@ public sealed partial class PlayerViewModel
     /// </summary>
     /// <returns><see cref="Task"/>.</returns>
     public Task ChangeVolumeAsync(double volume)
-        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(ChangeVolumeCoreAsync(volume));
+        => IsPlaybackClosing || IsPlayerInputCancellationPending ? Task.CompletedTask : OwnWork(ChangeVolumeCoreAsync(volume));
 
     private async Task ChangeVolumeCoreAsync(double volume)
     {
@@ -193,7 +185,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task PlayPauseAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -201,7 +193,7 @@ public sealed partial class PlayerViewModel
 
         if (Player.PlaybackState == MpvPlayerState.Playing)
         {
-            await Client!.PauseAsync();
+            await SetUserPausedAsync(true);
         }
         else if (Player.IsStopped)
         {
@@ -209,7 +201,7 @@ public sealed partial class PlayerViewModel
         }
         else
         {
-            await Client!.ResumeAsync();
+            await SetUserPausedAsync(false);
         }
     }
 
@@ -320,7 +312,7 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task SwitchToPreviousChapterAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -332,13 +324,13 @@ public sealed partial class PlayerViewModel
             return;
         }
 
-        await Client!.SetCurrentPositionAsync(lastSelectedChapter.Position);
+        await SeekUserAsync(lastSelectedChapter.Position);
     }
 
     [RelayCommand]
     private async Task SwitchToNextChapterAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null || Player.PlaybackState == MpvPlayerState.Idle)
         {
             return;
@@ -350,13 +342,13 @@ public sealed partial class PlayerViewModel
             return;
         }
 
-        await Client!.SetCurrentPositionAsync(nextSelectedChapter.Position);
+        await SeekUserAsync(nextSelectedChapter.Position);
     }
 
     [RelayCommand]
     private async Task SendKeyAsync(string key)
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null)
         {
             return;
@@ -364,7 +356,7 @@ public sealed partial class PlayerViewModel
 
         try
         {
-            await Client!.SendKeyPressAsync(key);
+            await SendOpaqueUserKeyAsync(key);
         }
         catch (Exception ex)
         {
@@ -453,14 +445,13 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private async Task ToggleMuteStateAsync()
     {
-        if (IsPlaybackClosing) return;
+        if (IsPlaybackClosing || IsPlayerInputCancellationPending) return;
         if (Player is null || Client is null)
         {
             return;
         }
 
-        IsMute = !IsMute;
-        await Client.SetMuteAsync(IsMute);
+        await ToggleUserMuteAsync();
     }
 
     [RelayCommand]
@@ -554,7 +545,7 @@ public sealed partial class PlayerViewModel
         var wasPlaying = Player.IsPlaying;
         try
         {
-            await Client.PauseAsync();
+            await SetUserPausedAsync(true);
             if (!IsCurrentPlayback(version)) return;
             var dialog = new DanmakuSendDialog(DanmakuSend, () => IsPopupVisible = true)
             {
@@ -583,7 +574,7 @@ public sealed partial class PlayerViewModel
         {
             _activeDanmakuDialog = null;
             IsPopupVisible = false;
-            if (wasPlaying && IsCurrentPlayback(version)) await Client.ResumeAsync();
+            if (wasPlaying && IsCurrentPlayback(version)) await SetUserPausedAsync(false);
         }
     }
 

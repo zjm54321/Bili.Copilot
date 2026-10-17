@@ -10,7 +10,7 @@ public sealed partial class PlayerViewModel
     {
         var player = Player;
         return player is null ? Task.CompletedTask
-            : RunWithoutPlayerInputAsync(() => player.ReplayAsync(preferPosition));
+            : RunWithoutPlayerInputAsync(() => player.ReplayAsync(preferPosition), nativeReplay: true);
     }
 
     private Task SelectSourceAsync(SourceItemViewModel source)
@@ -35,6 +35,6 @@ public sealed partial class PlayerViewModel
                 // or wait for IsPlaybackInitialized (Replay need not toggle that property).
                 await player.ReplayAsync(position);
             }
-        });
+        }, nativeReplay: resolver is VideoMediaSourceResolver);
     }
 }

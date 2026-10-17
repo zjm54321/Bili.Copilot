@@ -127,17 +127,12 @@ public sealed partial class PlayerViewModel
     }
 
     public Task ChangeSpeedAsync(double speed)
-        => IsPlaybackClosing ? Task.CompletedTask : OwnWork(ChangeSpeedCoreAsync(speed));
+        => IsPlaybackClosing || IsPlayerInputCancellationPending ? Task.CompletedTask : OwnWork(ChangeSpeedCoreAsync(speed));
 
-    private async Task ChangeSpeedCoreAsync(double speed)
+    private Task ChangeSpeedCoreAsync(double speed)
     {
-        if (!double.IsFinite(speed) || speed < 0.1 || speed > 3 || Client is null || Player is null) return;
-        var version = _mediaVersion;
-        await RestorePhysicalPlayerInputAsync();
-        if (!IsCurrentPlayback(version)) return;
-        IsSpeedChanging = true;
-        LastSpeedChangingTime = DateTimeOffset.Now;
-        await Client.SetSpeedAsync(speed);
+        if (!double.IsFinite(speed) || speed < 0.1 || speed > 3 || Client is null || Player is null) return Task.CompletedTask;
+        return SetPersistentUserRateAsync(speed);
     }
 
     public Task SendInlineDanmakuAsync(string text)

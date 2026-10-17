@@ -188,6 +188,11 @@ public sealed partial class PlayerWindow : IPlayerHost
         _rootWindow.Show();
         PInvoke.SetForegroundWindow(new(Handle));
         PInvoke.SetFocus(new(Handle));
+        if (_isFirstActivated)
+        {
+            _rootWindow.Changed += OnWindowChanged;
+        }
+
         if (restorePosition)
         {
             MoveAndResize();
@@ -195,7 +200,6 @@ public sealed partial class PlayerWindow : IPlayerHost
 
         if (_isFirstActivated)
         {
-            _rootWindow.Changed += OnWindowChanged;
             UpdateXamlSourcePosition();
             if (PInvoke.GetForegroundWindow() == Handle)
             {
@@ -393,7 +397,8 @@ public sealed partial class PlayerWindow : IPlayerHost
     {
         if (_rootWindow.Presenter.Kind == AppWindowPresenterKind.Overlapped)
         {
-            var scale = XamlRoot?.RasterizationScale ?? 1d;
+            var scale = XamlRoot?.RasterizationScale ?? (HwndExtensions.GetDpiForWindow(Handle) / 96d);
+            if (scale <= 0) scale = 1d;
             (_rootWindow.Presenter as OverlappedPresenter)?.PreferredMinimumHeight = Convert.ToInt32(WindowMinHeight * scale);
             (_rootWindow.Presenter as OverlappedPresenter)?.PreferredMinimumWidth = Convert.ToInt32(WindowMinWidth * scale);
         }
@@ -479,7 +484,7 @@ public sealed partial class PlayerWindow : IPlayerHost
         var previousHeight = SettingsToolkit.ReadLocalSetting(SettingNames.PlayerWindowHeight, 740d);
         var width = Convert.ToInt32(previousWidth * scaleFactor);
         var height = Convert.ToInt32(previousHeight * scaleFactor);
-        var workAreaHeight = Convert.ToInt32(workArea.Height * scaleFactor);
+        var workAreaHeight = workArea.Height;
         // Ensure the window is not larger than the work area.
         if (height > workAreaHeight - 20)
         {
@@ -489,12 +494,11 @@ public sealed partial class PlayerWindow : IPlayerHost
         var lastPoint = GetSavedWindowPosition();
         var isZeroPoint = lastPoint.X == 0 && lastPoint.Y == 0;
         var isValidPosition = lastPoint.X >= workArea.X && lastPoint.Y >= workArea.Y && lastPoint.X + width <= workArea.X + workArea.Width && lastPoint.Y + height <= workArea.Y + workArea.Height;
-        // 下面的 workArea.Width 和 workArea.Height 别动，不然初始窗口位置会出问题.
         var left = isZeroPoint || !isValidPosition
-            ? (workArea.Width - width) / 2d
+            ? workArea.X + (workArea.Width - width) / 2d
             : lastPoint.X;
         var top = isZeroPoint || !isValidPosition
-            ? (workArea.Height - height) / 2d
+            ? workArea.Y + (workArea.Height - height) / 2d
             : lastPoint.Y;
         return new RectInt32(Convert.ToInt32(left), Convert.ToInt32(top), width, height);
     }

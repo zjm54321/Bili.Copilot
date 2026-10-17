@@ -43,7 +43,14 @@ internal sealed class PlayerTapAggregationState
         { Cancel(); return default; }
         _pressed = false;
         var elapsed = now - _pressedAt;
-        if (elapsed < 0 || elapsed > _window) { Cancel(); return default; }
+        if (elapsed < 0 || (context.Touch && elapsed > _window)) { Cancel(); return default; }
+        if (!context.Touch)
+        {
+            // Mouse clicks complete on release; only touch waits for a possible second tap.
+            var action = new PlayerTapAction(PlayerTapIntent.Single, _context);
+            Cancel();
+            return action;
+        }
         if (_reserved)
         {
             var action = new PlayerTapAction(PlayerTapIntent.Double, _context);

@@ -21,13 +21,18 @@ public sealed partial class AppViewModel
     internal bool HasIndependentWorkRequiringMainWindow
         => Players.Any(player => !player.IsEmbedded && !player.HasUsableIndependentHost);
 
-    private async Task OpenMainPlayerAsync(MediaSnapshot snapshot)
+    private Task OpenMainPlayerAsync(MediaSnapshot snapshot)
+        => OwnApplicationPlaybackAsync(token => LiveApplication.OpenVideoAsync(
+            routeToken => OpenMainPlayerCoreAsync(snapshot, routeToken), token));
+
+    private async Task OpenMainPlayerCoreAsync(MediaSnapshot snapshot, CancellationToken admissionToken)
     {
+        admissionToken.ThrowIfCancellationRequested();
         var version = ++_embeddedOpenVersion;
         var previousRequest = _embeddedOpenCancellation;
         var previousPlayer = previousRequest is not null && ReferenceEquals(_embeddedPlayerOpeningCancellation, previousRequest)
             ? EmbeddedPlayer : null;
-        var request = new CancellationTokenSource();
+        var request = CancellationTokenSource.CreateLinkedTokenSource(admissionToken);
         _embeddedOpenCancellation = request;
         var entered = false;
         try
@@ -55,10 +60,10 @@ public sealed partial class AppViewModel
             request.Token.ThrowIfCancellationRequested();
             if (EmbeddedPlayer is { } previous) await previous.CloseAsync();
             request.Token.ThrowIfCancellationRequested();
-            if (version != _embeddedOpenVersion || IsClosed) return;
+            if (version != _embeddedOpenVersion || IsPlaybackStopping) return;
 
             if (snapshot.Type is not (BiliMediaType.Video or BiliMediaType.Pgc))
-                throw new NotSupportedException("主窗口 mpv 播放仅支持视频和剧集；直播请使用原网页入口。");
+                throw new NotSupportedException("主窗口 mpv 播放仅支持视频和剧集；直播请使用独立直播入口。");
 
             var main = Windows.OfType<MainWindow>().FirstOrDefault()
                 ?? throw new InvalidOperationException("主窗口尚未创建。");
@@ -88,6 +93,7 @@ public sealed partial class AppViewModel
             }
             catch (Exception ex)
             {
+                SafeFailureContext.TryWrite(FailureStage.EmbeddedOpen, ex, () => _logger);
                 // Keep the failed session + return affordance visible; no hidden fallback engine.
                 vm.ErrorMessage = ex.Message;
                 vm.IsConnecting = false;
@@ -192,15 +198,20 @@ public sealed partial class AppViewModel
 
     /// <summary>Explicit new independent session, never a fullscreen transfer.</summary>
     [RelayCommand(AllowConcurrentExecutions = true)]
-    public async Task OpenIndependentPlayerAsync(MediaSnapshot snapshot)
+    public Task OpenIndependentPlayerAsync(MediaSnapshot snapshot)
+        => OwnApplicationPlaybackAsync(token => OpenIndependentPlayerCoreAsync(snapshot, token));
+
+    private async Task OpenIndependentPlayerCoreAsync(MediaSnapshot snapshot, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         var vm = this.Get<PlayerViewModel>();
         Players.Add(vm);
         try
         {
             // PlayerWindow construction is managed-only. Assign ownership before native readiness.
-            await vm.AttachHostAsync(new PlayerWindow(), CancellationToken.None);
-            await vm.InitializeAsync(snapshot);
+            await vm.AttachHostAsync(new PlayerWindow(), token);
+            token.ThrowIfCancellationRequested();
+            await vm.InitializeAsync(snapshot, token);
         }
         catch (Exception ex)
         {

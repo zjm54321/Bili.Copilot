@@ -57,6 +57,18 @@
                     VerticalAlignment="Center"
                     Orientation="Horizontal"
                     Spacing="4">
+                    <!--  空降助手入口：紧挨分享左侧；可见性与打开由代码交给当前播放浮层（面板在视频顶部向下展开）  -->
+                    <Button
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="{x:Bind core:PlayerOverlay.SponsorEntryName}"
+                        Click="OnSponsorEntryClick"
+                        Loaded="OnSponsorEntryLoaded"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="{x:Bind core:PlayerOverlay.SponsorEntryName}"
+                        Unloaded="OnSponsorEntryUnloaded"
+                        Visibility="Collapsed">
+                        <ic:SymbolIcon FontSize="14" Symbol="SkipForwardTab" />
+                    </Button>
                     <Button
                         VerticalAlignment="Center"
                         Loaded="OnHeaderButtonLoaded"
@@ -117,6 +129,18 @@
                     VerticalAlignment="Center"
                     Orientation="Horizontal"
                     Spacing="4">
+                    <!--  空降助手入口：紧挨分享左侧；可见性与打开由代码交给当前播放浮层（面板在视频顶部向下展开）  -->
+                    <Button
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="{x:Bind core:PlayerOverlay.SponsorEntryName}"
+                        Click="OnSponsorEntryClick"
+                        Loaded="OnSponsorEntryLoaded"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="{x:Bind core:PlayerOverlay.SponsorEntryName}"
+                        Unloaded="OnSponsorEntryUnloaded"
+                        Visibility="Collapsed">
+                        <ic:SymbolIcon FontSize="14" Symbol="SkipForwardTab" />
+                    </Button>
                     <Button
                         VerticalAlignment="Center"
                         Loaded="OnHeaderButtonLoaded"
@@ -230,7 +254,7 @@
 
         <!--
             视频列（源 71-87）：VideoSlotElement 为宿主 MainPlayerHost 定位原生子窗口的空占位。
-            loading/error 复用当前 IsConnecting / ErrorMessage 单一租约（VideoSlot 始终可测量）。
+            连接提示由 island 内 PlayerOverlay 显示；仅错误遮挡持有租约（VideoSlot 始终可测量）。
         -->
         <Grid
             x:Name="VideoContainer"
@@ -243,11 +267,6 @@
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch">
                 <Grid x:Name="VideoSlotElement" Background="Transparent" />
-                <base:LoadingWidget
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Text="{ext:Locale Name=Connecting}"
-                    Visibility="{x:Bind ViewModel.IsConnecting, Mode=OneWay}" />
                 <StackPanel
                     MaxWidth="380"
                     HorizontalAlignment="Center"

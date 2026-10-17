@@ -9,6 +9,7 @@
     xmlns:ic="using:FluentIcons.WinUI"
     xmlns:local="using:BiliCopilot.UI.Controls.Core"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <local:PlayerControlBase.Resources>
@@ -70,6 +71,23 @@
                     VerticalAlignment="Center"
                     Style="{StaticResource CaptionTextBlockStyle}"
                     Text="{x:Bind ViewModel.PositionText, Mode=OneWay}" />
+                <!--
+                    片段标记：Slider 的普通兄弟元素，声明在 Slider 之前（同为默认 ZIndex，按声明顺序画在 Slider 下面），所以 Thumb 始终盖在它上面；
+                    只占轨道那一条线（垂直居中，比 4px 轨道略高，已播放部分也能露出上下边），
+                    左右各让出半个 Thumb 宽度（默认 18px）与 Slider 的取值范围对齐；不拦截点击.
+                -->
+                <Grid
+                    x:Name="SponsorTimelineLayer"
+                    Grid.Column="1"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed">
+                    <sponsor:SponsorTimelineBar
+                        x:Name="SponsorTimeline"
+                        Height="6"
+                        Margin="9,0"
+                        VerticalAlignment="Center"
+                        IsHitTestVisible="False" />
+                </Grid>
                 <Slider
                     x:Name="ProgressSlider"
                     Grid.Column="1"

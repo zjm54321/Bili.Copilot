@@ -27,7 +27,12 @@ public sealed partial class Pinner : PinnerBase
         => ViewModel.InitializeCommand.Execute(default);
 
     protected override void OnControlUnloaded()
-        => Repeater.ItemsSource = null;
+    {
+        if (Repeater is not null)
+        {
+            Repeater.ItemsSource = null;
+        }
+    }
 
     private async void OnItemClick(object sender, RoutedEventArgs e)
     {

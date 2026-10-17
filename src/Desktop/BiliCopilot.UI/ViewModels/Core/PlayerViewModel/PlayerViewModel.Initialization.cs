@@ -2,6 +2,9 @@
 
 using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Models;
+using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.SponsorBlock.Rules;
+using BiliCopilot.UI.SponsorBlock.Playback;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +30,7 @@ public sealed partial class PlayerViewModel
 #pragma warning restore CA2213
     private readonly HashSet<Task> _ownedWork = [];
     private Task? _closeTask;
+    private Task? _closeWorker;
     private readonly List<Exception> _closeCancellationErrors = [];
     private bool _hostReady;
     private bool _independentInitializationCompleted;
@@ -63,11 +67,19 @@ public sealed partial class PlayerViewModel
         }
     }
 
-    private Task RunWithoutPlayerInputAsync(Func<Task> operation)
-        => IsPlaybackClosing ? Task.CompletedTask
-            : OwnWork(RunWithoutPlayerInputCoreAsync(operation, _mediaVersion, _activeMediaToken));
+    private Task RunWithoutPlayerInputAsync(Func<Task> operation, bool nativeReplay = false)
+    {
+        if (IsPlaybackClosing) return Task.CompletedTask;
+        // Close Sponsor admission synchronously, before any cancellation callback/await.
+        if (nativeReplay) RetireSponsorBinding(RetirementReason.Replay);
+        else _sponsor?.CloseAdmission(RetirementReason.Paused);
+        var intent = !nativeReplay && _sponsor?.CanUseBinding == true
+            ? _sponsor.NoteUserIntent(PlayerIntentKind.Pause) : null;
+        return OwnWork(RunWithoutPlayerInputCoreAsync(operation, _mediaVersion, _activeMediaToken, nativeReplay, intent));
+    }
 
-    private async Task RunWithoutPlayerInputCoreAsync(Func<Task> operation, long version, CancellationToken token)
+    private async Task RunWithoutPlayerInputCoreAsync(Func<Task> operation, long version, CancellationToken token,
+        bool nativeReplay, UserIntentTicket? intent)
     {
         var entered = false;
         try
@@ -76,20 +88,32 @@ public sealed partial class PlayerViewModel
             entered = true;
             token.ThrowIfCancellationRequested();
             if (!IsCurrentPlayback(version)) return;
+            if (nativeReplay) RetireSponsorBinding(RetirementReason.Replay);
+            else if (intent is null && _sponsor is not null) return;
             ++_inputCancellations;
             try
             {
-                await CancelPlayerInputAsync();
+                await DrainInputAndSponsorAsync(seal: nativeReplay);
                 token.ThrowIfCancellationRequested();
                 if (!IsCurrentPlayback(version)) return;
                 // Cancellation cannot retract native Play/Resume already started by Replay.
                 // Keep the gate until the real operation finishes; never join _ownedWork here.
-                await operation();
+                if (nativeReplay || intent is null) await operation();
+                else await _sponsor!.OpaqueControlAsync(intent, operation);
+                if (IsCurrentPlayback(version))
+                {
+                    if (nativeReplay) BindSponsorPlayback();
+                    else _sponsor?.ReopenAdmission();
+                }
             }
             finally { --_inputCancellations; }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        finally { if (entered) _initializationGate.Release(); }
+        finally
+        {
+            if (intent is not null) _sponsor?.AbandonIntent(intent);
+            if (entered) _initializationGate.Release();
+        }
     }
 
     internal Task AttachHostAsync(IPlayerHost host, CancellationToken cancellationToken)
@@ -106,6 +130,7 @@ public sealed partial class PlayerViewModel
         linked.Token.ThrowIfCancellationRequested();
         _hostReady = true;
         BindHost();
+        await AwaitSponsorApplicationBindingAsync();
     }
 
     public void Close() => _ = ObserveCloseAsync(CloseAsync());
@@ -146,7 +171,8 @@ public sealed partial class PlayerViewModel
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _closeTask = completion.Task;
         _isClosing = true;
-        _ = CompleteCloseAsync(completion, cancelOpening);
+        StartSponsorApplicationCleanup();
+        _closeWorker = CompleteCloseAsync(completion, cancelOpening);
         return _closeTask;
     }
 
@@ -178,8 +204,11 @@ public sealed partial class PlayerViewModel
 
     private async Task CompleteCloseAsync(TaskCompletionSource completion, Action? cancelOpening)
     {
+        await Task.Yield(); // Publish the actual close worker before any cleanup callbacks.
         try
         {
+            await AwaitSponsorApplicationCleanupAsync();
+            RetireSponsorBinding(RetirementReason.Closing);
             var media = _mediaCancellation;
             CancelOpeningForClose(cancelOpening);
             // Keep synchronous callback completion, but one throwing source cannot skip the other.
@@ -217,6 +246,7 @@ public sealed partial class PlayerViewModel
         if (IsPlaybackClosing) return Task.CompletedTask;
         // Cancel callbacks run once; a later Cancel no-op must not turn a failed transition into reuse.
         if (_mediaCancellationError is { } failure) return OwnWork(Task.FromException(failure));
+        RetireSponsorBinding(RetirementReason.Replacement);
         var previous = _mediaCancellation;
         // A callback may reenter CloseAsync before Cancel reports its error. Reserve this real
         // synchronous cancellation scope in the existing drain set, so close cannot release early.
@@ -258,13 +288,16 @@ public sealed partial class PlayerViewModel
             entered = true;
             request.Token.ThrowIfCancellationRequested();
             IsConnecting = true;
-            await CancelPlayerInputAsync();
+            RetireSponsorBinding(RetirementReason.Replacement);
+            await DrainInputAndSponsorAsync(seal: true);
             request.Token.ThrowIfCancellationRequested();
             _activeMediaToken = request.Token;
             Interlocked.Increment(ref _mediaVersion);
             OnPropertyChanged(nameof(MediaGeneration));
             await InitializeMediaAsync(snapshot);
             request.Token.ThrowIfCancellationRequested();
+            BindSponsorPlayback();
+            await RefreshSponsorApplicationMetadataAsync();
             if (!IsEmbedded) _independentInitializationCompleted = true;
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested)
@@ -273,6 +306,7 @@ public sealed partial class PlayerViewModel
         }
         catch (Exception ex)
         {
+            SafeFailureContext.TryWrite(FailureStage.PlaybackInitialize, ex, () => logger);
             if (!request.IsCancellationRequested) ReportPlaybackFailure(ex);
             // The opening caller closes only after this owned operation releases its gate.
             if (!IsEmbedded && !_independentInitializationCompleted) throw;

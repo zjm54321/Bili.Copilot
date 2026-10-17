@@ -15,7 +15,9 @@
     xmlns:local="using:BiliCopilot.UI.Controls.Core"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:player="using:BiliCopilot.UI.Controls.Player"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     xmlns:store="using:BiliCopilot.UI.Controls.Player.StoreIsland"
+    Background="Transparent"
     mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -166,9 +168,26 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
         </Style>
+        <!--
+            空降助手完整面板的浮出外框：面板自带分区与内部滚动，外框不再套一层滚动，
+            尺寸由宿主代码按播放区域计算.
+        -->
+        <Style
+            x:Key="SponsorPanelFlyoutPresenterStyle"
+            BasedOn="{StaticResource DefaultFlyoutPresenterStyle}"
+            TargetType="FlyoutPresenter">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MaxWidth" Value="9999" />
+            <Setter Property="MaxHeight" Value="9999" />
+            <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        </Style>
     </UserControl.Resources>
 
-    <Grid x:Name="RootGrid">
+    <Grid x:Name="RootGrid" Background="Transparent">
         <danmaku:VideoDanmakuPanel
             x:Name="DanmakuPanel"
             Margin="4"
@@ -210,7 +229,7 @@
                 <RowDefinition Height="60" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <Grid Grid.Row="1">
+            <Grid x:Name="TransportLayer" Grid.Row="1">
                 <local:OverlayTransportControls
                     x:Name="TransportControls"
                     HorizontalAlignment="Stretch"
@@ -274,6 +293,18 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Top"
                     ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
+                <!--
+                    空降助手提示条：位于当前传输条上方右侧。底边距与可见性由宿主代码按传输条实际高度、
+                    可用空间与接入状态计算；放不下时在控制栏显示期间折叠，控制栏隐藏后再出现.
+                -->
+                <Border
+                    x:Name="SponsorNoticeHost"
+                    Margin="0,0,16,12"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Visibility="Collapsed">
+                    <sponsor:SponsorNoticeStrip x:Name="SponsorNotices" />
+                </Border>
             </Grid>
             <Grid
                 x:Name="TestRect"
@@ -592,6 +623,20 @@
                                         Visibility="{x:Bind ViewModel.IsTopMost, Mode=OneWay}" />
                                 </Grid>
                             </Button>
+                            <!--  空降助手入口（独立播放窗口标题栏）：面板由宿主代码在下方打开  -->
+                            <Button
+                                x:Name="HeaderSponsorButton"
+                                Width="32"
+                                Height="32"
+                                Margin="8,0,0,0"
+                                Padding="0"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="{x:Bind local:PlayerOverlay.SponsorEntryName}"
+                                Click="OnSponsorPanelButtonClick"
+                                ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.SponsorEntryName}"
+                                Visibility="{x:Bind SponsorEntryVisibility, Mode=OneWay}">
+                                <ic:SymbolIcon FontSize="14" Symbol="SkipForwardTab" />
+                            </Button>
                             <Button
                                 x:Name="HeaderSettingButton"
                                 Width="32"
@@ -612,18 +657,6 @@
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
-                            <Button
-                                Height="32"
-                                Margin="20,0,0,0"
-                                VerticalAlignment="Center"
-                                Click="OnCloseButtonClick"
-                                Style="{StaticResource AccentButtonStyle}"
-                                Visibility="{x:Bind ViewModel.IsFullScreen, Mode=OneWay}">
-                                <base:IconTextBlock
-                                    IconBrush="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                                    Symbol="Dismiss"
-                                    Text="{ext:Locale Name=CloseWindow}" />
-                            </Button>
                         </StackPanel>
                     </base:AppTitleBar.Footer>
                 </base:AppTitleBar>
@@ -636,7 +669,13 @@
                     Height="48"
                     VerticalAlignment="Top"
                     x:Load="{x:Bind local:PlayerOverlay.IsEmbeddedHeaderLoaded(ViewModel.IsEmbedded), Mode=OneWay}"
+                    Background="Transparent"
                     ColumnSpacing="4"
+                    PointerPressed="OnEmbeddedCompactHeaderPointerPressed"
+                    PointerMoved="OnEmbeddedCompactHeaderPointerMoved"
+                    PointerReleased="OnEmbeddedCompactHeaderPointerEnded"
+                    PointerCanceled="OnEmbeddedCompactHeaderPointerEnded"
+                    PointerCaptureLost="OnEmbeddedCompactHeaderPointerEnded"
                     RequestedTheme="Dark"
                     SizeChanged="OnEmbeddedHeaderSizeChanged">
                     <Grid.ColumnDefinitions>
@@ -648,13 +687,14 @@
                         x:Name="EmbeddedHeaderDragSurface"
                         Grid.ColumnSpan="3"
                         Background="Transparent"
-                        PointerPressed="OnEmbeddedHeaderPointerPressed" />
+                        IsHitTestVisible="False" />
                     <Button
                         Margin="4,0,0,0"
                         AutomationProperties.Name="{ext:Locale Name=BackToDefaultView}"
                         Click="OnEmbeddedBackClick"
                         Style="{StaticResource EmbeddedHeaderButtonStyle}"
-                        ToolTipService.ToolTip="{ext:Locale Name=BackToDefaultView}">
+                        ToolTipService.ToolTip="{ext:Locale Name=BackToDefaultView}"
+                        Visibility="{x:Bind local:PlayerOverlay.GetVisibilityUnlessCompact(ViewModel.Presentation), Mode=OneWay}">
                         <ic:SymbolIcon FontSize="14" Symbol="ArrowLeft" />
                     </Button>
                     <TextBlock
@@ -670,9 +710,11 @@
                         TextTrimming="CharacterEllipsis"
                         TextWrapping="NoWrap" />
                     <StackPanel
+                        x:Name="EmbeddedRightButtonPanel"
                         Grid.Column="2"
                         Margin="0,0,8,0"
                         Orientation="Horizontal"
+                        SizeChanged="OnEmbeddedRightButtonPanelSizeChanged"
                         Spacing="2">
                         <StackPanel
                             x:Name="EmbeddedStatusPanel"
@@ -723,6 +765,16 @@
                                     </Flyout>
                                 </DropDownButton.Flyout>
                             </DropDownButton>
+                            <!--  空降助手入口（内嵌主窗口全屏标题区）：面板由宿主代码在下方打开  -->
+                            <Button
+                                x:Name="EmbeddedSponsorButton"
+                                AutomationProperties.Name="{x:Bind local:PlayerOverlay.SponsorEntryName}"
+                                Click="OnSponsorPanelButtonClick"
+                                Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                                ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.SponsorEntryName}"
+                                Visibility="{x:Bind SponsorEntryVisibility, Mode=OneWay}">
+                                <ic:SymbolIcon FontSize="14" Symbol="SkipForwardTab" />
+                            </Button>
                             <Button
                                 x:Name="EmbeddedSettingButton"
                                 AutomationProperties.Name="{ext:Locale Name=Settings}"
@@ -741,45 +793,28 @@
                                 </Button.Flyout>
                             </Button>
                         </StackPanel>
-                        <!--  小窗置顶：切换真实的窗口置顶状态，图标随宿主回读的 IsTopMost 变化  -->
-                        <Button
-                            AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedPinTip(ViewModel.IsTopMost), Mode=OneWay}"
-                            Click="OnEmbeddedPinClick"
-                            Style="{StaticResource EmbeddedHeaderButtonStyle}"
-                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedPinTip(ViewModel.IsTopMost), Mode=OneWay}"
-                            Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
-                            <Grid>
-                                <ic:SymbolIcon
-                                    FontSize="14"
-                                    Symbol="Pin"
-                                    Visibility="{x:Bind ViewModel.IsTopMost, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
-                                <ic:SymbolIcon
-                                    FontSize="14"
-                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                    IconVariant="Filled"
-                                    Symbol="Pin"
-                                    Visibility="{x:Bind ViewModel.IsTopMost, Mode=OneWay}" />
-                            </Grid>
-                        </Button>
                         <Button
                             AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedCompactTip(ViewModel.Presentation), Mode=OneWay}"
                             Click="OnEmbeddedCompactClick"
                             Style="{StaticResource EmbeddedHeaderButtonStyle}"
-                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedCompactTip(ViewModel.Presentation), Mode=OneWay}">
+                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedCompactTip(ViewModel.Presentation), Mode=OneWay}"
+                            Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
                             <ic:SymbolIcon FontSize="14" Symbol="{x:Bind local:PlayerOverlay.GetEmbeddedCompactSymbol(ViewModel.Presentation), Mode=OneWay}" />
                         </Button>
                         <Button
                             AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenTip(ViewModel.Presentation), Mode=OneWay}"
                             Click="OnEmbeddedFullScreenClick"
                             Style="{StaticResource EmbeddedHeaderButtonStyle}"
-                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenTip(ViewModel.Presentation), Mode=OneWay}">
+                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenTip(ViewModel.Presentation), Mode=OneWay}"
+                            Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
                             <ic:SymbolIcon FontSize="14" Symbol="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenSymbol(ViewModel.Presentation), Mode=OneWay}" />
                         </Button>
                         <Button
                             AutomationProperties.Name="{ext:Locale Name=CloseWindow}"
                             Click="OnEmbeddedCloseClick"
                             Style="{StaticResource EmbeddedHeaderButtonStyle}"
-                            ToolTipService.ToolTip="{ext:Locale Name=CloseWindow}">
+                            ToolTipService.ToolTip="{ext:Locale Name=CloseWindow}"
+                            Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
                             <ic:SymbolIcon FontSize="14" Symbol="Dismiss" />
                         </Button>
                     </StackPanel>

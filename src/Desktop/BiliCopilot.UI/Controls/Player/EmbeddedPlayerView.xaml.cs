@@ -1,6 +1,7 @@
 // Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.Controls.Core;
+using BiliCopilot.UI.Controls.Player.StoreIsland;
 using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
@@ -88,7 +89,8 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         InitializeComponent();
         _headerPopups = new HeaderPopupState(
             action => DispatcherQueue.TryEnqueue(() => action()),
-            ex => this.Get<ILogger<EmbeddedPlayerView>>().LogWarning("标题菜单遮挡申请失败 ({ErrorType})", ex.GetType().Name));
+            ex => this.Get<ILogger<EmbeddedPlayerView>>().LogWarning("标题菜单遮挡申请失败 ({ErrorType})", ex.GetType().Name),
+            AcquireHeaderInput);
         Loaded += OnEmbeddedLoaded;
         Unloaded += OnEmbeddedUnloaded;
         SizeChanged += OnEmbeddedSizeChanged;
@@ -188,6 +190,7 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         UpdateSidePanel();
         RefreshHeaderRegistrations();
         QueueHeaderRefresh();
+        UpdateSponsorEntries();
     }
 
     /// <summary>
@@ -203,6 +206,7 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         _suspended = true;
         var epoch = ++_attachmentEpoch;
         SubscribeViewModel(null);
+        UpdateSponsorEntries();
         ClearBoundTargets(owner, epoch, () =>
         {
             _mode = PlayerPresentationMode.Normal;
@@ -526,6 +530,27 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         }
     }
 
+    /// <summary>
+    /// Per-opening player input claim for a header menu. Independent of rendering occlusion: a windowed menu takes no
+    /// lease but still blocks pending surface taps/shortcuts (shared, counted IsPopupVisible) until this opening ends.
+    /// </summary>
+    internal static IDisposable? AcquireHeaderInput(HeaderPopupState.Registration registration)
+    {
+        if (registration.Owner is not PlayerViewModel owner || owner.IsPlaybackClosing
+            || owner.MediaGeneration != registration.Generation) return null;
+        // The existing popup-claim API, one claim book per opening: the shared counted IsPopupVisible flag is the
+        // only thing openings share, so a late Closed/close barrier of an older opening can never refuse or
+        // release a newer one. Nesting is already excluded by the ticket (one OpenTicket per registration).
+        // The claimed "popup" is a private per-opening NON-UI token, never the shared flyout: the book then
+        // subscribes no Opened/Closed and its Hide is a no-op, so releasing this claim is release-only. Flyout
+        // visibility and Closed stay exclusively with HeaderPopupState (a release that synchronously reopens the
+        // same flyout for B can never be hidden by A's book).
+        var claims = new IslandPopupClaims();
+        var token = new HeaderInputToken();
+        var claim = claims.Open(token, owner, registration.Epoch);
+        return claim is null ? null : new HeaderInputClaim(claims, claim);
+    }
+
     private List<HeaderPopupState.Retirement> DetachHeaders(HeaderContext[] contexts)
     {
         var retired = new List<HeaderPopupState.Retirement>();
@@ -560,26 +585,26 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         var epoch = _attachmentEpoch;
         var factory = _suspendRendering;
         if (!IsCurrentAttachment(owner, epoch) || factory is null
-            || !(owner.IsConnecting || !string.IsNullOrEmpty(owner.ErrorMessage)))
+            || string.IsNullOrEmpty(owner.ErrorMessage))
         {
             ReleaseLoadingErrorLease();
             return;
         }
 
-        if (_loadingErrorLease is not null) return; // loading → error retains this same owner lease.
+        if (_loadingErrorLease is not null) return;
         _acquiringLease = true;
         try
         {
             var lease = factory();
             // The factory can synchronously notify the host: reject a replaced/released attachment.
             if (IsCurrentAttachment(owner, epoch) && ReferenceEquals(factory, _suspendRendering)
-                && (owner.IsConnecting || !string.IsNullOrEmpty(owner.ErrorMessage))) _loadingErrorLease = lease;
+                && !string.IsNullOrEmpty(owner.ErrorMessage)) _loadingErrorLease = lease;
             else lease.Dispose();
         }
         finally { _acquiringLease = false; }
 
         if (_loadingErrorLease is null && _active && !_suspended && ViewModel is { } current
-            && (current.IsConnecting || !string.IsNullOrEmpty(current.ErrorMessage))) UpdateLoadingErrorLease();
+            && !string.IsNullOrEmpty(current.ErrorMessage)) UpdateLoadingErrorLease();
     }
 
     private void ReleaseLoadingErrorLease()
@@ -637,11 +662,13 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         => ((EmbeddedPlayerView)d).UpdateSidePanel();
 
     /// <summary>侧栏折叠按钮提示：与按钮实际切换的手动折叠偏好一致.</summary>
-    private static string GetSidePanelToggleTip(bool isManualHide)
+    /// <remarks>Instance member because the XAML binding <c>{x:Bind GetSidePanelToggleTip(...)}</c> calls it on the page instance.</remarks>
+    private string GetSidePanelToggleTip(bool isManualHide)
         => ResourceToolkit.GetLocalizedString(isManualHide ? StringNames.ShowSidePanel : StringNames.HideSidePanel);
 
     // View-private event/lease state. No UI tree, player flow or native owner is created here.
-    internal sealed class HeaderPopupState(Func<Action, bool> schedule, Action<Exception> reportError)
+    internal sealed class HeaderPopupState(Func<Action, bool> schedule, Action<Exception> reportError,
+        Func<HeaderPopupState.Registration, IDisposable?>? acquireInput = null)
     {
         private readonly Dictionary<object, Registration> _registrations = new(ReferenceEqualityComparer.Instance);
         private Func<IDisposable>? _factory;
@@ -668,22 +695,31 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         {
             internal readonly Registration Registration = registration;
             internal IDisposable? Lease;
+            /// <summary>Player input claim owned by exactly this opening; acquired regardless of RequiresOcclusion.</summary>
+            internal IDisposable? InputClaim;
             internal bool Retired;
             internal bool Closed;
         }
 
-        internal sealed class Retirement(Ticket ticket, IDisposable? lease)
+        internal sealed class Retirement(Ticket ticket, IDisposable? lease, IDisposable? input = null)
         {
             private bool _finished;
             internal void Close()
             {
                 if (_finished) return;
                 _finished = true;
-                // Both the ticket and this captured lease were detached before any callback.
+                // The ticket, its lease and its input claim were all detached before any callback.
+                // Input is released first (as IslandPopupClaims.Cancel does) so a reentrant Hide sees no stale claim.
                 var oldLease = lease;
+                var oldInput = input;
                 lease = null;
-                try { if (!ticket.Closed) ticket.Registration.Hide(); }
-                finally { oldLease?.Dispose(); }
+                input = null;
+                try { oldInput?.Dispose(); }
+                finally
+                {
+                    try { if (!ticket.Closed) ticket.Registration.Hide(); }
+                    finally { oldLease?.Dispose(); }
+                }
             }
         }
 
@@ -706,9 +742,33 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
             _current = ticket;
             try { subscribeClosed(ticket); }
             finally { previous?.Close(); }
+            AcquireInput(ticket);
             UpdateLease();
             return true;
         }
+
+        /// <summary>Attach the shared player input claim to this exact opening (never to the registration).</summary>
+        private void AcquireInput(Ticket ticket)
+        {
+            if (acquireInput is null || !IsLive(ticket)) return;
+            IDisposable? claim;
+            try { claim = acquireInput(ticket.Registration); }
+            catch (Exception ex)
+            {
+                reportError(ex);
+                // Fail closed: an opening that could not claim input must not stay open over the player.
+                if (IsLive(ticket)) Detach(ticket)?.Close();
+                return;
+            }
+
+            if (claim is null) return;
+            // The claim can synchronously notify and retire/replace this opening: keep it only if still live.
+            if (IsLive(ticket) && ticket.InputClaim is null) ticket.InputClaim = claim;
+            else claim.Dispose();
+        }
+
+        private bool IsLive(Ticket ticket)
+            => ReferenceEquals(_current, ticket) && !ticket.Retired && !ticket.Closed && ticket.Registration.CanUse;
 
         internal void Closed(Ticket ticket)
         {
@@ -742,8 +802,10 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
             ticket.Retired = true;
             if (ReferenceEquals(_current, ticket)) _current = null;
             var lease = ticket.Lease;
+            var input = ticket.InputClaim;
             ticket.Lease = null;
-            return new Retirement(ticket, lease);
+            ticket.InputClaim = null;
+            return new Retirement(ticket, lease, input);
         }
 
         internal IDisposable? ChangeFactory(Func<IDisposable> factory)
@@ -789,6 +851,24 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
                 _queued = true;
                 if (!schedule(() => { _queued = false; UpdateLease(); })) _queued = false;
             }
+        }
+    }
+
+    /// <summary>Releases exactly one header opening's claim; a second Dispose (late Closed) is a no-op.</summary>
+    /// <summary>Identity of one header opening's input claim; deliberately not a UI object.</summary>
+    internal sealed class HeaderInputToken;
+
+    internal sealed class HeaderInputClaim(IslandPopupClaims claims, IslandPopupClaims.Claim claim) : IDisposable
+    {
+        private bool _disposed;
+        internal IslandPopupClaims.Claim Claim => claim;
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            // RetireFlyout releases only this claim's counted flag; a newer opening's claim is a different object, and
+            // Hide of the private token is a no-op (the shared flyout is never touched from here).
+            claims.RetireFlyout(claim);
         }
     }
 
