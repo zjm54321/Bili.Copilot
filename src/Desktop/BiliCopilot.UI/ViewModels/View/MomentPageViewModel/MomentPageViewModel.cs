@@ -32,6 +32,11 @@ public sealed partial class MomentPageViewModel : ViewModelBase
     {
         if (Sections?.Count > 0)
         {
+            if (SelectedSection is not null)
+            {
+                SelectSectionCommand.Execute(SelectedSection);
+            }
+
             return;
         }
 
@@ -50,15 +55,22 @@ public sealed partial class MomentPageViewModel : ViewModelBase
     [RelayCommand]
     private void SelectSection(IMomentSectionDetailViewModel section)
     {
-        if (section is null || section == SelectedSection)
+        if (section is null)
         {
             return;
         }
 
-        SelectedSection = section;
-        var isVideo = section is VideoMomentSectionDetailViewModel;
-        SettingsToolkit.WriteLocalSetting(Models.Constants.SettingNames.LastMomentSectionIsVideo, isVideo);
-        SelectedSection.InitializeCommand.Execute(default);
+        if (section != SelectedSection)
+        {
+            SelectedSection = section;
+            var isVideo = section is VideoMomentSectionDetailViewModel;
+            SettingsToolkit.WriteLocalSetting(Models.Constants.SettingNames.LastMomentSectionIsVideo, isVideo);
+        }
+
+        if (section.InitializeCommand.CanExecute(null))
+        {
+            section.InitializeCommand.Execute(null);
+        }
     }
 
     [RelayCommand]

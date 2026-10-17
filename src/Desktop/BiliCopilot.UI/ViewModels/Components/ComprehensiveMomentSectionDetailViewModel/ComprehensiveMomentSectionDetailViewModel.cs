@@ -32,9 +32,11 @@ public sealed partial class ComprehensiveMomentSectionDetailViewModel : LayoutPa
     private async Task InitializeAsync()
     {
         if (IsLoading || _isRefreshing) return;
-        if (Upers.Count > 0 && _accountGeneration == _account.AccountGeneration)
+        if (Upers.Count > 0 && _accountGeneration == _account.AccountGeneration
+            && SelectedUper is { } selected && (!selected.IsTotal || selected.Items.Count > 0))
         {
-            if (SelectedUper is not null) await SelectedUper.InitializeCommand.ExecuteAsync(null);
+            await selected.InitializeCommand.ExecuteAsync(null);
+            IsEmpty = selected.IsEmpty;
             return;
         }
 
@@ -95,7 +97,7 @@ public sealed partial class ComprehensiveMomentSectionDetailViewModel : LayoutPa
             return;
         }
 
-        if (_accountGeneration != _account.AccountGeneration)
+        if (_accountGeneration != _account.AccountGeneration || (item.IsTotal && item.Items.Count == 0))
         {
             await RebuildAsync();
             return;

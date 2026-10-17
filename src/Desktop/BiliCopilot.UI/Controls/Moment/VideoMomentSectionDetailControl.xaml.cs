@@ -33,7 +33,12 @@ public sealed partial class VideoMomentSectionDetailControl : VideoMomentSection
     {
         if (_observed is not null) _observed.ListUpdated -= OnListUpdatedAsync;
         _observed = IsLoaded ? model : null;
-        if (_observed is not null) _observed.ListUpdated += OnListUpdatedAsync;
+        if (_observed is not null)
+        {
+            _observed.ListUpdated += OnListUpdatedAsync;
+            // The first page may have completed before this control subscribed.
+            OnListUpdatedAsync(_observed, EventArgs.Empty);
+        }
     }
 
     private async void OnListUpdatedAsync(object? sender, EventArgs e)

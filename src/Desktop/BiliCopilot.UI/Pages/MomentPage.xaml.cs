@@ -13,10 +13,14 @@ public sealed partial class MomentPage : MomentPageBase
     /// <summary>
     /// Initializes a new instance of the <see cref="MomentPage"/> class.
     /// </summary>
-    public MomentPage() => InitializeComponent();
+    public MomentPage()
+    {
+        InitializeComponent();
+        // Keep the activation hook when the cached page is unloaded and loaded again.
+        Loaded += OnLoaded;
+    }
 
-    /// <inheritdoc/>
-    protected override void OnPageLoaded()
+    private void OnLoaded(object sender, RoutedEventArgs args)
         => ViewModel.InitializeCommand.Execute(default);
 }
 

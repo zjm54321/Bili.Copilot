@@ -30,11 +30,14 @@ public sealed partial class VideoMomentSectionDetailViewModel : ViewModelBase, I
     [RelayCommand]
     private async Task InitializeAsync()
     {
-        if (_accountGeneration == _account.AccountGeneration && (Items.Count > 0 || _preventLoadMore))
+        if (IsLoading || _isRefreshing) return;
+        if (_accountGeneration == _account.AccountGeneration && Items.Count > 0)
         {
             return;
         }
 
+        // An empty/failed first page is not a usable cache. Retry from the first cursor.
+        ResetItems();
         await LoadItemsAsync();
     }
 
@@ -62,7 +65,8 @@ public sealed partial class VideoMomentSectionDetailViewModel : ViewModelBase, I
     {
         if (IsLoading || _isRefreshing) return Task.CompletedTask;
         if (_accountGeneration != _account.AccountGeneration) ResetItems();
-        if (IsEmpty || _preventLoadMore) return Task.CompletedTask;
+        // An empty page can still advertise a next cursor; only exhaustion stops paging.
+        if (_preventLoadMore) return Task.CompletedTask;
         IsLoading = true;
         IsAppending = Items.Count > 0;
         HasAppendError = false;

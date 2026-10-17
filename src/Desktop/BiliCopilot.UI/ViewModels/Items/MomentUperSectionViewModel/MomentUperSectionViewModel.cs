@@ -75,12 +75,15 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
     [RelayCommand]
     private async Task InitializeAsync()
     {
-        if (_isRetired) return;
-        if (_accountGeneration == _account.AccountGeneration && (Items.Count > 0 || _preventLoadMore || _isSeeded))
+        if (_isRetired || IsLoading || _isRefreshing) return;
+        if (_accountGeneration == _account.AccountGeneration && Items.Count > 0)
         {
             return;
         }
 
+        // The total feed must rebuild its first page and UP list together in the owner.
+        if (IsTotal) return;
+        ResetItems();
         await LoadItemsAsync();
     }
 
@@ -114,7 +117,8 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
             // Total and UP ownership must be rebuilt together by the outer model.
             if (IsTotal) return Task.CompletedTask;
         }
-        if (IsEmpty || _preventLoadMore || (IsTotal && !_isSeeded)) return Task.CompletedTask;
+        // IsEmpty describes the UI, not whether the server has another page.
+        if (_preventLoadMore || (IsTotal && !_isSeeded)) return Task.CompletedTask;
         IsLoading = true;
         IsAppending = Items.Count > 0;
         HasAppendError = false;

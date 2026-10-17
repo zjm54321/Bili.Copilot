@@ -32,7 +32,12 @@ public sealed partial class ComprehensiveMainBody : MomentUperSectionControlBase
     {
         if (_observed is not null) _observed.ListUpdated -= OnListUpdatedAsync;
         _observed = IsLoaded ? model : null;
-        if (_observed is not null) _observed.ListUpdated += OnListUpdatedAsync;
+        if (_observed is not null)
+        {
+            _observed.ListUpdated += OnListUpdatedAsync;
+            // Seeded first-page data can precede the content template's Loaded event.
+            OnListUpdatedAsync(_observed, EventArgs.Empty);
+        }
     }
 
     private async void OnListUpdatedAsync(object? sender, EventArgs e)
