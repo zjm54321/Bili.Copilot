@@ -34,7 +34,6 @@ public static class SponsorSdkContentAdapter
     public static ContentPromotionInput FromMoment(MomentInformation source, string localImmutableRevision,
         bool? isAuthorSpace, bool manuallyRevealedBody, bool manuallyRevealedReplies)
     {
-        ArgumentNullException.ThrowIfNull(source);
         var stamp = CreateStamp(ContentSurface.Dynamic, source.Id, localImmutableRevision);
         var metadata = source.ContentMetadata;
         var original = source.Data as MomentInformation;
@@ -67,7 +66,6 @@ public static class SponsorSdkContentAdapter
     public static ContentPromotionInput FromComment(CommentInformation source, string localImmutableRevision,
         ContentSurface surface, bool? isAuthorSpace, bool manuallyRevealedBody, bool manuallyRevealedReplies)
     {
-        ArgumentNullException.ThrowIfNull(source);
         if (surface is not (ContentSurface.Comment or ContentSurface.Reply))
             throw new ArgumentOutOfRangeException(nameof(surface), "Expected an actual public comment or reply surface.");
 

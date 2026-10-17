@@ -32,7 +32,6 @@ internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAs
 
     internal WindowsSponsorBackupFilePort(Window owner)
     {
-        ArgumentNullException.ThrowIfNull(owner);
         _owner = owner;
         _queue = owner.DispatcherQueue;
         EnsureOwnerThread();
@@ -48,7 +47,6 @@ internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAs
     public Task<bool> SaveBackupAsync(byte[] secretFreeBackup, string suggestedFileName)
     {
         EnsureAdmission();
-        ArgumentNullException.ThrowIfNull(secretFreeBackup);
         if (secretFreeBackup.Length > MaximumBackupBytes)
         {
             throw new InvalidDataException("The backup exceeds the 4 MiB limit.");

@@ -15,9 +15,6 @@ internal sealed class RootChromeRegions(RootChromeRect[] caption, RootChromeRect
     internal RootChromeRect[] Caption { get; } = caption;
 
     internal RootChromeRect[] Passthrough { get; } = passthrough;
-
-    internal bool SameAs(RootChromeRegions? other)
-        => other is not null && Caption.AsSpan().SequenceEqual(other.Caption) && Passthrough.AsSpan().SequenceEqual(other.Passthrough);
 }
 
 /// <summary>The two region kinds the root chrome owns. Order of a publish: Passthrough, then Caption.</summary>
@@ -39,21 +36,7 @@ internal interface IRootChromeRegionSink
 }
 
 /// <summary>
-/// Single application-owned authority for the main window's caption/passthrough regions.
-/// <para>
-/// It replaces the sealed Share title bar's autonomous writer (which cleared regions before checking its own
-/// visibility, wrote a full-bar passthrough while collapsed, and ran unguarded delayed updates). Rules:
-/// </para>
-/// <list type="bullet">
-/// <item>Only an active (Normal presentation, loaded, not retired) chrome may write.</item>
-/// <item>Every activation/deactivation/retirement starts a new generation; a queued publish from any older
-/// generation is a no-op, so rapid Normal → FullScreen → Normal never lets an old callback write.</item>
-/// <item>Deactivation clears each kind it still owns, once, and only while that deactivation is current.</item>
-/// <item>Publishes are coalesced (one pending callback) and identical per-kind rects are not rewritten.</item>
-/// <item>The same admission is re-checked before every individual native Set/Clear; a call whose generation
-/// ended while it ran leaves its kind "unknown" and only the current owner repairs it.</item>
-/// </list>
-/// No UI types: scheduling, measuring and the native sink are injected so the rules are testable.
+/// Owns the main window's caption/passthrough regions; each native call revalidates its generation.
 /// </summary>
 internal sealed class RootChromeRegionAuthority(
     Func<Action, bool> schedule,
@@ -80,13 +63,7 @@ internal sealed class RootChromeRegionAuthority(
         internal RootChromeRect[]? Rects = rects;
     }
 
-    internal long Generation => _generation;
-
     internal bool IsActive => _active && !_retired;
-
-    internal bool IsRetired => _retired;
-
-    internal bool HasPending => _pending;
 
     /// <summary>Become the writer for a new generation. Returns true only on an inactive → active transition.</summary>
     internal bool Activate()

@@ -255,10 +255,7 @@ public sealed partial class PlayerViewModel(DispatcherQueue queue, ILogger<Playe
 
         CheckMediaAdmission();
         CheckHostReady();
-        // MpvPlayer.InitializeAsync owns the SDK PlayAsync call; sample its complete managed boundary.
-        LogEmbeddedPlaybackSnapshot("InitializePlayBefore");
-        try { await Player.InitializeAsync(); }
-        finally { LogEmbeddedPlaybackSnapshot("InitializePlayAfter"); }
+        await Player.InitializeAsync();
 
         CheckMediaAdmission();
 

@@ -1,4 +1,4 @@
-# Functions only: importing this NEW module performs no package/OS/trust operations.
+# Importing this module performs no package/OS/trust operations.
 Set-StrictMode -Version 2
 
 function Stop-LT([string]$Code, [string]$Message) {
@@ -25,22 +25,6 @@ function Assert-LTVersion([string]$Version) {
         if ([int]$part -gt 65535) { Stop-LT 'Version' 'MSIX version components must be <= 65535.' }
     }
     if ([version]$Version -lt [version]'2.2611.2.0') { Stop-LT 'Version' 'The new channel starts at 2.2611.2.0 or later; no installed baseline is assumed.' }
-}
-
-function Assert-LTFamilyDerivation {
-    # Same public publisher-id derivation used by the bounded LocalRelease installer.
-    # This is not a substitute for the final package-manager/OS family-name gate.
-    $id = Get-LTIdentity
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { $digest = $sha.ComputeHash([Text.Encoding]::Unicode.GetBytes($id.Publisher)) }
-    finally { $sha.Dispose() }
-    $bits = ''
-    for ($i = 0; $i -lt 8; $i++) { $bits += [Convert]::ToString($digest[$i], 2).PadLeft(8, '0') }
-    $bits += '0'
-    $alphabet = '0123456789abcdefghjkmnpqrstvwxyz'
-    $suffix = ''
-    for ($i = 0; $i -lt 65; $i += 5) { $suffix += $alphabet[[Convert]::ToInt32($bits.Substring($i, 5), 2)] }
-    if (($id.Name + '_' + $suffix) -cne $id.Family) { Stop-LT 'FamilyDerivation' 'Publisher-derived PFN differs from the expected fixed test family.' }
 }
 
 function Assert-LTWindows {
@@ -237,4 +221,4 @@ function Assert-LTSignature([string]$Path, [string]$SignerSha256) {
     }
 }
 
-Export-ModuleMember -Function Stop-LT, Get-LTIdentity, Assert-LTVersion, Assert-LTFamilyDerivation, Assert-LTWindows, Assert-LTPlainPath, Get-LTSha256, Open-LTPinned, Read-LTJson, Read-LTXml, Get-LTManifestNodes, Assert-LTManifest, Assert-LTNativePe, Assert-LTPeVersion, Read-LTPackage, Assert-LTSignature
+Export-ModuleMember -Function Stop-LT, Get-LTIdentity, Assert-LTVersion, Assert-LTWindows, Assert-LTPlainPath, Get-LTSha256, Open-LTPinned, Read-LTJson, Read-LTXml, Get-LTManifestNodes, Assert-LTManifest, Assert-LTNativePe, Assert-LTPeVersion, Read-LTPackage, Assert-LTSignature

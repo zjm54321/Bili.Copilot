@@ -37,7 +37,9 @@ public sealed class LiveIslandSurface
     {
         _report = report ?? throw new ArgumentNullException(nameof(report));
         Anchor = new Grid();
-        TransportOverlayHost = new Grid(); // No background: only the transport card claims input.
+        // No background: only the floating transport card claims input; the rest passes to the picture.
+        // LiveView places its single card here once and it stays for every presentation mode.
+        TransportOverlayHost = new Grid();
     }
 
     public Grid Anchor { get; }
@@ -90,7 +92,7 @@ public sealed class LiveIslandSurface
         };
         var root = new Grid(); // Transparent outside its children; never an opaque video backdrop.
         root.Children.Add(_pictureInput);
-        root.Children.Add(TransportOverlayHost); // Top layer; empty space passes through to the picture.
+        root.Children.Add(TransportOverlayHost); // Top layer in all modes; empty space passes through to the picture.
         _source.Content = root;
         UpdateBounds();
     }

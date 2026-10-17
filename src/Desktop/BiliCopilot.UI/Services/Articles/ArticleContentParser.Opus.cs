@@ -8,54 +8,39 @@ namespace BiliCopilot.UI.Services.Articles;
 
 internal static partial class ArticleContentParser
 {
-    private static string RenderOpusParagraphs(JsonElement paragraphs, string articleId, string path,
-        CancellationToken token, Action<ArticleParseNotice>? notice)
+    private static string RenderOpusParagraphs(JsonElement paragraphs, CancellationToken token)
     {
         var writer = new BodyWriter(token);
-        RenderParagraphs(paragraphs, writer, articleId, path, notice);
-        return CompleteBody(writer, articleId, path);
+        RenderParagraphs(paragraphs, writer);
+        return writer.Complete();
     }
 
-    private static string RenderOpusModules(IReadOnlyList<(bool IsTop, JsonElement Payload, int Index)> modules,
-        string articleId, CancellationToken token, Action<ArticleParseNotice>? notice)
+    private static string RenderOpusModules(IReadOnlyList<(bool IsTop, JsonElement Payload)> modules, CancellationToken token)
     {
         var writer = new BodyWriter(token);
         for (var index = 0; index < modules.Count; index++)
         {
             var module = modules[index];
-            var path = "$.detail.modules[" + module.Index.ToString(CultureInfo.InvariantCulture) + "]";
             if (module.IsTop)
-                RecoverContent(module.Payload, writer, articleId, path + ".module_top", "MODULE_TYPE_TOP", true, notice,
+                RecoverContent(module.Payload, writer, true,
                     () => RenderOpusPictures(Array(Required(Required(Required(module.Payload, "display"), "album"), "pics")),
-                        writer, articleId, path + ".module_top.display.album.pics", notice));
+                        writer));
             else
-                RenderParagraphs(Array(Required(module.Payload, "paragraphs")), writer, articleId,
-                    path + ".module_content.paragraphs", notice);
+                RenderParagraphs(Array(Required(module.Payload, "paragraphs")), writer);
         }
-        return CompleteBody(writer, articleId, "$.detail.modules");
+        return writer.Complete();
     }
 
-    private static string CompleteBody(BodyWriter writer, string articleId, string path)
-    {
-        try { return writer.Complete(); }
-        catch (ArticleCompatibilityException ex) { ex.SetContext(articleId, path); throw; }
-    }
-
-    private static void RenderParagraphs(JsonElement paragraphs, BodyWriter writer, string articleId,
-        string path, Action<ArticleParseNotice>? notice)
+    private static void RenderParagraphs(JsonElement paragraphs, BodyWriter writer)
     {
         if (paragraphs.GetArrayLength() > MaximumParagraphs) throw Fail(ArticleCompatibilityFailure.LimitExceeded);
-        var index = 0;
         foreach (var paragraph in paragraphs.EnumerateArray())
         {
-            var itemPath = path + "[" + (index++).ToString(CultureInfo.InvariantCulture) + "]";
-            RecoverContent(paragraph, writer, articleId, itemPath, "para_type=" + TypeLabel(Field(paragraph, "para_type")),
-                true, notice, () => RenderParagraph(paragraph, writer, articleId, itemPath, notice));
+            RecoverContent(paragraph, writer, true, () => RenderParagraph(paragraph, writer));
         }
     }
 
-    private static void RenderParagraph(JsonElement paragraph, BodyWriter writer, string articleId,
-        string path, Action<ArticleParseNotice>? notice)
+    private static void RenderParagraph(JsonElement paragraph, BodyWriter writer)
     {
         switch (Integer(Required(paragraph, "para_type")))
         {
@@ -69,11 +54,11 @@ internal static partial class ArticleContentParser
                     break;
                 }
                 writer.Add("<p>");
-                RenderOpusNodes(Array(Required(Required(paragraph, "text"), "nodes")), writer, articleId, path + ".text.nodes", notice);
+                RenderOpusNodes(Array(Required(Required(paragraph, "text"), "nodes")), writer);
                 writer.Add("</p>");
                 break;
             case 2:
-                RenderOpusPictures(Array(Required(Required(paragraph, "pic"), "pics")), writer, articleId, path + ".pic.pics", notice);
+                RenderOpusPictures(Array(Required(Required(paragraph, "pic"), "pics")), writer);
                 break;
             case 3:
                 // Both an image-backed divider and an ordinary divider have the same inert semantics.
@@ -84,17 +69,15 @@ internal static partial class ArticleContentParser
                 writer.Add("<blockquote><p>");
                 var quote = Field(paragraph, "blockquote");
                 var text = Field(paragraph, "text");
-                var textPath = path + ".text.nodes";
                 if (Field(text, "nodes").ValueKind != JsonValueKind.Array)
                 {
                     text = Field(quote, "text");
-                    textPath = path + ".blockquote.text.nodes";
                 }
-                RenderOpusNodes(Array(Required(text, "nodes")), writer, articleId, textPath, notice);
+                RenderOpusNodes(Array(Required(text, "nodes")), writer);
                 writer.Add("</p></blockquote>");
                 break;
             case 5:
-                RenderOpusList(Required(paragraph, "list"), writer, articleId, path + ".list", notice);
+                RenderOpusList(Required(paragraph, "list"), writer);
                 break;
             case 6:
                 // The article/view numeric schema uses 6 for a formatted list item;
@@ -105,7 +88,7 @@ internal static partial class ArticleContentParser
                     var order = Field(format, "order");
                     var ordered = order.ValueKind == JsonValueKind.Number && order.TryGetInt32(out var number) && number > 0;
                     writer.Add(ordered ? "<ol start=\"" + order.GetRawText() + "\"><li>" : "<ul><li>");
-                    RenderOpusNodes(Array(Required(Required(paragraph, "text"), "nodes")), writer, articleId, path + ".text.nodes", notice);
+                    RenderOpusNodes(Array(Required(Required(paragraph, "text"), "nodes")), writer);
                     writer.Add(ordered ? "</li></ol>" : "</li></ul>");
                 }
                 else RenderOpusCard(Required(Required(paragraph, "link_card"), "card"), writer);
@@ -130,7 +113,7 @@ internal static partial class ArticleContentParser
                         && headingLevel is >= 1 and <= 6 ? headingLevel : 2;
                     var tag = "h" + level.ToString(CultureInfo.InvariantCulture);
                     writer.Add("<" + tag + ">");
-                    RenderOpusNodes(Array(Required(heading, "nodes")), writer, articleId, path + ".heading.nodes", notice);
+                    RenderOpusNodes(Array(Required(heading, "nodes")), writer);
                     writer.Add("</" + tag + ">");
                     break;
                 }
@@ -141,20 +124,11 @@ internal static partial class ArticleContentParser
         }
     }
 
-    private static void RenderOpusNodes(JsonElement nodes, BodyWriter writer, string articleId,
-        string path, Action<ArticleParseNotice>? notice)
+    private static void RenderOpusNodes(JsonElement nodes, BodyWriter writer)
     {
-        var index = 0;
         foreach (var node in nodes.EnumerateArray())
         {
-            var itemPath = path + "[" + (index++).ToString(CultureInfo.InvariantCulture) + "]";
-            var type = Field(node, "type");
-            if (type.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) type = Field(node, "node_type");
-            var label = "node_type=" + TypeLabel(type);
-            var richType = Field(Field(node, "rich"), "type");
-            if (richType.ValueKind != JsonValueKind.Undefined) label += "/rich.type=" + TypeLabel(richType);
-            RecoverContent(node, writer, articleId, itemPath, label, false, notice,
-                () => RenderOpusNode(node, writer));
+            RecoverContent(node, writer, false, () => RenderOpusNode(node, writer));
         }
     }
 
@@ -206,30 +180,22 @@ internal static partial class ArticleContentParser
         throw Fail(ArticleCompatibilityFailure.UnsupportedNode);
     }
 
-    private static void RenderOpusPictures(JsonElement pictures, BodyWriter writer, string articleId,
-        string path, Action<ArticleParseNotice>? notice)
+    private static void RenderOpusPictures(JsonElement pictures, BodyWriter writer)
     {
-        var index = 0;
         foreach (var picture in pictures.EnumerateArray())
         {
-            var itemPath = path + "[" + (index++).ToString(CultureInfo.InvariantCulture) + "]";
-            RecoverContent(picture, writer, articleId, itemPath, "picture", true, notice,
-                () => RenderPicture(picture, writer, meaningful: true));
+            RecoverContent(picture, writer, true, () => RenderPicture(picture, writer, meaningful: true));
         }
     }
 
-    private static void RenderOpusList(JsonElement list, BodyWriter writer, string articleId,
-        string path, Action<ArticleParseNotice>? notice)
+    private static void RenderOpusList(JsonElement list, BodyWriter writer)
     {
         var ordered = Field(list, "style").ValueKind == JsonValueKind.Number && Integer(Field(list, "style")) == 2;
         writer.Add(ordered ? "<ol>" : "<ul>");
-        var index = 0;
         foreach (var item in Array(Required(list, "items")).EnumerateArray())
         {
             writer.Add("<li>");
-            var itemPath = path + ".items[" + (index++).ToString(CultureInfo.InvariantCulture) + "]";
-            RecoverContent(item, writer, articleId, itemPath, "list-item", false, notice,
-                () => RenderOpusNodes(Array(Required(item, "nodes")), writer, articleId, itemPath + ".nodes", notice));
+            RecoverContent(item, writer, false, () => RenderOpusNodes(Array(Required(item, "nodes")), writer));
             writer.Add("</li>");
         }
         writer.Add(ordered ? "</ol>" : "</ul>");
@@ -255,8 +221,7 @@ internal static partial class ArticleContentParser
         throw Fail(ArticleCompatibilityFailure.UnsupportedParagraph);
     }
 
-    private static void RecoverContent(JsonElement value, BodyWriter writer, string articleId, string path,
-        string type, bool block, Action<ArticleParseNotice>? notice, Action render)
+    private static void RecoverContent(JsonElement value, BodyWriter writer, bool block, Action render)
     {
         writer.Visit();
         var mark = writer.Mark();
@@ -265,7 +230,6 @@ internal static partial class ArticleContentParser
         {
             // Roll back partial tags before degrading this unit, keeping adjacent content intact.
             writer.Restore(mark);
-            notice?.Invoke(new(articleId, path, type, ex.Failure));
             var text = new StringBuilder();
             ExtractPlainText(value, text, writer);
             if (block) writer.Add("<p>");
@@ -305,13 +269,5 @@ internal static partial class ArticleContentParser
                     ExtractPlainText(property.Value, output, writer);
             }
         }
-    }
-
-    private static string TypeLabel(JsonElement type)
-    {
-        if (type.ValueKind == JsonValueKind.Number && type.TryGetInt64(out var number)) return number.ToString(CultureInfo.InvariantCulture);
-        if (type.ValueKind == JsonValueKind.String && type.GetString() is { Length: > 0 and <= 80 } text
-            && text.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-')) return text;
-        return type.ValueKind.ToString();
     }
 }

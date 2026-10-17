@@ -101,10 +101,7 @@ public sealed partial class LikeButton : LayoutUserControlBase
         => _tripleTip.ExecuteAndClose(0, null);
 }
 
-/// <summary>
-/// Per-opening ticket shared by the like/coin/favorite tips. No UI types: the captured owner, media generation
-/// and command instances decide whether an action button may still run.
-/// </summary>
+/// <summary>Tracks the owner, media and commands captured by one like/coin/favorite tip opening.</summary>
 internal sealed class ActionTipTicketState
 {
     private Ticket? _current;
@@ -149,10 +146,7 @@ internal sealed class ActionTipTicketState
         return true;
     }
 
-    /// <summary>
-    /// Runs only the command captured at opening. CanExecute is a callback that may rebind/close us,
-    /// so currency is checked again after it and immediately before Execute.
-    /// </summary>
+    /// <summary>Runs the captured command, rechecking ownership after CanExecute callbacks.</summary>
     internal static bool TryExecute(Ticket ticket, int index, object? parameter, Func<bool> isCurrent)
     {
         if (index < 0 || index >= ticket.Commands.Length || !isCurrent()) return false;
@@ -162,19 +156,12 @@ internal sealed class ActionTipTicketState
         return true;
     }
 
-    /// <summary>
-    /// Identity check for cleanup after an execution: the opening captured before CanExecute/Execute is still the
-    /// open one (same unretired ticket and same claim object). A retired or replaced opening is never closed again.
-    /// </summary>
+    /// <summary>Checks whether execution cleanup still belongs to the captured opening.</summary>
     internal static bool IsSameOpening(Ticket? currentTicket, Ticket capturedTicket, object? currentClaim, object? capturedClaim)
         => capturedClaim is not null && !capturedTicket.Retired
             && ReferenceEquals(currentTicket, capturedTicket) && ReferenceEquals(currentClaim, capturedClaim);
 
-    /// <summary>
-    /// Action-button flow of one opening: capture its ticket and claim, run the captured command (currency is
-    /// re-checked around CanExecute), then close only that opening. Whether the command completes, throws, or
-    /// synchronously closes this tip and opens a newer one, the newer opening is never closed here.
-    /// </summary>
+    /// <summary>Executes and closes only the captured opening, including after reentrant callbacks.</summary>
     internal static void ExecuteAndCloseOpening(Func<Ticket?> currentTicket, Func<object?> currentClaim, int index,
         object? parameter, Func<Ticket, bool> isCurrent, Action close)
     {
@@ -193,12 +180,7 @@ internal sealed class ActionTipTicketState
     }
 }
 
-/// <summary>
-/// One like/coin/favorite TeachingTip shown as a windowed popup over the video. Each opening is bound to the
-/// connector/player/media that opened it and holds the player's shared popup claim (suppresses surface
-/// play/pause and shortcuts while open). Unload, connector or command rebind, media replacement, presentation
-/// change and playback closing close only this tip.
-/// </summary>
+/// <summary>A windowed action tip whose owner-bound popup claim blocks player input until close.</summary>
 internal sealed class PlayerActionTip
 {
     private readonly FrameworkElement _host;
@@ -219,8 +201,7 @@ internal sealed class PlayerActionTip
         host.Unloaded += (_, _) => Close();
         host.Loaded += (_, _) =>
         {
-            // A tip closed while detached may never raise Closed; its claim already released the flag in Close,
-            // so only that stale close barrier is dropped (never an open claim that still holds the flag).
+            // An unloaded tip may never raise Closed; drop only its already-released close barrier.
             if (_claim is null && _claims.Get(_tip) is null && _claims.IsClosing(_tip) && !_tip.IsOpen) _claims = new();
         };
     }
@@ -262,11 +243,7 @@ internal sealed class PlayerActionTip
         return true;
     }
 
-    /// <summary>
-    /// Run the captured command at <paramref name="index"/> if the opening is still current, then close only that
-    /// opening. CanExecute/Execute may synchronously close it and open a newer one; completion or an exception
-    /// from the old invocation must never close the newer opening or release its claim.
-    /// </summary>
+    /// <summary>Runs the captured command at <paramref name="index"/> and closes only its opening.</summary>
     internal void ExecuteAndClose(int index, object? parameter)
         => ActionTipTicketState.ExecuteAndCloseOpening(() => _tickets.Current, () => _claim, index, parameter, IsCurrent, Close);
 

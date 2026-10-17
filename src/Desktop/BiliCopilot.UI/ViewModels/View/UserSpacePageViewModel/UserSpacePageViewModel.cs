@@ -228,7 +228,6 @@ public sealed partial class UserSpacePageViewModel : ViewModelBase
         object target = row.ArticleId is { } articleId
             ? new ArticleIdentifier(articleId, row.Content, default, default)
             : new ArticleReaderOpusTarget(row.Id, row.Content);
-        _logger.LogInformation("个人主页图文导航 TargetKind={TargetKind}", row.ArticleId is not null ? "Article" : "Opus");
         this.Get<NavigationViewModel>().NavigateToOver(typeof(ArticleReaderPage), target);
     }
     [RelayCommand]

@@ -10,9 +10,6 @@ using Richasy.BiliKernel.Models.Media;
 using System.ComponentModel;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
-#if DEBUG
-using BiliCopilot.UI.Toolkits;
-#endif
 
 namespace BiliCopilot.UI.Controls.Moment;
 
@@ -55,7 +52,6 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
 
     private void OnBodyLoaded(object sender, RoutedEventArgs e)
     {
-        RecordDebug(DebugPhase.LoadedEnter);
         if (!ReferenceEquals(_subscribedViewModel, ViewModel))
         {
             DetachViewModel();
@@ -64,14 +60,12 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
             {
                 _subscribedViewModel.PropertyChanged += OnViewModelPropertyChanged;
                 _subscribedViewModel.ListUpdated += OnListUpdated;
-                RecordDebug(DebugPhase.SubscribeAfter);
             }
         }
 
         SyncSelectors();
         QueueFeaturedLayoutUpdate();
         QueueDynamicsUpdate();
-        RecordDebug(DebugPhase.LoadedExit);
     }
 
     private void OnBodyUnloaded(object sender, RoutedEventArgs e)
@@ -84,7 +78,6 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
     {
         if (_subscribedViewModel is not null)
         {
-            RecordDebug(DebugPhase.DetachBefore);
             _subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _subscribedViewModel.ListUpdated -= OnListUpdated;
             _subscribedViewModel = null;
@@ -129,9 +122,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
         QueueDynamicsUpdate();
         if (ScrollViewer is not null)
         {
-            RecordDebug(DebugPhase.ResetBefore);
             ScrollViewer.ResetScrollPosition();
-            RecordDebug(DebugPhase.ResetAfter);
         }
     }
 
@@ -148,9 +139,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
         var index = (int)ViewModel.SelectedSubmission;
         if (index >= 0 && index < SubmissionSelector.Items.Count && SubmissionSelector.SelectedItem != SubmissionSelector.Items[index])
         {
-            RecordDebug(DebugPhase.SelectionBefore);
             SubmissionSelector.SelectedItem = SubmissionSelector.Items[index];
-            RecordDebug(DebugPhase.SelectionAfter);
         }
     }
 
@@ -160,9 +149,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
         var index = (int)ViewModel.VideoOrder;
         if (index >= 0 && index < VideoOrderSelector.Items.Count && VideoOrderSelector.SelectedItem != VideoOrderSelector.Items[index])
         {
-            RecordDebug(DebugPhase.SelectionBefore);
             VideoOrderSelector.SelectedItem = VideoOrderSelector.Items[index];
-            RecordDebug(DebugPhase.SelectionAfter);
         }
     }
 
@@ -172,9 +159,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
         var index = (int)ViewModel.OpusFilter;
         if (index >= 0 && index < OpusFilterSelector.Items.Count && OpusFilterSelector.SelectedItem != OpusFilterSelector.Items[index])
         {
-            RecordDebug(DebugPhase.SelectionBefore);
             OpusFilterSelector.SelectedItem = OpusFilterSelector.Items[index];
-            RecordDebug(DebugPhase.SelectionAfter);
         }
     }
 
@@ -187,9 +172,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
             var kind = (UserSubmissionKind)index;
             if (kind != ViewModel.SelectedSubmission)
             {
-                RecordDebug(DebugPhase.CommandBefore);
                 ViewModel.SelectSubmissionCommand.Execute(kind);
-                RecordDebug(DebugPhase.CommandAfter);
             }
         }
     }
@@ -203,9 +186,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
             var order = (UserVideoOrder)index;
             if (order != ViewModel.VideoOrder)
             {
-                RecordDebug(DebugPhase.CommandBefore);
                 ViewModel.SelectVideoOrderCommand.Execute(order);
-                RecordDebug(DebugPhase.CommandAfter);
             }
         }
     }
@@ -219,9 +200,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
             var filter = (UserOpusFilter)index;
             if (filter != ViewModel.OpusFilter)
             {
-                RecordDebug(DebugPhase.CommandBefore);
                 ViewModel.SelectOpusFilterCommand.Execute(filter);
-                RecordDebug(DebugPhase.CommandAfter);
             }
         }
     }
@@ -449,42 +428,6 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
         }
     }
 
-    private enum DebugPhase { LoadedEnter, LoadedExit, SubscribeAfter, DetachBefore, SelectionBefore, SelectionAfter, CommandBefore, CommandAfter, ResetBefore, ResetAfter }
-#if DEBUG
-    private static int _debugAttempts; // TEMP: process-wide, saturating; never reset on UI events.
-#endif
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void RecordDebug(DebugPhase phase)
-    {
-#if DEBUG
-        var attempt = System.Threading.Volatile.Read(ref _debugAttempts);
-        while (true)
-        {
-            if (attempt >= 16) return;
-            var observed = System.Threading.Interlocked.CompareExchange(ref _debugAttempts, attempt + 1, attempt);
-            if (observed == attempt) break;
-            attempt = observed;
-        }
-        SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<UserSpacePageBody>>(), logger =>
-        {
-            var trace = new System.Diagnostics.StackTrace(false);
-            var methods = new List<string>(8);
-            for (var i = 0; i < Math.Min(8, trace.FrameCount); i++)
-            {
-                var method = trace.GetFrame(i) is { } frame ? System.Diagnostics.DiagnosticMethodInfo.Create(frame) : null;
-                methods.Add(DebugSymbol(method?.DeclaringTypeName) + "." + DebugSymbol(method?.Name));
-            }
-            logger.LogWarning("TEMP_PROFILE_DEBUG Body Phase={Phase} Subscribed={Subscribed} CodeMethods={CodeMethods}",
-                phase, _subscribedViewModel is not null, string.Join(" | ", methods));
-        });
-#endif
-    }
-#if DEBUG
-    private static string DebugSymbol(string? value) => value is { Length: > 0 and <= 128 }
-        && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '+' or '`' or '<' or '>' or '[' or ']' or ',')
-        ? value : "CodeSymbolUnavailable";
-#endif
-
     #region Static Helpers for x:Bind
 
     public static Visibility IsTabVisible(UserSpaceTab current, UserSpaceTab target)
@@ -541,12 +484,6 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
     public static string FormatCollectionKind(UserCollectionKind kind)
         => kind == UserCollectionKind.Season ? "合集" : "系列";
 
-    public static Visibility IsCollectionCountVisible(long? count)
-        => count.HasValue && count.Value >= 0 ? Visibility.Visible : Visibility.Collapsed;
-
-    public static string FormatCollectionCount(long? count)
-        => count.HasValue ? $"共 {count.Value} 个视频" : string.Empty;
-
     public static Visibility IsGroupIdleVisible(UserSpaceLoadState state, int videoCount)
         => state == UserSpaceLoadState.Idle && videoCount == 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -589,14 +526,8 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
     public static Visibility HasItems(int count)
         => count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>
-    /// 计数徽标：未知（null）或负数隐藏，不以 0 冒充未知.
-    /// </summary>
-    public static Visibility IsMetricVisible(double? count)
-        => count.HasValue && count.Value >= 0 ? Visibility.Visible : Visibility.Collapsed;
-
-    public static Visibility IsGroupRailVisible(UserSpaceLoadState state, int videoCount)
-        => videoCount > 0 && Enum.IsDefined(state) ? Visibility.Visible : Visibility.Collapsed;
+    public static Visibility IsGroupRailVisible(int videoCount)
+        => videoCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public static Visibility IsGroupFirstLoadingVisible(UserSpaceLoadState state, int videoCount)
         => state == UserSpaceLoadState.Loading && videoCount == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -734,7 +665,7 @@ public sealed partial class UserSpacePageBody : UserSpacePageControlBase
     }
 
     public static Visibility IsVideoStatVisible(VideoInformation? video, string kind)
-        => IsMetricVisible(GetVideoStat(video, kind));
+        => IsCountVisible(GetVideoStat(video, kind));
 
     public static string FormatVideoStat(VideoInformation? video, string kind)
         => FormatCount(GetVideoStat(video, kind));

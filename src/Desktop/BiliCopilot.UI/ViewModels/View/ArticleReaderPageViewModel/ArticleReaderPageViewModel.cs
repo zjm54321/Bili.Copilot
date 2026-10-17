@@ -19,8 +19,6 @@ namespace BiliCopilot.UI.ViewModels.View;
 /// </summary>
 public sealed partial class ArticleReaderPageViewModel : ViewModelBase
 {
-    private int _logFailureCount;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="ArticleReaderPageViewModel"/> class.
     /// </summary>
@@ -95,22 +93,13 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
                 ApplyFailure(ArticleReaderFailureKind.RenderFailed);
                 break;
         }
-
-        _logger.LogWarning("文章正文显示失败（ArticleId={ArticleId}, Category={Category}, Result={Result}, BodyCharacters={BodyCharacters}）",
-            Content.Identifier.Id, FailureKind, result, Content.HtmlContent?.Length ?? 0);
     }
-
-    /// <summary>
-    /// 日志写入失败的次数.
-    /// </summary>
-    internal int LogFailureCount => _logFailureCount;
 
     internal bool BeginWebFallback(int version)
     {
         if (version != _loadVersion || IsLoading || BrowserUri is null) return false;
         IsWebFallback = true;
         ClearFailure();
-        _logger.LogWarning("文章改用内置网页（ArticleId={ArticleId}, Version={Version}）", Article?.Id, version);
         return true;
     }
 
@@ -122,7 +111,6 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
         {
             ApplyFailure(result == ArticleReaderRenderResult.ReaderUnavailable
                 ? ArticleReaderFailureKind.ReaderUnavailable : ArticleReaderFailureKind.RenderFailed);
-            _logger.LogWarning("文章内置网页未能加载（ArticleId={ArticleId}, Result={Result}）", Article?.Id, result);
         }
     }
 
@@ -225,22 +213,7 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
         var failure = ArticleReaderFailureKind.None;
         try
         {
-            try
-            {
-                BeginLoadState(article, isNewIdentity);
-            }
-            catch (Exception ex)
-            {
-                // 状态回调失败：本次加载中止，但若仍是最新加载则保持可重试，而不是一直处于加载中.
-                TryLogWarning("文章加载准备失败（{ExceptionType}）", ex.GetType().Name);
-                if (version == _loadVersion)
-                {
-                    IsLoading = false;
-                    ApplyFailure(ArticleReaderFailureKind.DetailFailed);
-                }
-
-                throw;
-            }
+            BeginLoadState(article, isNewIdentity);
 
             if (cancelPrevious is not null)
             {
@@ -267,14 +240,12 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
             catch (ArticleCompatibilityException ex)
             {
                 failure = ArticleReaderFailureKind.DetailFailed;
-                // Fixed enums/type-presence fields only; never log source values or the body.
-                _logger.LogWarning("文章内容格式不兼容（{CompatibilityFailure}，{Structure}）", ex.Failure, ex.Structure);
+                _logger.LogWarning("文章内容格式不兼容（{CompatibilityFailure}）", ex.Failure);
             }
             catch (Exception ex)
             {
                 failure = ArticleReaderFailureKind.DetailFailed;
 
-                SafeFailureContext.TryWrite(FailureStage.ArticleDetailFetch, ex, () => _logger);
                 // 仅记录类别与异常类型，不记录可能包含正文、地址或凭据的原始信息.
                 _logger.LogWarning("文章内容加载失败（{Category}，{ExceptionType}）", failure, ex.GetType().Name);
             }
@@ -354,7 +325,7 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 取消上一次加载并等待其取消回调结束. 本方法不会抛出.
+    /// 取消上一次加载并等待其取消回调结束.
     /// 取消份额与 CancelAsync 在第一个 await 之前同步获取/发出.
     /// </summary>
     private async Task CancelPreviousLoadAsync(LoadOwnership previous)
@@ -371,27 +342,11 @@ public sealed partial class ArticleReaderPageViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            // 取消回调失败不影响本次加载；只记录类别与异常类型（日志本身失败也不会抛出）.
-            TryLogWarning("取消上一次文章加载时回调失败（{ExceptionType}）", ex.GetType().Name);
+            _logger.LogWarning("取消上一次文章加载时回调失败（{ExceptionType}）", ex.GetType().Name);
         }
         finally
         {
             previous.ReleaseCanceller();
-        }
-    }
-
-    /// <summary>
-    /// 尽力写入固定模板的警告日志. 不会抛出；日志失败只计数，不递归记录.
-    /// </summary>
-    private void TryLogWarning(string message, string exceptionType)
-    {
-        try
-        {
-            _logger.LogWarning(message, exceptionType);
-        }
-        catch (Exception)
-        {
-            _logFailureCount++;
         }
     }
 

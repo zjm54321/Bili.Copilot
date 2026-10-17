@@ -68,11 +68,9 @@ internal sealed class LiveHttpApi : IDisposable
                 continue;
             if (TrySocketEndpoint(name.GetString(), number, out var uri))
             {
-                LiveChatDiagnostics.Write("Discovery", "Signed discovery succeeded");
                 return new LiveDiscovery(uri!, token.GetString()!, buvid!);
             }
         }
-        LiveChatDiagnostics.Write("Discovery", "No supported WSS host in host_list");
         throw Unavailable();
     }
 
@@ -169,7 +167,6 @@ internal sealed class LiveHttpApi : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             var status = (int)response.StatusCode;
-            LiveChatDiagnostics.Write("DiscoveryHttp", "HTTP rejected", status);
             throw new LiveChatFailure("Live chat discovery is unavailable.", status >= 500 || status is 408 or 429, true);
         }
         return await ReadJsonAsync(response, maximumBytes, deadline.Token).ConfigureAwait(false);
@@ -235,7 +232,6 @@ internal sealed class LiveHttpApi : IDisposable
         if (!TryApiCode(root, out var code) || code != 0
             || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
         {
-            LiveChatDiagnostics.Write("DiscoveryApi", "Invalid API data", code);
             throw Unavailable();
         }
         return data;
@@ -306,19 +302,16 @@ internal sealed class LiveCredentials
         if (stamp.AccountId is not null
             && (!long.TryParse(stamp.AccountId, NumberStyles.None, CultureInfo.InvariantCulture, out uid) || uid <= 0))
             throw Invalid();
-        var source = cookies.GetCookies(); // The real API is declared non-nullable; tolerate null.
+        var source = cookies.GetCookies();
         var copy = new Dictionary<string, string>(StringComparer.Ordinal);
         var total = 0;
-        if (source is not null)
+        foreach (var name in CookieNames)
         {
-            foreach (var name in CookieNames)
-            {
-                if (!source.TryGetValue(name, out var value) || string.IsNullOrEmpty(value))
-                    continue;
-                if (value.Length > 8192 || (total += value.Length) > 16384 || !IsCookieValue(value))
-                    throw Invalid();
-                copy.Add(name, value);
-            }
+            if (!source.TryGetValue(name, out var value) || string.IsNullOrEmpty(value))
+                continue;
+            if (value.Length > 8192 || (total += value.Length) > 16384 || !IsCookieValue(value))
+                throw Invalid();
+            copy.Add(name, value);
         }
         if (copy.TryGetValue("buvid3", out var buvid) && buvid.Length > 512)
             throw Invalid();

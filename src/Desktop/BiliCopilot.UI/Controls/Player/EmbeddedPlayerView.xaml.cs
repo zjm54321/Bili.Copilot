@@ -387,10 +387,7 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         if (!isCurrent()) return;
         if (element is ContentControl content && content.Content is not UIElement) content.Content = null;
         if (!isCurrent()) return;
-        // A presenter that is the template root of a ContentControl (HeaderHost/Button...) receives Content through
-        // TemplateBinding. Writing a local null would permanently replace that TemplateBinding, so a later re-attach
-        // (Bindings.Update → HeaderHost.Content = connector) could no longer show the title. The owning ContentControl
-        // is cleared by its own branch/host cleanup, which releases the same reference through the TemplateBinding.
+        // Preserve template-root Content bindings; clearing the owning ContentControl releases their content.
         if (element is ContentPresenter presenter && presenter.Content is not UIElement
             && VisualTreeHelper.GetParent(presenter) is not ContentControl) presenter.Content = null;
     }
@@ -467,8 +464,7 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         if (!_loaded || owner is null || !IsCurrentAttachment(owner, epoch) || owner.IsPlaybackClosing || owner.MediaGeneration != generation
             || _mode != PlayerPresentationMode.Normal || owner.Presentation != PlayerPresentationMode.Normal
             || PlayerHeader.Visibility != Visibility.Visible || owner.Connector is not { } connector) return;
-        // HeaderHost has no x:Load, so its generated field is materialized with the view: start from it instead of
-        // walking the whole tree (sidebar included). Its children are still read live on every refresh, nothing cached.
+        // HeaderHost is always materialized; refresh only its subtree, not the sidebar.
         var headerHosts = HeaderHost is { } header && ReferenceEquals(header.Content, connector)
             ? new[] { header } : Array.Empty<ContentControl>();
         foreach (var host in headerHosts)
@@ -479,8 +475,7 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
                 if (_headers.ContainsKey(button) || !ReferenceEquals(button.Tag, connector) || !ReferenceEquals(FindHeaderHost(button), host)) continue;
                 var flyout = (MenuFlyout)button.Flyout;
                 var context = new HeaderContext(button, flyout, host, owner, connector, epoch, owner.MediaGeneration);
-                // A windowed (unconstrained) flyout is its own popup window and must not hide the video; only a
-                // root-constrained flyout, which would draw under the native child window, still takes the lease.
+                // Only root-constrained flyouts need to hide the native video.
                 var registration = new HeaderPopupState.Registration(flyout, button, owner, connector, epoch, owner.MediaGeneration,
                     () => IsCurrentHeader(context), flyout.Hide, requiresOcclusion: flyout.ShouldConstrainToRootBounds);
                 context.Registration = registration;
@@ -530,21 +525,12 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         }
     }
 
-    /// <summary>
-    /// Per-opening player input claim for a header menu. Independent of rendering occlusion: a windowed menu takes no
-    /// lease but still blocks pending surface taps/shortcuts (shared, counted IsPopupVisible) until this opening ends.
-    /// </summary>
+    /// <summary>Blocks player input for one header opening, independently of rendering occlusion.</summary>
     internal static IDisposable? AcquireHeaderInput(HeaderPopupState.Registration registration)
     {
         if (registration.Owner is not PlayerViewModel owner || owner.IsPlaybackClosing
             || owner.MediaGeneration != registration.Generation) return null;
-        // The existing popup-claim API, one claim book per opening: the shared counted IsPopupVisible flag is the
-        // only thing openings share, so a late Closed/close barrier of an older opening can never refuse or
-        // release a newer one. Nesting is already excluded by the ticket (one OpenTicket per registration).
-        // The claimed "popup" is a private per-opening NON-UI token, never the shared flyout: the book then
-        // subscribes no Opened/Closed and its Hide is a no-op, so releasing this claim is release-only. Flyout
-        // visibility and Closed stay exclusively with HeaderPopupState (a release that synchronously reopens the
-        // same flyout for B can never be hidden by A's book).
+        // A per-opening non-UI token releases only its input flag; HeaderPopupState owns flyout visibility.
         var claims = new IslandPopupClaims();
         var token = new HeaderInputToken();
         var claim = claims.Open(token, owner, registration.Epoch);

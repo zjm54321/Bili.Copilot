@@ -11,7 +11,7 @@ internal sealed class SponsorDispatcher : ISponsorDispatcher
 
     internal SponsorDispatcher(DispatcherQueue queue)
     {
-        this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
+        this.queue = queue;
         context = new DispatcherQueueSynchronizationContext(queue);
     }
 
@@ -23,7 +23,6 @@ internal sealed class SponsorDispatcher : ISponsorDispatcher
 
     public void Post(Action action)
     {
-        ArgumentNullException.ThrowIfNull(action);
         if (!queue.TryEnqueue(() => InContext(action)))
             throw new InvalidOperationException("Sponsor dispatcher rejected admission.");
     }

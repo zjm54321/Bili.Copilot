@@ -27,17 +27,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
     internal bool IsEmbeddedPlayerRenderingSuspended => _playerOcclusion.IsSuspended;
     internal bool SuppressPlayerBoundsPersistence { get; set; }
 
-#if DEBUG
-    private int _geometryDiagnosticCount;
-    private int _geometryResizeObservationCount;
-    private long _geometryChangeSequence;
-    private long _geometryPendingChangeSequence;
-    private bool _geometryFirstActivatedAttempted;
-    private bool _geometryFirstLoadedAttempted;
-    private bool _geometryRootLoaded;
-    private bool _geometryDiagnosticsStopped;
-#endif
-
     private bool _rootChromeRetired;
     private bool _playerOcclusionClosed;
     private bool _appClosedMarked;
@@ -152,13 +141,10 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
 
     private void ApplyActiveTitleBar()
     {
-        // Native caption/passthrough regions are owned solely by RootLayout's root chrome authority; this window
-        // never calls SetTitleBar for the main row, so no second framework writer is ever attached to it.
-        // Read the layout actually applied by Root, not a possibly stale event payload.
+        // RootLayout owns caption regions; only restore the normal caption button height here.
         var mode = RootLayout.TitleBarPresentation;
         if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay) return;
 
-        // The 48px root chrome uses tall caption buttons; a mode change back to Normal restores the height.
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
     }
 
@@ -201,9 +187,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         }
 
         MoveAndResize();
-#if DEBUG
-        RecordGeometrySnapshot("FirstActivated", "Window.Activated");
-#endif
         this.Get<ILogger<App>>().LogInformation($"App version: {this.Get<IAppToolkit>().GetPackageVersion()}");
         var localTheme = SettingsToolkit.ReadLocalSetting(SettingNames.AppTheme, ElementTheme.Default);
         this.Get<AppViewModel>().ChangeThemeCommand.Execute(localTheme);
@@ -217,10 +200,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         Closed -= OnClosed;
         AppWindow.Changed -= OnWindowChanged;
         AppWindow.Closing -= OnMainClosing;
-#if DEBUG
-        _geometryDiagnosticsStopped = true;
-        DetachGeometryObservations();
-#endif
     }
 
     private void OnMainClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -243,17 +222,13 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
             return;
         }
 
-        // Programmatic Window.Close() without prior authorization:
-        // WinUI 3 cannot resurrect an already-destroyed HWND if native destruction began;
-        // log warning and route to App.Current.RequestExitAsync().
+        // An already-destroyed HWND cannot be restored; finish the owned exit path.
         this.Get<ILogger<App>>().LogWarning("MainWindow.Closed triggered without terminal exit permission; requesting app exit.");
         _ = App.Current.RequestExitAsync();
     }
 
     /// <summary>
-    /// Finalization hook called by App owner once all App-level playback drains and resource releases have succeeded.
-    /// Saves window stats, retires chrome, occlusion and handlers, then allows clean native window close.
-    /// Does not reclose already-drained player owners.
+    /// Retire window resources and close after App has drained playback.
     /// </summary>
     internal void FinalizeAndClose()
     {
@@ -262,7 +237,7 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
             || !_appClosedMarked || !_handlersUnregistered)
             throw new InvalidOperationException("Main window final teardown is incomplete.");
         _isTerminalClosePermitted = true;
-        CloseTerminalNative();
+        Close();
     }
 
     private void PerformFinalTeardown()
@@ -333,11 +308,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
                     logger.LogWarning("Event handlers unregister failed during final teardown."));
             }
         }
-    }
-
-    private void CloseTerminalNative()
-    {
-        Close();
     }
 
     private void OnWindowKeyUp(InputKeyboardSource sender, KeyEventArgs args)
@@ -431,155 +401,8 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         if (args.DidSizeChange || args.DidPositionChange)
         {
             SaveCurrentWindowStats();
-#if DEBUG
-            if (args.DidSizeChange) ObserveGeometrySizeChange();
-#endif
         }
     }
-
-#if DEBUG
-    private void StartGeometryLoadedObservation()
-    {
-        // Diagnostic lifecycle must not depend on resolving the application logger.
-        SafeFailureContext.TryWriteFacts(() => Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, _ =>
-        {
-            if (_geometryDiagnosticsStopped) return;
-            RootLayout.Unloaded -= OnGeometryRootUnloaded;
-            RootLayout.Unloaded += OnGeometryRootUnloaded;
-            _geometryRootLoaded = true;
-            if (_geometryFirstLoadedAttempted) return;
-            RootLayout.SizeChanged -= OnGeometryFirstSizeChanged;
-            RootLayout.SizeChanged += OnGeometryFirstSizeChanged;
-            RecordFirstPositiveRootGeometry("RootLayout.Loaded");
-        });
-    }
-
-    private void OnGeometryFirstSizeChanged(object sender, SizeChangedEventArgs args)
-        => RecordFirstPositiveRootGeometry("RootLayout.SizeChanged");
-
-    private void RecordFirstPositiveRootGeometry(string signal)
-    {
-        SafeFailureContext.TryWriteFacts(() => Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, _ =>
-        {
-            if (_geometryDiagnosticsStopped || _geometryFirstLoadedAttempted || !RootLayout.IsLoaded
-                || RootLayout.ActualWidth <= 0 || RootLayout.ActualHeight <= 0) return;
-            RootLayout.SizeChanged -= OnGeometryFirstSizeChanged;
-            RecordGeometrySnapshot("FirstLoaded", signal);
-        });
-    }
-
-    private void ObserveGeometrySizeChange()
-    {
-        if (_geometryDiagnosticsStopped) return;
-        ++_geometryChangeSequence;
-        // Reserve the two first-phase attempts; allow at most three immediate/layout pairs after load.
-        // Changed can be programmatic. Pending real changes coalesce into the same subsequent layout sample.
-        if (!_geometryRootLoaded || !_geometryFirstLoadedAttempted || _geometryPendingChangeSequence != 0
-            || _geometryResizeObservationCount >= 3) return;
-        ++_geometryResizeObservationCount;
-        var triggerSequence = _geometryChangeSequence;
-        _geometryPendingChangeSequence = triggerSequence;
-        RecordGeometrySnapshot("WindowChangedImmediate", "AppWindow.Changed", triggerSequence);
-        if (_geometryDiagnosticsStopped || !_geometryRootLoaded || _geometryPendingChangeSequence != triggerSequence) return;
-        if (!SafeFailureContext.TryWriteFacts(() => Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, _ =>
-            RootLayout.LayoutUpdated += OnGeometryPostLayout))
-            _geometryPendingChangeSequence = 0;
-    }
-
-    private void OnGeometryPostLayout(object? sender, object args)
-    {
-        var triggerSequence = _geometryPendingChangeSequence;
-        _geometryPendingChangeSequence = 0;
-        SafeFailureContext.TryWriteFacts(() => Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, _ =>
-        {
-            RootLayout.LayoutUpdated -= OnGeometryPostLayout;
-            if (triggerSequence == 0 || _geometryDiagnosticsStopped) return;
-            // A real LayoutUpdated callback, not a claim that native or XAML geometry is now stable.
-            RecordGeometrySnapshot("WindowChangedPostLayout", "RootLayout.LayoutUpdated", triggerSequence);
-        });
-    }
-
-    private void OnGeometryRootUnloaded(object sender, RoutedEventArgs args)
-        => DetachGeometryObservations();
-
-    private void DetachGeometryObservations()
-    {
-        _geometryRootLoaded = false;
-        _geometryPendingChangeSequence = 0;
-        SafeFailureContext.TryWriteFacts(() => Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, _ =>
-        {
-            RootLayout.SizeChanged -= OnGeometryFirstSizeChanged;
-            RootLayout.LayoutUpdated -= OnGeometryPostLayout;
-            RootLayout.Unloaded -= OnGeometryRootUnloaded;
-        });
-    }
-
-    private void RecordGeometrySnapshot(string stage, string signal, long triggerSequence = 0)
-    {
-        if (_geometryDiagnosticsStopped || _geometryDiagnosticCount >= 8) return;
-        if (stage == "FirstActivated")
-        {
-            if (_geometryFirstActivatedAttempted) return;
-            _geometryFirstActivatedAttempted = true;
-        }
-        else if (stage == "FirstLoaded")
-        {
-            if (_geometryFirstLoadedAttempted) return;
-            _geometryFirstLoadedAttempted = true;
-        }
-
-        var attempt = ++_geometryDiagnosticCount; // Count failed getters/logger attempts too.
-        var changeSequence = _geometryChangeSequence;
-        SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<App>>(), logger =>
-        {
-            var handle = this.GetWindowHandle();
-            var hwnd = new HWND(handle);
-            var pos = AppWindow.Position;
-            var size = AppWindow.Size;
-            var clientSize = AppWindow.ClientSize;
-            var dpi = HwndExtensions.GetDpiForWindow(handle);
-            var isZoomed = (bool)PInvoke.IsZoomed(hwnd);
-            var clientRectSucceeded = (bool)PInvoke.GetClientRect(hwnd, out var clientRect);
-            var windowRectSucceeded = (bool)GetWindowRectForDiagnostics(hwnd, out var windowRect);
-            var displayArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
-            var work = displayArea?.WorkArea;
-            var rootWidth = ReadMeasurement(() => RootLayout.ActualWidth);
-            var rootHeight = ReadMeasurement(() => RootLayout.ActualHeight);
-            var rootOriginY = ReadMeasurement(() => RootLayout.TransformToVisual(null)
-                .TransformPoint(new Windows.Foundation.Point(0, 0)).Y);
-            var rasterizationScale = ReadMeasurement(() => RootLayout.XamlRoot?.RasterizationScale);
-            var (navTop, navBottom, navHeight) = RootLayout.GetNavViewGeometry(logger);
-            var (row0, row1, row2) = RootLayout.GetLayoutGridRowHeights(logger);
-
-            logger.LogInformation(
-                "MainWindowGeometry Stage={Stage} Signal={Signal} WindowHandle={WindowHandle} Attempt={Attempt} TriggerChangeSequence={TriggerChangeSequence} LatestChangeSequence={LatestChangeSequence} NativeUnits=px XamlUnits=DIP XamlOrigin=VisualRoot RasterizationScale={RasterizationScale} AppWindowPosition=({AppX},{AppY}) AppWindowSize=({AppWidth},{AppHeight}) AppWindowClientSize=({ClientWidth},{ClientHeight}) RootActualWidth={RootWidth} RootActualHeight={RootHeight} RootOriginY={RootOriginY} RootBottom={RootBottom} RootOriginSuccess={RootOriginSuccess} NavViewTop={NavTop} NavViewBottom={NavBottom} NavViewHeight={NavHeight} NavOriginSuccess={NavOriginSuccess} Row0Height={Row0} Row1Height={Row1} Row2Height={Row2} DPI={Dpi} WorkArea=({WorkX},{WorkY},{WorkWidth},{WorkHeight}) GetWindowRectSuccess={WindowRectSuccess} WindowRect=({WindowLeft},{WindowTop},{WindowRight},{WindowBottom}) GetClientRectSuccess={ClientRectSuccess} ClientRect=({ClientX},{ClientY},{ClientRectWidth},{ClientRectHeight}) IsZoomed={IsZoomed}",
-                stage, signal, handle.ToInt64(), attempt, triggerSequence, changeSequence, rasterizationScale,
-                pos.X, pos.Y, size.Width, size.Height, clientSize.Width, clientSize.Height,
-                rootWidth, rootHeight, rootOriginY, rootOriginY + rootHeight, rootOriginY.HasValue,
-                navTop, navBottom, navHeight, navTop.HasValue, row0, row1, row2,
-                dpi > 0 ? (double?)dpi : null, work?.X, work?.Y, work?.Width, work?.Height,
-                windowRectSucceeded, windowRectSucceeded ? (int?)windowRect.left : null,
-                windowRectSucceeded ? (int?)windowRect.top : null, windowRectSucceeded ? (int?)windowRect.right : null,
-                windowRectSucceeded ? (int?)windowRect.bottom : null,
-                clientRectSucceeded, clientRectSucceeded ? (int?)clientRect.X : null,
-                clientRectSucceeded ? (int?)clientRect.Y : null, clientRectSucceeded ? (int?)clientRect.Width : null,
-                clientRectSucceeded ? (int?)clientRect.Height : null, isZoomed);
-
-            double? ReadMeasurement(Func<double?> read)
-            {
-                double? value = null;
-                SafeFailureContext.TryWriteFacts(() => logger, _ => value = read());
-                return value;
-            }
-        });
-    }
-
-    // NativeMethods.txt already generates GetClientRect/IsZoomed, but not GetWindowRect.
-    // Keep this read-only, known Win32 ABI local to the temporary DEBUG diagnostics.
-    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowRect", ExactSpelling = true)]
-    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
-    private static extern BOOL GetWindowRectForDiagnostics(HWND hwnd, out RECT rect);
-#endif
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -602,9 +425,6 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
     {
         var keyboardSource = InputKeyboardSource.GetForIsland(RootLayout.XamlRoot?.ContentIsland);
         keyboardSource.KeyUp += OnWindowKeyUp;
-#if DEBUG
-        StartGeometryLoadedObservation();
-#endif
     }
 
     private bool IsCursorInWindow()

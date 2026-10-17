@@ -142,12 +142,10 @@
                 </Grid>
 
                 <ContentControl
-                    x:Name="LeftPanel"
                     Grid.Column="1"
                     Content="{x:Bind LeftContent, Mode=OneWay}"
                     Style="{StaticResource AppContentControlStyle}" />
                 <ContentControl
-                    x:Name="MiddlePanel"
                     Grid.Column="2"
                     Content="{x:Bind MiddleContent, Mode=OneWay}"
                     Style="{StaticResource AppContentControlStyle}" />

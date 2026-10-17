@@ -146,7 +146,6 @@ public sealed partial class SponsorSettingsViewModel : ObservableObject
     /// </summary>
     internal void Bind(SponsorApplicationCoordinator app, ISponsorBackupFilePort? files = null)
     {
-        ArgumentNullException.ThrowIfNull(app);
         var queue = DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("SponsorSettingsBindRequiresUiThread");
         Unbind();
         _epoch++;

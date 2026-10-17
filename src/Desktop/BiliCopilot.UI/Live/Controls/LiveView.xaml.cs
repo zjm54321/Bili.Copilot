@@ -17,7 +17,9 @@ using Windows.System;
 namespace BiliCopilot.UI.Live.Controls;
 
 /// <summary>
-/// Video-first Live layout: header, host video anchor, transport bar and a toggleable chat list.
+/// Video-first Live layout: header, host video anchor, a floating transport card and a toggleable chat list.
+/// The transport card is placed once in the video island's overlay layer (VOD PlayerOverlay model) and serves
+/// normal, full-screen and compact modes; presentation changes only switch its layout state.
 /// The view owns only its subscriptions, toggles, composer state and the overlay instance it creates.
 /// Playback, chat transport and native resources belong to the session/host.
 /// </summary>
@@ -35,8 +37,11 @@ public sealed partial class LiveView : UserControl
     private const string NotFollowingCopy = "未关注";
     private const string QualityCopy = "清晰度";
 
-    // Same idea as the VOD overlay: controls fade after a short idle period while playing.
+    // Same idea as the VOD overlay: controls fade after a short idle period, in every presentation mode.
     private static readonly TimeSpan TransportIdleDelay = TimeSpan.FromSeconds(3);
+
+    // A floating hint must not pin the card over the picture forever.
+    private static readonly TimeSpan FeedbackLifetime = TimeSpan.FromSeconds(5);
 
     private readonly ILiveSession _session;
     private readonly ILivePresentation _presentation;
@@ -62,12 +67,12 @@ public sealed partial class LiveView : UserControl
     private bool _syncingQuality;
 
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _idleTimer;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _feedbackTimer;
     private bool _pointerOverTransport;
     private int _openTransportFlyouts;
-    private bool _fullScreenLayout;
-    private bool _fullScreenTransportShown;
+    private bool _transportShown = true;
+    private bool _compactLayout;
     private Grid? _transportOverlayHost;
-    private bool _changingTransport;
 
     private ScrollViewer? _scroller;
     private bool _followLatest = true;
@@ -91,6 +96,10 @@ public sealed partial class LiveView : UserControl
         // Layout anchor only: the host keeps engine/HWND ownership.
         VideoHost.Child = videoSurface;
 
+        // The card is generated with this view but never laid out in this tree: it waits, unparented,
+        // for AttachTransportOverlay to place it in the island overlay layer exactly once.
+        RootGrid.Children.Remove(TransportCard);
+
         _overlay = new LiveDanmakuOverlay(session);
         DanmakuOverlay = _overlay;
 
@@ -110,16 +119,18 @@ public sealed partial class LiveView : UserControl
         _idleTimer.Interval = TransportIdleDelay;
         _idleTimer.IsRepeating = false;
         _idleTimer.Tick += OnIdleTimerTick;
-        // Pointer input anywhere on the player stage reveals the transport (handled events included, like the VOD overlay).
-        StageGrid.AddHandler(PointerMovedEvent, new PointerEventHandler(OnStagePointerActivity), true);
-        StageGrid.AddHandler(PointerPressedEvent, new PointerEventHandler(OnStagePointerActivity), true);
+        _feedbackTimer = _dispatcher.CreateTimer();
+        _feedbackTimer.Interval = FeedbackLifetime;
+        _feedbackTimer.IsRepeating = false;
+        _feedbackTimer.Tick += OnFeedbackTimerTick;
+        // Picture activity arrives through RevealTransport (the island's input layer); the card reports its own.
         TransportCard.PointerEntered += OnTransportPointerEntered;
         TransportCard.PointerExited += OnTransportPointerExited;
-        TransportCard.GotFocus += OnTransportFocusChanged;
-        TransportCard.LostFocus += OnTransportFocusChanged;
-        TransportCard.AddHandler(PointerMovedEvent, new PointerEventHandler(OnStagePointerActivity), true);
-        TransportCard.AddHandler(PointerPressedEvent, new PointerEventHandler(OnStagePointerActivity), true);
+        TransportCard.GotFocus += OnTransportGotFocus;
+        TransportCard.AddHandler(PointerMovedEvent, new PointerEventHandler(OnTransportPointerActivity), true);
+        TransportCard.AddHandler(PointerPressedEvent, new PointerEventHandler(OnTransportPointerActivity), true);
         TransportCard.Loaded += OnTransportLoaded;
+        ActualThemeChanged += OnActualThemeChanged;
 
         MessageList.ContainerContentChanging += OnMessageContainerChanging;
         MessageList.Loaded += OnMessageListLoaded;
@@ -145,19 +156,24 @@ public sealed partial class LiveView : UserControl
     /// </summary>
     public UIElement DanmakuOverlay { get; }
 
-    internal event EventHandler? VideoLayoutChanged;
-
-    /// <summary>The native picture island forwards activity; outer-tree pointer events cannot cross HWNDs.</summary>
+    /// <summary>The native picture island forwards pointer movement; outer-tree pointer events cannot cross HWNDs.</summary>
     internal void RevealTransport()
     {
         if (_attached) ShowTransport();
     }
 
-    /// <summary>One transport instance, with the same commands and event handlers in either XamlRoot.</summary>
+    /// <summary>
+    /// Places the single transport card in the island overlay layer. Called once, before the island is shown;
+    /// the card then stays there for every presentation mode and its flyouts always use the island XamlRoot.
+    /// </summary>
     internal void AttachTransportOverlay(Grid host)
     {
         ArgumentNullException.ThrowIfNull(host);
+        if (_transportOverlayHost is not null || VisualTreeHelper.GetParent(TransportCard) is not null)
+            throw new InvalidOperationException("Live transport overlay is already attached.");
+        host.Children.Add(TransportCard);
         _transportOverlayHost = host;
+        BindTransportRoot();
     }
 
     private void ApplyStaticCopy()
@@ -226,6 +242,7 @@ public sealed partial class LiveView : UserControl
         _lifetime?.Cancel();
         _lifetime = null;
         _idleTimer.Stop();
+        _feedbackTimer.Stop();
         Detach();
     }
 
@@ -280,8 +297,6 @@ public sealed partial class LiveView : UserControl
     private void UpdatePresentation()
     {
         var fullScreen = _presentation.IsFullScreen;
-        var fullScreenChanged = _fullScreenLayout != fullScreen;
-        _fullScreenLayout = fullScreen;
         var compact = _presentation.IsCompactOverlay;
         FullScreenIcon.Symbol = fullScreen ? FluentIcons.Common.Symbol.FullScreenMinimize : FluentIcons.Common.Symbol.FullScreenMaximize;
         CompactOverlayIcon.Symbol = compact ? FluentIcons.Common.Symbol.ContractDownLeft : FluentIcons.Common.Symbol.ContractUpRight;
@@ -296,64 +311,45 @@ public sealed partial class LiveView : UserControl
         HeaderDivider.Visibility = hideHeader ? Visibility.Collapsed : Visibility.Visible;
         RootGrid.RowDefinitions[0].Height = new GridLength(hideHeader ? 0 : 56);
         ApplyLayout();
-        if (fullScreenChanged) MoveTransport(fullScreen);
-        if (fullScreen)
-        {
-            // Both state properties notify: the second notification must not reveal the row again.
-            if (fullScreenChanged) HideFullScreenTransport();
-        }
-        else
-        {
-            _fullScreenTransportShown = false;
-            TransportCard.Visibility = Visibility.Visible;
-            TransportCard.IsHitTestVisible = true;
-            ShowTransport();
-        }
+        ApplyTransportLayout(compact);
+        ShowTransport(); // A mode switch is user activity: show, then the usual idle countdown.
     }
 
-    private void MoveTransport(bool intoIsland)
+    /// <summary>
+    /// Layout state only — the card never changes parent. Compact keeps the VOD compact essentials
+    /// (play/pause, volume, exit compact) in a slimmer card; the danmaku composer, refresh, quality and
+    /// full-screen commands step aside.
+    /// </summary>
+    private void ApplyTransportLayout(bool compact)
     {
-        var target = intoIsland ? _transportOverlayHost
-            ?? throw new InvalidOperationException("Live transport island is unavailable.") : StageGrid;
-        if (ReferenceEquals(VisualTreeHelper.GetParent(TransportCard), target)) return;
-        if (VisualTreeHelper.GetParent(TransportCard) is not Panel previous)
-            throw new InvalidOperationException("Live transport has no movable layout parent.");
-        // A popup must be closed before its target changes XamlRoot. The next Loaded/Opening
-        // binds both flyouts to the actual target root, not to the outer LiveView root.
-        _changingTransport = true;
-        try
+        if (_compactLayout != compact)
         {
+            // Anchored popups would float at the old card position after the window resizes.
             QualityFlyout.Hide();
             VolumeFlyout.Hide();
-            QualityFlyout.XamlRoot = null;
-            VolumeFlyout.XamlRoot = null;
-            _idleTimer.Stop();
-            _pointerOverTransport = false;
-            _openTransportFlyouts = 0;
-            previous.Children.Remove(TransportCard);
-            Grid.SetRow(TransportCard, intoIsland ? 0 : 1);
-            try { target.Children.Add(TransportCard); }
-            catch
-            {
-                Grid.SetRow(TransportCard, ReferenceEquals(previous, StageGrid) ? 1 : 0);
-                previous.Children.Add(TransportCard);
-                throw;
-            }
-            StageGrid.RowDefinitions[1].Height = intoIsland ? new GridLength(0) : GridLength.Auto;
         }
-        finally { _changingTransport = false; }
-        VideoLayoutChanged?.Invoke(this, EventArgs.Empty);
+
+        _compactLayout = compact;
+        var full = compact ? Visibility.Collapsed : Visibility.Visible;
+        RefreshButton.Visibility = full;
+        ComposerGroup.Visibility = full;
+        FullScreenButton.Visibility = full;
+        TransportContent.Padding = compact ? new Thickness(8, 6, 8, 6) : new Thickness(12, 8, 12, 8);
+        UpdateQuality();
     }
 
-    private void OnTransportLoaded(object sender, RoutedEventArgs args) => BindTransportFlyoutRoots();
+    private void OnTransportLoaded(object sender, RoutedEventArgs args) => BindTransportRoot();
 
-    private void OnTransportFlyoutOpening(object sender, object args) => BindTransportFlyoutRoots();
+    private void OnActualThemeChanged(FrameworkElement sender, object args) => BindTransportRoot();
 
-    private void BindTransportFlyoutRoots()
+    /// <summary>Flyouts open in the island root, never the outer LiveView root; the island follows the view's theme.</summary>
+    private void BindTransportRoot()
     {
-        if (TransportCard.XamlRoot is not { } root) return;
+        if (TransportCard.XamlRoot is not { } root) return; // Not loaded in the island yet; Loaded binds it.
         if (!ReferenceEquals(QualityFlyout.XamlRoot, root)) QualityFlyout.XamlRoot = root;
         if (!ReferenceEquals(VolumeFlyout.XamlRoot, root)) VolumeFlyout.XamlRoot = root;
+        if (root.Content is FrameworkElement islandRoot && islandRoot.RequestedTheme != ActualTheme)
+            islandRoot.RequestedTheme = ActualTheme;
     }
 
     private void RefreshAll()
@@ -441,7 +437,7 @@ public sealed partial class LiveView : UserControl
     private void UpdateQuality()
     {
         var selected = _session.SelectedQuality;
-        QualityButton.Visibility = _session.Qualities.Count > 0 || selected is not null
+        QualityButton.Visibility = !_compactLayout && (_session.Qualities.Count > 0 || selected is not null)
             ? Visibility.Visible
             : Visibility.Collapsed;
         QualityButton.IsEnabled = _session.CanChangeQuality && !_commandBusy;
@@ -894,97 +890,79 @@ public sealed partial class LiveView : UserControl
         if (!string.IsNullOrEmpty(text)) ShowTransport();
     }
 
-    /// <summary>The feedback line replaces the VOD progress row and only takes space while it has something to say.</summary>
+    /// <summary>
+    /// The feedback line sits on top of the floating card (the VOD progress row position) and only takes space while
+    /// it has something to say. Settled hints dismiss themselves; "sending" stays until the attempt resolves.
+    /// </summary>
     private void UpdateFeedbackRow()
-        => FeedbackRow.Visibility = SendFeedbackText.Visibility == Visibility.Visible
-            || CommandFeedbackText.Visibility == Visibility.Visible
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+    {
+        var visible = SendFeedbackText.Visibility == Visibility.Visible
+            || CommandFeedbackText.Visibility == Visibility.Visible;
+        FeedbackRow.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _feedbackTimer.Stop();
+        if (visible && !_sendInFlight) _feedbackTimer.Start();
+    }
 
-    // ---------------------------------------------------------------- transport auto-hide (VOD overlay behaviour)
+    private void OnFeedbackTimerTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        if (!_attached || _sendInFlight) return;
+        ShowSendFeedback(null, null);
+        SetCommandFeedback(null);
+        EvaluateTransport(); // The hint no longer holds the card: resume the idle countdown.
+    }
 
-    /// <summary>Anything that must keep the controls on screen: not playing, pointer/focus/flyout on them, a draft or feedback.</summary>
+    // ---------------------------------------------------------------- transport auto-hide (VOD overlay behaviour, every mode)
+
+    /// <summary>What holds the card on screen: pointer on it, an open flyout, a visible draft or a hint.</summary>
     private bool MustKeepTransport()
         => !_attached
-            || _session.PlaybackState != LivePlaybackState.Playing
             || _pointerOverTransport
             || _openTransportFlyouts > 0
-            || ComposerBox.Text.Length > 0
-            || FeedbackRow.Visibility == Visibility.Visible
-            || IsFocusWithin(TransportCard);
+            || (ComposerGroup.Visibility == Visibility.Visible && ComposerBox.Text.Length > 0)
+            || FeedbackRow.Visibility == Visibility.Visible;
 
+    /// <summary>Reveal the card and (re)start the idle countdown unless something holds it.</summary>
     private void ShowTransport()
     {
-        if (_changingTransport) return;
-        if (_presentation.IsFullScreen)
-        {
-            _fullScreenTransportShown = true;
-            TransportCard.Visibility = Visibility.Visible;
-            TransportCard.IsHitTestVisible = true;
-            TransportCard.Opacity = 1;
-            _idleTimer.Stop();
-            if (!MustKeepFullScreenTransport()) _idleTimer.Start();
-            return;
-        }
-
-        TransportCard.Opacity = 1;
+        SetTransportShown(true);
         _idleTimer.Stop();
         if (!MustKeepTransport()) _idleTimer.Start();
     }
 
-    /// <summary>Called from RefreshAll: never restarts a running countdown, so frequent session updates cannot keep it alive.</summary>
+    /// <summary>Called from RefreshAll: session updates never reveal the card nor restart a running countdown.</summary>
     private void EvaluateTransport()
     {
-        // Session messages must not reveal or restart the full-screen transport's idle timer.
-        if (_presentation.IsFullScreen)
-        {
-            if (MustKeepFullScreenTransport()) ShowTransport();
-            else if (_fullScreenTransportShown && !_idleTimer.IsRunning) _idleTimer.Start();
-            return;
-        }
-        if (MustKeepTransport())
-        {
-            TransportCard.Opacity = 1;
-            _idleTimer.Stop();
-        }
-        else if (TransportCard.Opacity > 0 && !_idleTimer.IsRunning)
-        {
-            _idleTimer.Start();
-        }
+        if (!_transportShown) return;
+        if (MustKeepTransport()) _idleTimer.Stop();
+        else if (!_idleTimer.IsRunning) _idleTimer.Start();
     }
 
     private void OnIdleTimerTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
     {
-        if (_presentation.IsFullScreen)
-        {
-            if (!MustKeepFullScreenTransport()) HideFullScreenTransport();
-            return;
-        }
-
-        // Opacity only: the row keeps its height, so the native video is never resized. The card stays hit-testable,
-        // so pointer or keyboard focus on it brings it straight back.
-        if (!MustKeepTransport()) TransportCard.Opacity = 0;
+        if (!MustKeepTransport()) SetTransportShown(false);
     }
 
-    private void HideFullScreenTransport()
+    /// <summary>
+    /// Hidden = faded and not hit-testable, so clicks, drags and double-clicks go to the picture layer below.
+    /// It stays Visible for the fade and for keyboard focus (focusing it reveals it again).
+    /// </summary>
+    private void SetTransportShown(bool shown)
     {
-        _fullScreenTransportShown = false;
-        _idleTimer.Stop();
-        _pointerOverTransport = false;
-        _changingTransport = true;
-        try
+        _transportShown = shown;
+        if (!shown)
         {
-            TransportCard.IsHitTestVisible = false;
-            TransportCard.Opacity = 0;
-            TransportCard.Visibility = Visibility.Collapsed;
+            _idleTimer.Stop();
+            _pointerOverTransport = false;
         }
-        finally { _changingTransport = false; }
+
+        TransportCard.IsHitTestVisible = shown;
+        TransportCard.Opacity = shown ? 1 : 0;
     }
 
-    private bool MustKeepFullScreenTransport()
-        => _pointerOverTransport || _openTransportFlyouts > 0 || IsFocusWithin(TransportCard);
-
-    private void OnStagePointerActivity(object sender, PointerRoutedEventArgs e) => ShowTransport();
+    private void OnTransportPointerActivity(object sender, PointerRoutedEventArgs e)
+    {
+        if (_transportShown) ShowTransport();
+    }
 
     private void OnTransportPointerEntered(object sender, PointerRoutedEventArgs e)
     {
@@ -995,13 +973,10 @@ public sealed partial class LiveView : UserControl
     private void OnTransportPointerExited(object sender, PointerRoutedEventArgs e)
     {
         _pointerOverTransport = false;
-        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
+        if (_transportShown) ShowTransport();
     }
 
-    private void OnTransportFocusChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
-    }
+    private void OnTransportGotFocus(object sender, RoutedEventArgs e) => ShowTransport();
 
     private void OnTransportFlyoutOpened(object sender, object e)
     {
@@ -1012,19 +987,7 @@ public sealed partial class LiveView : UserControl
     private void OnTransportFlyoutClosed(object sender, object e)
     {
         _openTransportFlyouts = Math.Max(0, _openTransportFlyouts - 1);
-        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
-    }
-
-    private bool IsFocusWithin(DependencyObject container)
-    {
-        if (container is not FrameworkElement element || element.XamlRoot is not { } root
-            || FocusManager.GetFocusedElement(root) is not DependencyObject focused) return false;
-        for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
-        {
-            if (ReferenceEquals(node, container)) return true;
-        }
-
-        return false;
+        if (_transportShown) ShowTransport();
     }
 
     // ---------------------------------------------------------------- helpers

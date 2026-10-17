@@ -6,9 +6,6 @@ using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Live;
 using BiliCopilot.UI.Pages;
 using BiliCopilot.UI.Pages.Overlay;
-#if DEBUG
-using BiliCopilot.UI.Toolkits;
-#endif
 using BiliCopilot.UI.ViewModels.Components;
 using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.Extensions.Logging;
@@ -59,7 +56,6 @@ public sealed partial class RootLayout : RootLayoutBase
     private bool _navigationInitialized;
     private bool _isNarrow;
     private object? _notificationScope;
-    private Task? _notificationInitialization;
     private object? _notificationInitializationIdentity;
     private NavigationViewModel? _initialNavigationOwner;
     private bool _notificationNavigationSucceeded;
@@ -336,7 +332,7 @@ public sealed partial class RootLayout : RootLayoutBase
         _notificationNavigationSucceeded = false;
         EnsureNotificationScope();
         // Even with every menu item hidden, observe the existing real navigation barrier.
-        _notificationInitialization = CompleteInitialNavigationAsync(navigation, selectedItem, initialization);
+        _ = CompleteInitialNavigationAsync(navigation, selectedItem, initialization);
     }
 
     private object EnsureNotificationScope()
@@ -870,32 +866,6 @@ public sealed partial class RootLayout : RootLayoutBase
 
     private void OnHistoryButtonClick(object sender, EventArgs e)
         => ViewModel.NavigateToOver(typeof(HistoryPage), default);
-
-#if DEBUG
-    internal (double? Top, double? Bottom, double? ActualHeight) GetNavViewGeometry(ILogger logger)
-    {
-        double? height = null;
-        double? top = null;
-        SafeFailureContext.TryWriteFacts(() => logger, _ => height = NavView.ActualHeight);
-        SafeFailureContext.TryWriteFacts(() => logger, _ =>
-            top = NavView.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0)).Y);
-        return (top, top + height, height);
-    }
-
-    internal (double? Row0, double? Row1, double? Row2) GetLayoutGridRowHeights(ILogger logger)
-    {
-        double? row0 = null;
-        double? row1 = null;
-        double? row2 = null;
-        SafeFailureContext.TryWriteFacts(() => logger, _ =>
-            row0 = LayoutGrid.RowDefinitions.Count > 0 ? LayoutGrid.RowDefinitions[0].ActualHeight : null);
-        SafeFailureContext.TryWriteFacts(() => logger, _ =>
-            row1 = LayoutGrid.RowDefinitions.Count > 1 ? LayoutGrid.RowDefinitions[1].ActualHeight : null);
-        SafeFailureContext.TryWriteFacts(() => logger, _ =>
-            row2 = LayoutGrid.RowDefinitions.Count > 2 ? LayoutGrid.RowDefinitions[2].ActualHeight : null);
-        return (row0, row1, row2);
-    }
-#endif
 }
 
 /// <summary>

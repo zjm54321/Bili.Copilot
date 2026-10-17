@@ -625,7 +625,6 @@
                             </Button>
                             <!--  空降助手入口（独立播放窗口标题栏）：面板由宿主代码在下方打开  -->
                             <Button
-                                x:Name="HeaderSponsorButton"
                                 Width="32"
                                 Height="32"
                                 Margin="8,0,0,0"
@@ -767,7 +766,6 @@
                             </DropDownButton>
                             <!--  空降助手入口（内嵌主窗口全屏标题区）：面板由宿主代码在下方打开  -->
                             <Button
-                                x:Name="EmbeddedSponsorButton"
                                 AutomationProperties.Name="{x:Bind local:PlayerOverlay.SponsorEntryName}"
                                 Click="OnSponsorPanelButtonClick"
                                 Style="{StaticResource EmbeddedHeaderButtonStyle}"

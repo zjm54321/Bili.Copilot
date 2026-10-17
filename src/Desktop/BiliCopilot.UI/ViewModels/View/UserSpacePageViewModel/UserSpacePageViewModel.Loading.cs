@@ -65,7 +65,6 @@ public sealed partial class UserSpacePageViewModel
                 if (firstPage)
                 {
                     // Render the primary feed before the independent Web pin request, which can time out.
-                    _logger.LogInformation("个人主页动态首屏已加载 Count={Count}", Dynamics.Count);
                     ListUpdated?.Invoke(this, EventArgs.Empty);
                     try
                     {
@@ -110,7 +109,6 @@ public sealed partial class UserSpacePageViewModel
                 CommitPage(page.NextPage, page.HasMore, added, Collections.Count);
                 break;
             }
-            default: throw UserSpaceService.Schema();
         }
         CheckCurrent(generation, token);
         ListUpdated?.Invoke(this, EventArgs.Empty);
@@ -144,7 +142,6 @@ public sealed partial class UserSpacePageViewModel
                 CommitPage(page.NextPage, page.HasMore, added, AudioTracks.Count);
                 break;
             }
-            default: throw UserSpaceService.Schema();
         }
     }
 

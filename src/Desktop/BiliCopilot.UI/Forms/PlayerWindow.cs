@@ -32,13 +32,8 @@ public sealed partial class PlayerWindow : IPlayerHost
     private Task? _readyTask;
     private Action<bool>? _activeChangedAction;
 
-    // No native allocation in the constructor: the VM must own us before ReadyAsync.
-    public PlayerWindow() { }
-
     private async Task CreateNativeAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        ObjectDisposedException.ThrowIf(IsDisposed || IsClosed || _isDisposing, this);
         _rootWindow = AppWindow.Create();
         _rootWindow.Title = "哔哩助理";
         _rootWindow.AssociateWithDispatcherQueue(DispatcherQueue.GetForCurrentThread());

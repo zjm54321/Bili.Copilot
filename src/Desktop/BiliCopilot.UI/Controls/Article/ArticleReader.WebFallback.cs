@@ -30,9 +30,6 @@ public sealed partial class ArticleReader
         var id = Services.Articles.ArticleRawHtmlClient.ValidateArticleId(target.AbsolutePath[prefix.Length..]);
         var sequence = ++_renderSequence;
         CompletePending(ArticleReaderRenderResult.Superseded);
-        _articleId = isOpus ? "opus:" + id : id;
-        _htmlCharacters = 0;
-        _htmlBytes = 0;
         _isWebFallback = true;
         _webNavigationId = null;
         var core = _subscriptions?.Core;
@@ -55,12 +52,11 @@ public sealed partial class ArticleReader
         {
             // Cookie exceptions may contain values; record the type only. Existing
             // profile cookies remain available even when resolver injection fails.
-            ReportRenderDiagnostic("WebFallbackCookieInjection", detail: ex.GetType().FullName);
+            ReportRenderFailure("WebFallbackCookieInjection", ex);
         }
 
         try
         {
-            ReportRenderDiagnostic("WebFallbackNavigate");
             core.Navigate("https://www.bilibili.com" + prefix + id);
             // Ordinary browsing deliberately bypasses the host-HTML claim/nonce pipeline.
             // Show the WebView immediately; its own page handles loading and challenges.
@@ -68,7 +64,7 @@ public sealed partial class ArticleReader
         }
         catch (Exception ex)
         {
-            if (sequence == _renderSequence) ReportRenderDiagnostic("WebFallbackFailed", ex);
+            if (sequence == _renderSequence) ReportRenderFailure("WebFallbackFailed", ex);
             return Task.FromResult(sequence == _renderSequence ? ArticleReaderRenderResult.NavigationFailed : ArticleReaderRenderResult.Superseded);
         }
     }
@@ -100,11 +96,7 @@ public sealed partial class ArticleReader
             Core.ProcessFailed -= ProcessFailed;
         }
 
-        private void NavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
-        {
-            if (!ReferenceEquals(sender, Core)) owner.ReportRenderDiagnostic("ProjectedCoreWrapperChanged");
-            owner.OnNavigationStarting(Core, args);
-        }
+        private void NavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args) => owner.OnNavigationStarting(Core, args);
         private void NavigationCompleted(CoreWebView2 sender, CoreWebView2NavigationCompletedEventArgs args) => owner.OnNavigationCompleted(Core, args);
         private void DOMContentLoaded(CoreWebView2 sender, CoreWebView2DOMContentLoadedEventArgs args) => owner.OnDOMContentLoaded(Core, args);
         private void ContextMenuRequested(CoreWebView2 sender, CoreWebView2ContextMenuRequestedEventArgs args) => owner.OnContextMenuRequested(Core, args);

@@ -15,8 +15,8 @@ public sealed partial class SponsorPersistenceStore
 
     public SponsorPersistenceStore(IAtomicSponsorFiles files, ISponsorIdentityProtector protector)
     {
-        this.files = files ?? throw new ArgumentNullException(nameof(files));
-        this.protector = protector ?? throw new ArgumentNullException(nameof(protector));
+        this.files = files;
+        this.protector = protector;
     }
 
     /// <summary>Missing returns explicit opt-out defaults with a missing-version token, without writing.
@@ -40,7 +40,6 @@ public sealed partial class SponsorPersistenceStore
     public Task<PersistenceResult<SponsorLocalSnapshot>> UpdateSettingsAsync(Func<SponsorLocalSettings, SponsorLocalSettings> update,
         CancellationToken cancellationToken = default) => LockedAsync(async token =>
     {
-        ArgumentNullException.ThrowIfNull(update);
         var current = await ReadStateAsync(token).ConfigureAwait(false);
         if (!Usable(current)) return current;
         return await CommitAsync(current.Value!.Revision, update(current.Value.Settings), current.Value.Drafts, current.Value.Auxiliary, token)
@@ -164,7 +163,7 @@ public sealed partial class SponsorPersistenceStore
         if (validation != PersistenceStatus.Success) return new(validation);
         var auxiliaryValidation = AuxiliaryValidation.Validate(auxiliary);
         if (auxiliaryValidation != PersistenceStatus.Success) return new(auxiliaryValidation);
-        if (drafts is null || revision == long.MaxValue) return new(PersistenceStatus.InvalidData);
+        if (revision == long.MaxValue) return new(PersistenceStatus.InvalidData);
         // Schema1 is read-only on load. Only an explicit mutation/upgrade commits the v2 envelope.
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new StateDocumentV2(2, files.Scope.ScopeId, revision + 1,
             settings, drafts.CopyBytes(), auxiliary), PersistenceJsonContext.Default.StateDocumentV2);
@@ -175,7 +174,7 @@ public sealed partial class SponsorPersistenceStore
 
     private static string Version(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
     private static bool Usable(PersistenceResult<SponsorLocalSnapshot> result) =>
-        (result.Status is PersistenceStatus.Success or PersistenceStatus.Missing) && result.Value is not null;
+        result.Status is PersistenceStatus.Success or PersistenceStatus.Missing;
 
     private async Task<PersistenceResult<T>> LockedAsync<T>(Func<CancellationToken, Task<PersistenceResult<T>>> action,
         CancellationToken token)

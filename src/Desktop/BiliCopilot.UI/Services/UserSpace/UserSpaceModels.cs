@@ -18,8 +18,7 @@ public sealed record UserSpaceVideoRow(VideoInformation Video, string? Reason)
     public UserSpaceFeaturedKind FeaturedKind { get; init; }
     public string Id => Video.Identifier.Id;
     public string? Title => Video.Identifier.Title;
-    public Uri? Cover => Video.Identifier.Cover?.SourceUri;
-    public string? PublisherName => Video.Publisher?.User?.Name;
+    public Uri? Cover => Video.Identifier.Cover?.Uri;
     public double? ViewCount => Video.CommunityInformation?.PlayCount;
     public double? FavoriteCount => Video.CommunityInformation?.FavoriteCount;
     public long? Duration => Video.Duration;

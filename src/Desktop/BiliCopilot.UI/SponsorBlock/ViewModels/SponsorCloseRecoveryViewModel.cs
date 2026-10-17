@@ -66,8 +66,6 @@ public sealed partial class SponsorCloseRecoveryViewModel : ObservableObject
     /// <returns>false when called off that thread.</returns>
     internal bool Bind(SponsorRuntime runtime, DispatcherQueue queue)
     {
-        ArgumentNullException.ThrowIfNull(runtime);
-        ArgumentNullException.ThrowIfNull(queue);
         if (!queue.HasThreadAccess)
         {
             return false;

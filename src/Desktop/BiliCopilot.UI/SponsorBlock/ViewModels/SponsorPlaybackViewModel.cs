@@ -156,7 +156,6 @@ public sealed partial class SponsorPlaybackViewModel : ObservableObject
     /// </summary>
     internal void Bind(SponsorApplicationCoordinator app, Guid attachment)
     {
-        ArgumentNullException.ThrowIfNull(app);
         var queue = DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("SponsorPlaybackBindRequiresUiThread");
         Unbind();
         _epoch++;
@@ -640,17 +639,6 @@ public sealed partial class SponsorPlaybackViewModel : ObservableObject
                 ? await app.FetchAsync(ticket!, refresh)
                 : await SponsorTickets.RunAsync(app, attachment, owner, current => app.FetchAsync(current, refresh),
                     SponsorTickets.IsReadAdmissionRefusal);
-            SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<SponsorPlaybackViewModel>>(), logger =>
-            {
-                // This is the committed published snapshot AFTER the result, not a claim about
-                // the private admission instant or the settings page's pending toggle overlay.
-                var observed = app.Snapshot;
-                logger.LogInformation(
-                    "FailureContext Stage=SponsorFetchResult Result={Result} ResultPersistence={ResultPersistence} Persistence={Persistence} StoreVersionKnown={StoreVersionKnown} CommittedNetworkEnabled={CommittedNetworkEnabled} CommittedViewedEnabled={CommittedViewedEnabled} Closed={Closed}",
-                    result.Status, result.Persistence, observed.Persistence, observed.StoreVersion is not null,
-                    observed.StoreVersion is not null ? (bool?)observed.Settings.NetworkEnabled : null,
-                    observed.StoreVersion is not null ? (bool?)observed.Settings.ViewedTelemetryEnabled : null, observed.Closed);
-            });
             if (IsCurrentFetch(app, attachment, owner, epoch, fetchEpoch))
             {
                 var refused = SponsorTickets.IsReadAdmissionRefusal(result);

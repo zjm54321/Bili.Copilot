@@ -19,54 +19,34 @@ internal static partial class ArticleContentParser
     private const string StateMarker = "__INITIAL_STATE__";
 
     internal static LegacyArticleProjection ParseArticleViewJson(string json, string expectedArticleId,
-        CancellationToken cancellationToken = default, Action<ArticleParseNotice>? notice = null)
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var requested = ArticleRawHtmlClient.ValidateArticleId(expectedArticleId);
-        var structure = new ArticleStructure();
         try
         {
             using var document = ParseJson(json, MaximumJsonCharacters, cancellationToken);
             var root = Object(document.RootElement);
             var data = Field(root, "data");
-            var author = Field(data, "author");
-            var opus = Field(data, "opus");
-            structure = new(Id: Field(data, "id").ValueKind, Author: author.ValueKind,
-                AuthorId: Field(author, "mid").ValueKind, AuthorName: Field(author, "name").ValueKind,
-                Publication: Field(data, "publish_time").ValueKind, Content: Field(data, "content").ValueKind,
-                Opus: opus.ValueKind, Paragraphs: Field(Field(opus, "content"), "paragraphs").ValueKind,
-                ViewData: data.ValueKind, ViewType: Field(data, "type").ValueKind, ApiCode: Field(root, "code").ValueKind);
             var remoteApiCode = Integer(Required(root, "code"));
-            structure = structure with { RemoteApiCode = remoteApiCode };
             // Remote denial/not-found/risk codes are finite failures, not permission to retry.
             if (remoteApiCode != 0) throw Fail(remoteApiCode == -509
                 ? ArticleCompatibilityFailure.RateLimited : ArticleCompatibilityFailure.RemoteApiFailure);
-            var projection = ParseArticleViewData(data, expectedArticleId, requested, cancellationToken, notice);
+            var projection = ParseArticleViewData(data, expectedArticleId, requested, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return projection;
         }
-        catch (ArticleCompatibilityException ex)
-        {
-            if (ex.Structure.ArticleId is null) ex.SetContext(requested, "$.data");
-            ex.SetStructure(structure);
-            throw;
-        }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            var failure = Fail(ArticleCompatibilityFailure.MalformedData);
-            failure.SetContext(requested, "$.data");
-            failure.SetStructure(structure);
-            throw failure;
+            throw Fail(ArticleCompatibilityFailure.MalformedData);
         }
     }
 
     internal static ArticleContentProjection ParseNativeHtml(string html, string expectedArticleId,
-        CancellationToken cancellationToken = default, Action<ArticleParseNotice>? notice = null)
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var requested = ArticleRawHtmlClient.ValidateArticleId(expectedArticleId);
-        var structure = new ArticleStructure();
-        var stage = "HtmlInput";
         try
         {
             if (string.IsNullOrWhiteSpace(html)) throw Fail(ArticleCompatibilityFailure.MissingContent);
@@ -74,97 +54,40 @@ internal static partial class ArticleContentParser
             // A successful HTTP status may still be Bilibili's verification page.
             // Do not mistake it for an absent article. The reader can still try its
             // fixed, independent public API fallback without executing the challenge.
-            if (ArticleRawHtmlClient.DescribeHtml(html) == "Verification")
+            if (ArticleRawHtmlClient.IsVerificationPage(html))
                 throw Fail(ArticleCompatibilityFailure.RemoteChallenge);
-            stage = "StateExtraction";
             var state = ExtractState(html, cancellationToken);
-            stage = "StateJson";
             using var document = ParseJson(state, MaximumJsonCharacters, cancellationToken);
             var root = Object(document.RootElement);
-            structure = Describe(root);
+            var readInfo = Field(root, "readInfo");
+            var hasReadInfo = readInfo.ValueKind == JsonValueKind.Object && readInfo.EnumerateObject().Any();
             if (Field(Field(root, "detail"), "modules").ValueKind == JsonValueKind.Array)
             {
-                stage = "OpusModules";
-                var module = ParseModules(Required(root, "detail"), expectedArticleId, requested, cancellationToken, notice);
-                if (structure.ReadInfo == JsonValueKind.Object && !structure.ReadInfoEmpty)
+                var module = ParseModules(Required(root, "detail"), expectedArticleId, requested, cancellationToken);
+                if (hasReadInfo)
                     CheckMixedIdentity(Required(root, "readInfo"), requested, module.AuthorId);
                 return module;
             }
-            stage = "ReadInfo";
-            if (structure.ReadInfoEmpty) throw Fail(ArticleCompatibilityFailure.MissingContent);
+            if (readInfo.ValueKind == JsonValueKind.Object && !hasReadInfo) throw Fail(ArticleCompatibilityFailure.MissingContent);
             var data = Required(root, "readInfo");
-            stage = "ReadInfoBody";
-            return ParseArticleViewData(data, expectedArticleId, requested, cancellationToken, notice, "$.readInfo");
-        }
-        catch (ArticleCompatibilityException ex)
-        {
-            ex.SetStage(stage);
-            if (ex.Structure.ArticleId is null) ex.SetContext(requested, StatePath(stage));
-            ex.SetStructure(structure);
-            throw;
+            return ParseArticleViewData(data, expectedArticleId, requested, cancellationToken);
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            var failure = Fail(ArticleCompatibilityFailure.MalformedData);
-            failure.SetStage(stage);
-            failure.SetContext(requested, StatePath(stage));
-            failure.SetStructure(structure);
-            throw failure;
+            throw Fail(ArticleCompatibilityFailure.MalformedData);
         }
     }
 
     private static LegacyArticleProjection ParseArticleViewData(JsonElement data, string originalId, string requested,
-        CancellationToken cancellationToken, Action<ArticleParseNotice>? notice = null, string dataPath = "$.data")
+        CancellationToken cancellationToken)
     {
-        Object(data);
         if (Identifier(Required(data, "id")) != requested) throw Fail(ArticleCompatibilityFailure.IdentityMismatch);
         var type = Integer(Required(data, "type"));
         if (type is not (0 or 3 or 4)
             && Field(Field(Field(data, "opus"), "content"), "paragraphs").ValueKind != JsonValueKind.Array)
             throw Fail(ArticleCompatibilityFailure.UnsupportedFormat);
         // dyn_id_str/opus_id identify a different resource and never replace data.id.
-        return ParseLegacy(data, originalId, requested, cancellationToken, type, notice, dataPath);
-    }
-
-    internal static ArticleContentProjection ParseInitialHtml(string html, string requestedArticleId,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var requested = Identifier(requestedArticleId);
-        if (string.IsNullOrWhiteSpace(html)) throw Fail(ArticleCompatibilityFailure.MissingContent);
-        if (html.Length > MaximumHtmlCharacters) throw Fail(ArticleCompatibilityFailure.LimitExceeded);
-        var structure = new ArticleStructure();
-        try
-        {
-            using var document = ParseJson(ExtractState(html, cancellationToken), MaximumJsonCharacters, cancellationToken);
-            var root = Object(document.RootElement);
-            structure = Describe(root);
-            var hasLegacy = root.TryGetProperty("readInfo", out var legacy)
-                && legacy.ValueKind == JsonValueKind.Object && legacy.EnumerateObject().Any();
-            var hasModules = root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.Object
-                && detail.TryGetProperty("modules", out var modules) && modules.ValueKind == JsonValueKind.Array;
-            if (hasModules)
-            {
-                var module = ParseModules(detail, requestedArticleId, requested, cancellationToken);
-                // Empty/null/non-object placeholders do not veto modules. A populated legacy
-                // identity must agree; no catch-and-fallback may conceal an identity failure.
-                if (hasLegacy) CheckMixedIdentity(legacy, requested, module.AuthorId);
-                return module;
-            }
-            if (hasLegacy) return ParseLegacy(legacy, requestedArticleId, requested, cancellationToken);
-            throw Fail(ArticleCompatibilityFailure.UnsupportedFormat);
-        }
-        catch (ArticleCompatibilityException ex)
-        {
-            ex.SetStructure(structure);
-            throw;
-        }
-        catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
-        {
-            var failure = Fail(ArticleCompatibilityFailure.MalformedData);
-            failure.SetStructure(structure);
-            throw failure;
-        }
+        return ParseLegacy(data, originalId, cancellationToken, type);
     }
 
     internal static ArticleReadMetadata ParseMetadata(string json, string expectedAuthorId,
@@ -172,17 +95,11 @@ internal static partial class ArticleContentParser
     {
         cancellationToken.ThrowIfCancellationRequested();
         var authorId = Identifier(expectedAuthorId);
-        var structure = new ArticleStructure();
         try
         {
             using var document = ParseJson(json, MaximumMetadataCharacters, cancellationToken);
             var root = Object(document.RootElement);
-            var metadataData = Field(root, "data");
-            structure = new(Metadata: metadataData.ValueKind, MetadataAuthorId: Field(metadataData, "mid").ValueKind,
-                Like: Field(metadataData, "like").ValueKind, Favorite: Field(metadataData, "favorite").ValueKind,
-                Stats: Field(metadataData, "stats").ValueKind, ApiCode: Field(root, "code").ValueKind);
             var remoteApiCode = Integer(Required(root, "code"));
-            structure = structure with { RemoteApiCode = remoteApiCode };
             if (remoteApiCode != 0) throw Fail(ArticleCompatibilityFailure.InvalidMetadata);
             var data = Object(Required(root, "data"));
             var mid = Identifier(Required(data, "mid"));
@@ -199,24 +116,15 @@ internal static partial class ArticleContentParser
             }
             return new(mid, like == 1, favorite, counts);
         }
-        catch (ArticleCompatibilityException ex)
-        {
-            ex.SetStructure(structure);
-            throw;
-        }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            var failure = Fail(ArticleCompatibilityFailure.InvalidMetadata);
-            failure.SetStructure(structure);
-            throw failure;
+            throw Fail(ArticleCompatibilityFailure.InvalidMetadata);
         }
     }
 
-    private static LegacyArticleProjection ParseLegacy(JsonElement readInfo, string originalId, string requested,
-        CancellationToken cancellationToken, int? articleViewType = null, Action<ArticleParseNotice>? notice = null,
-        string dataPath = "$.readInfo")
+    private static LegacyArticleProjection ParseLegacy(JsonElement readInfo, string originalId,
+        CancellationToken cancellationToken, int articleViewType)
     {
-        if (Identifier(Required(readInfo, "id")) != requested) throw Fail(ArticleCompatibilityFailure.IdentityMismatch);
         var author = Field(readInfo, "author");
         if (author.ValueKind != JsonValueKind.Object) throw Fail(ArticleCompatibilityFailure.MissingAuthor);
         var authorId = Identifier(Required(author, "mid", ArticleCompatibilityFailure.MissingAuthor));
@@ -229,14 +137,14 @@ internal static partial class ArticleContentParser
         var content = Field(readInfo, "content");
         var opusParagraphs = Field(Field(Field(readInfo, "opus"), "content"), "paragraphs");
         if (opusParagraphs.ValueKind == JsonValueKind.Array && opusParagraphs.GetArrayLength() != 0)
-            body = RenderOpusParagraphs(opusParagraphs, requested, dataPath + ".opus.content.paragraphs", cancellationToken, notice);
+            body = RenderOpusParagraphs(opusParagraphs, cancellationToken);
         else if (articleViewType is 3 or 4)
         {
             // Migrated type 3/4 content is Quill JSON/plain text, not legacy HTML.
             // The structured opus body preserves pictures and paragraph boundaries.
             var paragraphs = Field(Field(Field(readInfo, "opus"), "content"), "paragraphs");
             if (paragraphs.ValueKind != JsonValueKind.Array) throw Fail(ArticleCompatibilityFailure.UnsupportedFormat);
-            body = RenderOpusParagraphs(paragraphs, requested, dataPath + ".opus.content.paragraphs", cancellationToken, notice);
+            body = RenderOpusParagraphs(paragraphs, cancellationToken);
         }
         else if (content.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(content.GetString()))
             body = BoundedLegacyArticleHtml.Render(content.GetString()!, cancellationToken);
@@ -247,7 +155,7 @@ internal static partial class ArticleContentParser
                 throw Fail(ArticleCompatibilityFailure.MalformedData);
             var paragraphs = Field(Field(Field(readInfo, "opus"), "content"), "paragraphs");
             if (paragraphs.ValueKind != JsonValueKind.Array) throw Fail(ArticleCompatibilityFailure.MissingContent);
-            body = RenderOpusParagraphs(paragraphs, requested, dataPath + ".opus.content.paragraphs", cancellationToken, notice);
+            body = RenderOpusParagraphs(paragraphs, cancellationToken);
         }
         return new(originalId, authorId, name, publication, body, avatar, new ArticleCounters());
     }
@@ -262,33 +170,11 @@ internal static partial class ArticleContentParser
             throw Fail(ArticleCompatibilityFailure.IdentityMismatch);
     }
 
-    private static ArticleStructure Describe(JsonElement root)
-    {
-        var legacy = Field(root, "readInfo");
-        var author = Field(legacy, "author");
-        var opus = Field(legacy, "opus");
-        var detail = Field(root, "detail");
-        return new(legacy.ValueKind, legacy.ValueKind == JsonValueKind.Object && !legacy.EnumerateObject().Any(),
-            Field(legacy, "id").ValueKind, author.ValueKind, Field(author, "mid").ValueKind,
-            Field(author, "name").ValueKind, Field(legacy, "publish_time").ValueKind,
-            Field(legacy, "content").ValueKind, opus.ValueKind, Field(Field(opus, "content"), "paragraphs").ValueKind,
-            detail.ValueKind, Field(detail, "modules").ValueKind);
-    }
-
     private static JsonElement Field(JsonElement value, string name) => value.ValueKind == JsonValueKind.Object
         && value.TryGetProperty(name, out var field) ? field : default;
 
-    private static string StatePath(string stage) => stage switch
-    {
-        "ReadInfo" or "ReadInfoBody" => "$.readInfo",
-        "OpusModules" => "$.detail.modules",
-        "StateExtraction" => "html.__INITIAL_STATE__",
-        "StateJson" => "$",
-        _ => "html",
-    };
-
     private static ModuleArticleProjection ParseModules(JsonElement detail, string originalId, string requested,
-        CancellationToken cancellationToken, Action<ArticleParseNotice>? notice = null)
+        CancellationToken cancellationToken)
     {
         var basic = Object(Required(detail, "basic"));
         if (Integer(Required(basic, "comment_type")) != 12) throw Fail(ArticleCompatibilityFailure.IdentityMismatch);
@@ -304,13 +190,11 @@ internal static partial class ArticleContentParser
         var modules = Array(Required(detail, "modules"));
         if (modules.GetArrayLength() is 0 or > 64) throw Fail(ArticleCompatibilityFailure.LimitExceeded);
         JsonElement? author = null;
-        var bodyModules = new List<(bool IsTop, JsonElement Payload, int Index)>();
+        var bodyModules = new List<(bool IsTop, JsonElement Payload)>();
         string? title = null;
         var moduleTypes = new HashSet<string>(StringComparer.Ordinal);
-        var moduleIndex = -1;
         foreach (var moduleValue in modules.EnumerateArray())
         {
-            moduleIndex++;
             cancellationToken.ThrowIfCancellationRequested();
             var module = Object(moduleValue);
             var type = Text(Required(module, "module_type"));
@@ -318,8 +202,8 @@ internal static partial class ArticleContentParser
             switch (type)
             {
                 case "MODULE_TYPE_AUTHOR": author = Object(Required(module, "module_author")); break;
-                case "MODULE_TYPE_CONTENT": bodyModules.Add((false, Object(Required(module, "module_content")), moduleIndex)); break;
-                case "MODULE_TYPE_TOP": bodyModules.Add((true, Object(Required(module, "module_top")), moduleIndex)); break;
+                case "MODULE_TYPE_CONTENT": bodyModules.Add((false, Object(Required(module, "module_content")))); break;
+                case "MODULE_TYPE_TOP": bodyModules.Add((true, Object(Required(module, "module_top")))); break;
                 case "MODULE_TYPE_TITLE": title = Text(Required(Object(Required(module, "module_title")), "text")); break;
                 case "MODULE_TYPE_STAT": Object(Required(module, "module_stat")); break; // Use real viewinfo counts, not formatted labels.
                 // Observed opus footer metadata: tags, copyright label and share summary,
@@ -329,10 +213,7 @@ internal static partial class ArticleContentParser
                 case "MODULE_TYPE_BOTTOM": Object(Required(module, "module_bottom")); break;
                 case "MODULE_TYPE_COLLECTION": Object(Required(module, "module_collection")); break;
                 case "MODULE_TYPE_TOPIC": Object(Required(module, "module_topic")); break;
-                default:
-                    var failure = Fail(ArticleCompatibilityFailure.UnsupportedModule);
-                    failure.SetContext(requested, "$.detail.modules[" + moduleIndex.ToString(CultureInfo.InvariantCulture) + "]", TypeLabel(Required(module, "module_type")));
-                    throw failure;
+                default: throw Fail(ArticleCompatibilityFailure.UnsupportedModule);
             }
         }
         if (author is not { } authorValue) throw Fail(ArticleCompatibilityFailure.MissingAuthor);
@@ -346,7 +227,7 @@ internal static partial class ArticleContentParser
         string? avatar = null;
         if (authorValue.TryGetProperty("face", out var face) && face.ValueKind != JsonValueKind.Null)
             avatar = HttpUrl(Text(face));
-        var body = RenderOpusModules(bodyModules, requested, cancellationToken, notice);
+        var body = RenderOpusModules(bodyModules, cancellationToken);
         // Tags are intentionally not projected as an empty list. Their new-envelope mapping is unproved.
         return new(originalId, authorId, name, publication, title, body, avatar, new ArticleCounters());
     }

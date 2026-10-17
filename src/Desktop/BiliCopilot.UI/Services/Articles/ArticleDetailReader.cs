@@ -69,42 +69,21 @@ public sealed class ArticleDetailReader
         // their canonical CV redirect once before the rate-limited article/view fallback.
         foreach (var canonical in new[] { false, true })
         {
-            ArticleHtmlPage? page = null;
             try
             {
-                page = await _raw.GetHtmlPageAsync(articleId, canonical, cancellationToken).ConfigureAwait(false);
-                return ArticleContentParser.ParseNativeHtml(page.Html, articleId, cancellationToken,
-                    item => LogParseNotice(item, canonical ? "Canonical" : "Native"));
+                var html = await _raw.GetHtmlPageAsync(articleId, canonical, cancellationToken).ConfigureAwait(false);
+                return ArticleContentParser.ParseNativeHtml(html, articleId, cancellationToken);
             }
             catch (ArticleCompatibilityException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                var transport = page?.Transport ?? ex.Transport;
-                ex.SetStructure(ex.Structure with { ArticleId = articleId });
-                _logger?.LogWarning("文章 HTML 路径失败（ArticleId={ArticleId}, Route={Route}, Failure={Failure}, Stage={Stage}, Path={Path}, NodeType={NodeType}, HTTP={Status}, ContentType={ContentType}, ContentEncoding={ContentEncoding}, Redirected={Redirected}, RedirectTarget={RedirectTarget}, RequestTarget={RequestTarget}, PageKind={PageKind}, HtmlCharacters={HtmlCharacters}, Structure={Structure}）",
-                    articleId, canonical ? "Canonical" : "Native", ex.Failure, ex.Stage, ex.Structure.ContentPath,
-                    ex.Structure.ContentType, transport.Status, transport.ContentType, transport.ContentEncoding,
-                    transport.Redirected, transport.RedirectTarget, transport.RequestTarget, transport.PageKind, transport.HtmlCharacters, ex.Structure);
                 if (ex.Failure is ArticleCompatibilityFailure.IdentityMismatch or ArticleCompatibilityFailure.UnsafeUrl) throw;
+                _logger?.LogWarning("文章 HTML 路径失败（{Route}，{Failure}）", canonical ? "Canonical" : "Native", ex.Failure);
             }
         }
         // Each fixed route is tried once; never retry a remote -509 response.
-        try
-        {
-            var json = await _raw.GetArticleViewJsonAsync(articleId, cancellationToken).ConfigureAwait(false);
-            return ArticleContentParser.ParseArticleViewJson(json, articleId, cancellationToken, item => LogParseNotice(item, "Api"));
-        }
-        catch (ArticleCompatibilityException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            ex.SetStructure(ex.Structure with { ArticleId = articleId });
-            _logger?.LogWarning("文章 API 路径失败（ArticleId={ArticleId}, Failure={Failure}, Path={Path}, NodeType={NodeType}, Structure={Structure}）",
-                articleId, ex.Failure, ex.Structure.ContentPath, ex.Structure.ContentType, ex.Structure);
-            throw;
-        }
+        var json = await _raw.GetArticleViewJsonAsync(articleId, cancellationToken).ConfigureAwait(false);
+        return ArticleContentParser.ParseArticleViewJson(json, articleId, cancellationToken);
     }
-
-    private void LogParseNotice(ArticleParseNotice notice, string route)
-        => _logger?.LogWarning("文章内容降级（ArticleId={ArticleId}, Route={Route}, Path={Path}, NodeType={NodeType}, Failure={Failure}）",
-            notice.ArticleId, route, notice.Path, notice.Type, notice.Failure);
 
     private async Task<ArticleReadMetadata?> TryReadMetadataAsync(string articleId, string authorId, CancellationToken cancellationToken)
     {

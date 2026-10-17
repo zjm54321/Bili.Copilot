@@ -44,10 +44,11 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
         IsPrefetchExhausted = _preventLoadMore;
         _isSeeded = true;
         Items.Clear();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in momentView.Moments)
         {
             if (_isRetired || _accountGeneration != _account.AccountGeneration) return;
-            if (Items.Any(existing => existing.Data.Id == item.Id)) continue;
+            if (!ids.Add(item.Id)) continue;
             Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
         }
         IsEmpty = Items.Count == 0;
@@ -174,11 +175,12 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
             _baseline = view.UpdateBaseline;
             _preventLoadMore = view.HasMoreMoments != true;
             IsPrefetchExhausted = _preventLoadMore;
-            foreach (var item in view.Moments.Select(p => new MomentItemViewModel(p, MomentCardStyle.Comprehensive, ShowComment)))
+            var ids = Items.Select(item => item.Data.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var item in view.Moments)
             {
                 if (!IsCurrentRequest(generation, token)) return;
-                if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
-                Items.Add(item);
+                if (!ids.Add(item.Id)) continue;
+                Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
             }
 
             if (IsCurrentRequest(generation, token)) ListUpdated?.Invoke(this, EventArgs.Empty);
@@ -194,11 +196,12 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
         IsPrefetchExhausted = _preventLoadMore;
         if (moments is not null)
         {
-            foreach (var item in moments.Select(p => new MomentItemViewModel(p, MomentCardStyle.Comprehensive, ShowComment)))
+            var ids = Items.Select(item => item.Data.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (var item in moments)
             {
                 if (!IsCurrentRequest(generation, token)) return;
-                if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
-                Items.Add(item);
+                if (!ids.Add(item.Id)) continue;
+                Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
             }
 
             if (IsCurrentRequest(generation, token)) ListUpdated?.Invoke(this, EventArgs.Empty);

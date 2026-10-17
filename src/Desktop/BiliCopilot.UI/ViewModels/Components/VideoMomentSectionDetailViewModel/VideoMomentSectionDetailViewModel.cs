@@ -90,11 +90,12 @@ public sealed partial class VideoMomentSectionDetailViewModel : ViewModelBase, I
                 _baseline = view.UpdateBaseline;
                 _preventLoadMore = view.HasMoreMoments != true;
                 IsPrefetchExhausted = _preventLoadMore;
-                foreach (var item in view.Moments.Select(p => new MomentItemViewModel(p, Models.Constants.MomentCardStyle.Video, ShowComment)))
+                var ids = Items.Select(item => item.Data.Id).ToHashSet(StringComparer.Ordinal);
+                foreach (var item in view.Moments)
                 {
                     if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;
-                    if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
-                    Items.Add(item);
+                    if (!ids.Add(item.Id)) continue;
+                    Items.Add(new MomentItemViewModel(item, Models.Constants.MomentCardStyle.Video, ShowComment));
                 }
 
                 if (token.IsCancellationRequested || generation != _account.AccountGeneration) return;

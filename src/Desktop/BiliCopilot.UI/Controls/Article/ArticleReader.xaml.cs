@@ -48,9 +48,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
     private int _lifetime;
     private int _renderSequence;
     private bool _isActive;
-    private string? _articleId;
-    private int _htmlCharacters;
-    private int _htmlBytes;
 
     /// <summary>
     /// 已不再作为当前阅读器、但尚未确认 Close 成功的 WebView2 实例.
@@ -62,11 +59,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
     /// 未确认释放的实例是否已经有一次 Close 失败. 失败后只有显式重试（<see cref="RetryInitialization"/>）才会再次尝试 Close.
     /// </summary>
     private bool _isReleaseFailed;
-
-    /// <summary>
-    /// 记录日志本身失败的次数（日志为尽力而为，失败不影响阅读器状态）.
-    /// </summary>
-    private int _logFailureCount;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArticleReader"/> class.
@@ -97,21 +89,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
     /// 阅读器初始化是否失败.
     /// </summary>
     public bool IsInitializationFailed { get; private set; }
-
-    /// <summary>
-    /// 是否存在尚未确认释放的 WebView2 实例（上一次 Close 失败）.
-    /// </summary>
-    internal bool HasUnreleasedWebView => _unreleasedView is not null;
-
-    /// <summary>
-    /// 日志写入失败的次数.
-    /// </summary>
-    internal int LogFailureCount => _logFailureCount;
-
-    /// <summary>
-    /// 最近一次非致命生命周期/外部打开失败的类别（仅类别，不含地址、文本或异常内容）.
-    /// </summary>
-    internal LifecycleFailureKind LastLifecycleFailure { get; private set; }
 
     /// <summary>
     /// 组合阅读器 HTML. 只做模板占位符的单次替换，标题与作者会被转义.
@@ -181,9 +158,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
     {
         var sequence = ++_renderSequence;
         CompletePending(ArticleReaderRenderResult.Superseded);
-        _articleId = article.Identifier.Id;
-        _htmlCharacters = 0;
-        _htmlBytes = 0;
         _isWebFallback = false;
         if (!IsInitialized || _subscriptions is null)
         {
@@ -203,7 +177,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
         catch (Exception ex)
         {
-            ReportRenderDiagnostic("BuildHtml", ex);
+            ReportRenderFailure("BuildHtml", ex);
             return sequence == _renderSequence ? ArticleReaderRenderResult.AssetMissing : ArticleReaderRenderResult.Superseded;
         }
 
@@ -218,11 +192,9 @@ public sealed partial class ArticleReader : LayoutUserControlBase
             return ArticleReaderRenderResult.ReaderUnavailable;
         }
 
-        _htmlCharacters = html.Length;
-        _htmlBytes = Encoding.UTF8.GetByteCount(html);
-        if (_htmlBytes > MaxNavigateStringBytes)
+        if (Encoding.UTF8.GetByteCount(html) > MaxNavigateStringBytes)
         {
-            ReportRenderDiagnostic("NavigateToStringSizeLimit");
+            ReportRenderFailure("NavigateToStringSizeLimit");
             return ArticleReaderRenderResult.ContentTooLarge;
         }
 
@@ -232,18 +204,17 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         try
         {
             // NavigateToString 被接受只代表导航已发起，最终结果以 NavigationCompleted 为准.
-            ReportRenderDiagnostic("NavigateToStringRequested", detail: $"ViewLoaded={_webView?.IsLoaded}, ReaderOpacity={Opacity}");
             core.NavigateToString(html);
         }
         catch (ArgumentException ex)
         {
-            ReportRenderDiagnostic("NavigateToStringArgument", ex);
+            ReportRenderFailure("NavigateToStringArgument", ex);
             ClearPending(pending);
             return ArticleReaderRenderResult.ContentTooLarge;
         }
         catch (Exception ex)
         {
-            ReportRenderDiagnostic("NavigateToString", ex);
+            ReportRenderFailure("NavigateToString", ex);
             ClearPending(pending);
             return ArticleReaderRenderResult.NavigationFailed;
         }
@@ -256,7 +227,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         await timeoutCts.CancelAsync();
         if (completed != pending.Completion)
         {
-            ReportRenderDiagnostic(pending.NavigationId is null ? "TimeoutAwaitingNavigationStart" : "TimeoutAwaitingDocument", navigationId: pending.NavigationId);
+            ReportRenderFailure("RenderTimeout");
             pending.TrySetResult(ArticleReaderRenderResult.NavigationFailed);
         }
 
@@ -368,7 +339,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
         catch (Exception ex)
         {
-            ReportRenderDiagnostic("EnsureCoreWebView2", ex);
+            ReportRenderFailure("EnsureCoreWebView2", ex);
             core = default;
         }
 
@@ -402,7 +373,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
         catch (Exception ex)
         {
-            ReportRenderDiagnostic("ConfigureCoreWebView2", ex);
+            ReportRenderFailure("ConfigureCoreWebView2", ex);
             MarkInitializationFailed();
             return;
         }
@@ -491,52 +462,12 @@ public sealed partial class ArticleReader : LayoutUserControlBase
     }
 
     private void ReportLifecycleFailure(LifecycleFailureKind kind, Exception? exception)
-    {
-        // 先记录固定类别；之后的日志为尽力而为，本方法不会抛出.
-        LastLifecycleFailure = kind;
-        try
-        {
-            // 仅记录固定类别与异常类型名，不记录地址、选中文本、正文或异常消息.
-            this.Get<ILogger<ArticleReader>>().LogWarning(
-                "文章阅读器操作失败（{Category}，{ExceptionType}）",
-                kind,
-                exception?.GetType().Name ?? "None");
-        }
-        catch (Exception)
-        {
-            // 日志失败只计数，不再递归记录.
-            _logFailureCount++;
-        }
-    }
+        => this.Get<ILogger<ArticleReader>>().LogWarning("文章阅读器操作失败（{Category}，{ExceptionType}）",
+            kind, exception?.GetType().Name ?? "None");
 
-    private void ReportRenderDiagnostic(string stage, Exception? exception = null, string? webError = null,
-        ulong? navigationId = null, string? detail = null)
-    {
-        try
-        {
-            var message = exception?.Message;
-            // Exception messages are useful here, but must not expose request credentials
-            // or an embedded data: document if a runtime includes one in its message.
-            if (message is not null && (message.Contains("cookie", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("data:text/html", StringComparison.OrdinalIgnoreCase))) message = "[redacted sensitive exception message]";
-            if (message is { Length: > 1024 }) message = message[..1024];
-            this.Get<ILogger<ArticleReader>>().LogWarning(
-                "文章正文渲染诊断 ArticleId={ArticleId} Stage={Stage} HtmlCharacters={HtmlCharacters} Utf8Bytes={Utf8Bytes} NavigationId={NavigationId} WebErrorStatus={WebErrorStatus} ExceptionType={ExceptionType} HResult={HResult} Message={Message} Detail={Detail}",
-                _articleId, stage, _htmlCharacters, _htmlBytes, navigationId, webError,
-                exception?.GetType().FullName, exception?.HResult, message, detail);
-        }
-        catch (Exception) { _logFailureCount++; }
-    }
-
-    private static string ParseScheme(string? uri)
-    {
-        if (uri is null) return "None";
-        if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return "data";
-        if (uri.StartsWith("about:", StringComparison.OrdinalIgnoreCase)) return "about";
-        if (uri.StartsWith("https:", StringComparison.OrdinalIgnoreCase)) return "https";
-        if (uri.StartsWith("http:", StringComparison.OrdinalIgnoreCase)) return "http";
-        return "Other";
-    }
+    private void ReportRenderFailure(string stage, Exception? exception = null, string? webError = null)
+        => this.Get<ILogger<ArticleReader>>().LogWarning("文章正文显示失败（{Stage}，{ExceptionType}，{WebError}）",
+            stage, exception?.GetType().Name, webError);
 
     private void CompletePending(ArticleReaderRenderResult result)
     {
@@ -576,8 +507,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
 
         var pending = _pending;
-        ReportRenderDiagnostic("NavigationStartingReceived", navigationId: args.NavigationId,
-            detail: $"Scheme={ParseScheme(args.Uri)}, AwaitingStart={pending?.IsAwaitingStart}, UserInitiated={args.IsUserInitiated}");
         if (_isWebFallback && IsBilibiliPage(args.Uri))
         {
             _webNavigationId = args.NavigationId;
@@ -595,9 +524,6 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         // 其余导航一律取消：包括脚本/自动跳转、重定向、其他 about:/data: 地址，以及渲染期间的任何导航.
         // 被取消的导航不会被当作渲染成功（完成事件按导航 ID 匹配）.
         args.Cancel = true;
-        if (pending is not null && pending.IsAwaitingStart)
-            ReportRenderDiagnostic("NavigationStartingBlocked", navigationId: args.NavigationId,
-                detail: $"Scheme={ParseScheme(args.Uri)}, UserInitiated={args.IsUserInitiated}, UriCharacters={args.Uri?.Length ?? 0}");
 
         // 只有原生报告为用户手势的 http/https 导航才会在系统浏览器中打开.
         if (args.IsUserInitiated && ParseExternalLink(args.Uri) is Uri external)
@@ -648,13 +574,10 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         if (IsCurrentCore(sender) && _isWebFallback && pending is null && _webNavigationId == args.NavigationId && !args.IsSuccess
             && args.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
         {
-            ReportRenderDiagnostic("WebFallbackNavigationFailed", webError: args.WebErrorStatus.ToString(), navigationId: args.NavigationId);
+            ReportRenderFailure("WebFallbackNavigationFailed", webError: args.WebErrorStatus.ToString());
             RenderFailed?.Invoke(this, EventArgs.Empty);
             return;
         }
-        if (IsCurrentCore(sender) && pending is not null && !args.IsSuccess)
-            ReportRenderDiagnostic("NavigationCompleted", webError: args.WebErrorStatus.ToString(), navigationId: args.NavigationId,
-                detail: $"Owned={pending.NavigationId == args.NavigationId}");
         if (!IsCurrentCore(sender)
             || pending is null
             || !ReferenceEquals(pending.Core, sender)
@@ -666,6 +589,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
 
         if (!args.IsSuccess)
         {
+            ReportRenderFailure("NavigationCompleted", webError: args.WebErrorStatus.ToString());
             _pending = default;
             pending.TrySetResult(ArticleReaderRenderResult.NavigationFailed);
             return;
@@ -705,7 +629,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
         catch (Exception ex)
         {
-            ReportRenderDiagnostic("ExecuteRenderMarkerScript", ex, navigationId: navigationId);
+            ReportRenderFailure("ExecuteRenderMarkerScript", ex);
             result = default;
         }
 
@@ -716,9 +640,8 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
 
         _pending = default;
-        if (!IsExpectedRenderMarker(result, pending.ExpectedNonce))
-            ReportRenderDiagnostic("RenderMarkerMismatch", navigationId: navigationId,
-                detail: result is null or "null" ? "MissingMarker" : "UnexpectedMarker");
+        if (result is not null && !IsExpectedRenderMarker(result, pending.ExpectedNonce))
+            ReportRenderFailure("RenderMarkerMismatch");
         pending.TrySetResult(IsExpectedRenderMarker(result, pending.ExpectedNonce)
             ? ArticleReaderRenderResult.Succeeded
             : ArticleReaderRenderResult.NavigationFailed);
@@ -732,7 +655,7 @@ public sealed partial class ArticleReader : LayoutUserControlBase
         }
 
         var browserExited = args.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited;
-        ReportRenderDiagnostic("ProcessFailed", detail: args.ProcessFailedKind.ToString());
+        ReportRenderFailure("ProcessFailed", webError: args.ProcessFailedKind.ToString());
         var hadPending = _pending is not null;
         CompletePending(browserExited ? ArticleReaderRenderResult.ReaderUnavailable : ArticleReaderRenderResult.NavigationFailed);
         if (browserExited)

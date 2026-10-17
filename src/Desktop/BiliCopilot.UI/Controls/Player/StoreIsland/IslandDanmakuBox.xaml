@@ -56,7 +56,6 @@
                 <Button.Flyout>
                     <!--  与全屏弹幕设置共用同一固定宽度面板；弹出层不受视频区域边界约束  -->
                     <Flyout
-                        x:Name="DisplayOptionsFlyout"
                         FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
                         Opened="OnDisplayFlyoutOpened"
                         ShouldConstrainToRootBounds="False">
@@ -80,7 +79,6 @@
             </AutoSuggestBox.TextBoxStyle>
         </AutoSuggestBox>
         <Button
-            x:Name="DanmakuSendSettingsButton"
             Grid.Column="1"
             Width="32"
             Height="32"
@@ -92,7 +90,6 @@
             <ic:SymbolIcon FontSize="12" Symbol="Options" />
             <Button.Flyout>
                 <Flyout
-                    x:Name="SendOptionsFlyout"
                     FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
                     Opened="OnSendOptionsFlyoutOpened">
                     <store:IslandDanmakuSendOptions x:Name="SendOptions" ViewModel="{x:Bind ViewModel.DanmakuSend, Mode=OneWay}" />

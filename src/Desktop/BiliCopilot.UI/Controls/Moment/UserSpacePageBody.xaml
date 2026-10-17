@@ -164,7 +164,7 @@
                     <StackPanel
                         Orientation="Horizontal"
                         Spacing="4"
-                        Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(ViewCount), Mode=OneTime}">
+                        Visibility="{x:Bind local:UserSpacePageBody.IsCountVisible(ViewCount), Mode=OneTime}">
                         <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatCount(ViewCount), Mode=OneTime}" />
                         <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="播放" />
                     </StackPanel>
@@ -192,7 +192,7 @@
                     <StackPanel
                         Orientation="Horizontal"
                         Spacing="4"
-                        Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(FavoriteCount), Mode=OneTime}">
+                        Visibility="{x:Bind local:UserSpacePageBody.IsCountVisible(FavoriteCount), Mode=OneTime}">
                         <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatCount(FavoriteCount), Mode=OneTime}" />
                         <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="收藏" />
                     </StackPanel>
@@ -352,7 +352,7 @@
                                 Symbol="PlayCircle"
                                 Text="{x:Bind local:UserSpacePageBody.FormatCount(ViewCount), Mode=OneTime}"
                                 ToolTipService.ToolTip="{ext:Locale Name=PlayCount}"
-                                Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(ViewCount), Mode=OneTime}" />
+                                Visibility="{x:Bind local:UserSpacePageBody.IsCountVisible(ViewCount), Mode=OneTime}" />
                             <base:IconTextBlock
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
@@ -360,7 +360,7 @@
                                 IconBrush="{ThemeResource TextFillColorTertiaryBrush}"
                                 Symbol="Star"
                                 Text="{x:Bind local:UserSpacePageBody.FormatCount(FavoriteCount), Mode=OneTime}"
-                                Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(FavoriteCount), Mode=OneTime}" />
+                                Visibility="{x:Bind local:UserSpacePageBody.IsCountVisible(FavoriteCount), Mode=OneTime}" />
                         </Grid>
                     </Grid>
                 </Grid>
@@ -610,7 +610,7 @@
                     <!-- 轨道区：固定高度，避免外层 StackLayout 把空组压成 0 高 -->
                     <Grid Grid.Row="1" Height="240">
                         <!-- 已加载：横向滚动的小视频卡片；两侧翻页按钮便于鼠标用户横向浏览 -->
-                        <Grid Visibility="{x:Bind local:UserSpacePageBody.IsGroupRailVisible(State, Videos.Count), Mode=OneWay}">
+                        <Grid Visibility="{x:Bind local:UserSpacePageBody.IsGroupRailVisible(Videos.Count), Mode=OneWay}">
                             <!--
                                 纵向滚轮不被截走：内容面板的 PointerWheelChanged 先于 ScrollViewer 处理，
                                 未按 Shift 的纵向滚轮转交外层页面滚动并标记 Handled；Shift+滚轮/水平滚轮/触控板横滑/翻页按钮负责横向.
@@ -973,9 +973,9 @@
                                 Margin="-12,0,0,0"
                                 HorizontalAlignment="Left"
                                 SelectionChanged="OnSubmissionSelectionChanged">
-                                <SelectorBarItem x:Name="SubmissionVideoItem" Text="视频" />
-                                <SelectorBarItem x:Name="SubmissionOpusItem" Text="图文" />
-                                <SelectorBarItem x:Name="SubmissionAudioItem" Text="音频" />
+                                <SelectorBarItem Text="视频" />
+                                <SelectorBarItem Text="图文" />
+                                <SelectorBarItem Text="音频" />
                             </SelectorBar>
                             <StackPanel
                                 x:Name="SecondaryFilterPanel"
@@ -993,17 +993,17 @@
                                     x:Name="VideoOrderSelector"
                                     SelectionChanged="OnVideoOrderSelectionChanged"
                                     Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Video), Mode=OneWay}">
-                                    <SelectorBarItem x:Name="OrderLatestItem" Text="最新发布" />
-                                    <SelectorBarItem x:Name="OrderPlayedItem" Text="最多播放" />
-                                    <SelectorBarItem x:Name="OrderFavoritedItem" Text="最多收藏" />
+                                    <SelectorBarItem Text="最新发布" />
+                                    <SelectorBarItem Text="最多播放" />
+                                    <SelectorBarItem Text="最多收藏" />
                                 </SelectorBar>
                                 <SelectorBar
                                     x:Name="OpusFilterSelector"
                                     SelectionChanged="OnOpusFilterSelectionChanged"
                                     Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Opus), Mode=OneWay}">
-                                    <SelectorBarItem x:Name="OpusAllItem" Text="全部图文" />
-                                    <SelectorBarItem x:Name="OpusArticleItem" Text="专栏" />
-                                    <SelectorBarItem x:Name="OpusDynamicItem" Text="动态" />
+                                    <SelectorBarItem Text="全部图文" />
+                                    <SelectorBarItem Text="专栏" />
+                                    <SelectorBarItem Text="动态" />
                                 </SelectorBar>
                                 <!-- 音频无排序：显示说明以保持工具栏高度稳定 -->
                                 <TextBlock
@@ -1040,7 +1040,6 @@
 
                     <!-- Tab 4: 合集与系列（竖向多组，组内横向内容与独立分页） -->
                     <ItemsRepeater
-                        x:Name="CollectionRepeater"
                         ElementPrepared="OnCollectionElementPrepared"
                         VerticalCacheLength="6"
                         ItemTemplate="{StaticResource CollectionGroupTemplate}"

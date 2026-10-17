@@ -34,8 +34,6 @@ GetWindowLong
 IsIconic
 GetWindowPlacement
 SetWindowPlacement
-ReleaseCapture
-SendMessage
 GetDoubleClickTime
 GetSystemMetricsForDpi
 IsWindow

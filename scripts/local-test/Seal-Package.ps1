@@ -12,7 +12,6 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'LocalTest.psm1') -Force
 Assert-LTWindows
 Assert-LTVersion $Version
-Assert-LTFamilyDerivation
 $root = [IO.Path]::GetFullPath($DeliveryRoot)
 Assert-LTPlainPath $root
 $manifestPath = Join-Path $root 'test-artifacts.json'
@@ -37,7 +36,7 @@ try {
         $locks.Add($stream)
         $hashes[$name] = Get-LTSha256 $stream
         if ($name -ceq $packageName) {
-            $doc = Read-LTPackage $stream $Version $ExpectedLooseExeSha256
+            $null = Read-LTPackage $stream $Version $ExpectedLooseExeSha256
             Assert-LTSignature $path $ExpectedSignerCertificateSha256
         }
     }

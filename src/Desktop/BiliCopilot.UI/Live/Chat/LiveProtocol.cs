@@ -132,7 +132,6 @@ internal static class LiveProtocol
             if (!code.HasValue)
                 throw Invalid();
             var value = code.Value;
-            LiveChatDiagnostics.Write("Authentication", "Acknowledgement received", value);
             if (value != 0)
                 throw new LiveChatFailure("Live chat authentication was denied.", false, true);
         }
@@ -277,12 +276,8 @@ internal sealed class LiveChatFailure : Exception
     internal bool Closed { get; }
 }
 
-// Bounded owner-local observations: no text, identifiers, exception objects, logging callbacks,
-// or UI publications. Recording a cleanup/observer fault cannot itself interrupt the drain.
-[Flags]
 internal enum LiveFailureCategory
 {
-    None = 0,
     CloseHandshake = 1 << 0,
     SocketAbort = 1 << 1,
     OwnedTaskFault = 1 << 2,
@@ -297,5 +292,4 @@ internal enum LiveFailureCategory
     PropertySubscriber = 1 << 11,
     ChatRelease = 1 << 12,
     BackendRelease = 1 << 13,
-    ReportSubscriber = 1 << 14,
 }

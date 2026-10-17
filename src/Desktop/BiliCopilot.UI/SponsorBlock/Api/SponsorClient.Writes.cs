@@ -56,7 +56,7 @@ public sealed partial class SponsorClient
         var denied = Authorize(intent, media, ManualOperation.Submit, cancellationToken);
         if (denied is not null) return Task.FromResult(denied);
         if (!HasSecret(privateId) || drafts.IsDefaultOrEmpty || drafts.Length > 100 || !double.IsFinite(duration) || duration <= 0
-            || drafts.Any(d => d is null || SponsorRules.ValidateDraft(d, media, duration) is not null)
+            || drafts.Any(d => SponsorRules.ValidateDraft(d, media, duration) is not null)
             || drafts.Select(d => d.Segment.Uuid).Distinct(StringComparer.Ordinal).Count() != drafts.Length)
             return Task.FromResult(NotSent("InvalidSubmission"));
         var segments = drafts.Select(d => d.Segment).ToImmutableArray();
@@ -98,7 +98,7 @@ public sealed partial class SponsorClient
     {
         var denied = Authorize(intent, media, ManualOperation.ChangeCategory, cancellationToken);
         if (denied is not null) return Task.FromResult(denied);
-        if (!HasSecret(privateId) || original is null || original.Cid != media.Cid || !HasUuid(original.Uuid)
+        if (!HasSecret(privateId) || original.Cid != media.Cid || !HasUuid(original.Uuid)
             || !SponsorRules.Allows(newCategory, original.ActionType)) return Task.FromResult(NotSent("InvalidCategoryChange"));
         var path = "api/voteOnSponsorTime?" + StringQuery("UUID", original.Uuid) + "&" + StringQuery("userID", privateId)
             + "&" + StringQuery("category", newCategory);
@@ -138,7 +138,7 @@ public sealed partial class SponsorClient
     {
         var denied = Authorize(intent, media, ManualOperation.VotePort, cancellationToken);
         if (denied is not null) return Task.FromResult(denied);
-        if (!HasSecret(privateId) || port is null || !ValidPort(port) || port.BvId != media.BvId || port.Cid != media.Cid
+        if (!HasSecret(privateId) || !ValidPort(port) || port.BvId != media.BvId || port.Cid != media.Cid
             || !Enum.IsDefined(vote)) return Task.FromResult(NotSent("InvalidPortVote"));
         return WriteAsync("api/votePort", Body(new PortVotePayload(port.Uuid, media.Combined, privateId, (int)vote),
             SponsorJsonContext.Default.PortVotePayload), false, null, cancellationToken);
@@ -149,7 +149,7 @@ public sealed partial class SponsorClient
     {
         var denied = Authorize(intent, media, ManualOperation.UpdatePort, cancellationToken);
         if (denied is not null) return Task.FromResult(denied);
-        if (port is null || !ValidPort(port) || port.BvId != media.BvId || port.Cid != media.Cid) return Task.FromResult(NotSent("InvalidPortIdentity"));
+        if (!ValidPort(port) || port.BvId != media.BvId || port.Cid != media.Cid) return Task.FromResult(NotSent("InvalidPortIdentity"));
         return WriteAsync("api/updatePortedSegments", Body(new PortUpdatePayload(media.BvId, port.Uuid, media.Cid), SponsorJsonContext.Default.PortUpdatePayload),
             false, null, cancellationToken);
     }

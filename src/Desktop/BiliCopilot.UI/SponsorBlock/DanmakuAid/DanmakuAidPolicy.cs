@@ -5,8 +5,6 @@ public static class DanmakuAidPolicy
 {
     public static DanmakuAidDecision Evaluate(DanmakuAidInput input, DanmakuAidOptions options)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(options);
         DanmakuAidDecision Empty(DanmakuAidStatus status, string reason) => new(status, reason, null, null, null, null, null);
         if (options.DisableSkipping || !options.EnableDanmakuSkip && !options.EnableClickableTimestamp)
             return Empty(DanmakuAidStatus.Disabled, "DanmakuAidsDisabled");

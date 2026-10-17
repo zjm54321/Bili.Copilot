@@ -116,7 +116,6 @@ public sealed partial class PlayerViewModel
             };
             var client = await MpvClient.CreateAsync(mpvPath, options, logger: logger);
             Client = client;
-            LogEmbeddedPlaybackSnapshot("CreateAsyncReturned");
             CheckMediaAdmission();
             Client.ErrorOccurred += OnClientErrorOccurred;
             Client.CacheStateChanged += OnClientCacheStateChanged;
@@ -279,24 +278,6 @@ public sealed partial class PlayerViewModel
         CheckMediaAdmission();
     }
 
-    private void LogEmbeddedPlaybackSnapshot(string phase)
-    {
-        if (Window is not MainPlayerHost host) return;
-        string? videoOutput = null;
-        string? gpuContext = null;
-        int? hresult = null;
-        try
-        {
-            if (Client is { IsDisposed: false } client)
-            {
-                videoOutput = MpvNative.GetPropertyString(client.Handle, "vo");
-                gpuContext = MpvNative.GetPropertyString(client.Handle, "gpu-context");
-            }
-        }
-        catch (Exception error) { hresult = error.HResult; }
-        host.LogWindowSnapshot(phase, videoOutput, gpuContext, hresult: hresult);
-    }
-
     private void OnTripleTimerTick(DispatcherQueueTimer sender, object args)
     {
         if (_altSpeedHeld && (PInvoke.GetAsyncKeyState(0x12) & 0x8000) == 0)
@@ -421,32 +402,16 @@ public sealed partial class PlayerViewModel
         });
     }
 
-    private async Task ResetPlayerPresenterModeAsync(MainPlayerHost.PresentationDiagnostic? diagnostic = null)
+    private async Task ResetPlayerPresenterModeAsync()
     {
         if (Window is null || Client is null || IsPlaybackClosing)
         {
             return;
         }
 
-        var start = System.Diagnostics.Stopwatch.GetTimestamp();
-        try
-        {
-            Task fullScreen;
-            try { fullScreen = Client.SetFullScreenStateAsync(IsFullScreen); }
-            finally { if (diagnostic is not null) diagnostic.FullScreenSyncMs = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
-            await fullScreen;
-        }
-        finally { if (diagnostic is not null) diagnostic.FullScreenWallMs = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        await Client.SetFullScreenStateAsync(IsFullScreen);
         if (IsPlaybackClosing) return;
-        start = System.Diagnostics.Stopwatch.GetTimestamp();
-        try
-        {
-            Task compact;
-            try { compact = Client.SetCompactOverlayStateAsync(Presentation == PlayerPresentationMode.CompactOverlay); }
-            finally { if (diagnostic is not null) diagnostic.CompactSyncMs = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
-            await compact;
-        }
-        finally { if (diagnostic is not null) diagnostic.CompactWallMs = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        await Client.SetCompactOverlayStateAsync(Presentation == PlayerPresentationMode.CompactOverlay);
     }
 
     private void CheckFullScreen()

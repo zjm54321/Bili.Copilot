@@ -1,9 +1,9 @@
 // Copyright (c) Bili Copilot. All rights reserved.
 
+using Richasy.BiliKernel.Adapters;
 using Richasy.BiliKernel.Authenticator;
 using Richasy.BiliKernel.Http;
 using Richasy.BiliKernel.Models;
-using Richasy.BiliKernel.Models.Appearance;
 using Richasy.BiliKernel.Models.Media;
 using Richasy.BiliKernel.Models.User;
 using System.Globalization;
@@ -77,7 +77,7 @@ public sealed partial class UserSpaceService : IDisposable
         {
             var id = Identifier(Required(item, "opus_id"));
             var originalUri = OpusUrl(Text(item, "jump_url"), id);
-            return new UserSpaceOpusRow(id, Text(item, "content"), ImageUrl(Text(Get(item, "cover"), "url")),
+            return new UserSpaceOpusRow(id, Text(item, "content"), ImageUrl(Text(Get(item, "cover"), "url"))?.AbsoluteUri.ToArticleCover().Uri,
                 originalUri, Text(Get(item, "stat"), "like"), Text(Get(item, "stat"), "view"))
             {
                 ArticleId = originalUri?.AbsolutePath.StartsWith("/read/cv", StringComparison.Ordinal) == true
@@ -131,7 +131,7 @@ public sealed partial class UserSpaceService : IDisposable
                 var owner = Identifier(Required(meta, "mid"));
                 if (owner != mid) throw Schema();
                 groups.Add(new(kind, Identifier(Required(meta, kind == UserCollectionKind.Season ? "season_id" : "series_id")),
-                    owner, Text(meta, "name"), ImageUrl(Text(meta, "cover")), Number(meta, "total")));
+                    owner, Text(meta, "name"), ImageUrl(Text(meta, "cover"))?.AbsoluteUri.ToImage(160, 90).Uri, Number(meta, "total")));
             }
         }
         var more = HasMore(Required(lists, "page"), page, "page_num", "page_size", "total");
@@ -195,7 +195,7 @@ public sealed partial class UserSpaceService : IDisposable
             await body.WriteAsync(buffer.AsMemory(0, count), token);
         }
         token.ThrowIfCancellationRequested();
-        try { return JsonDocument.Parse(body.ToArray(), new JsonDocumentOptions { MaxDepth = 64 }); }
+        try { return JsonDocument.Parse(body.GetBuffer().AsMemory(0, (int)body.Length), new JsonDocumentOptions { MaxDepth = 64 }); }
         catch (JsonException) { throw Schema(); }
     }
 
@@ -229,7 +229,7 @@ public sealed partial class UserSpaceService : IDisposable
         {
             var avatar = ImageUrl(Text(owner, "face"));
             publisher = new(new UserProfile(ownerId.Value.ToString(CultureInfo.InvariantCulture),
-                owner.ValueKind == JsonValueKind.Object ? Text(owner, "name") : Text(item, "author"), avatar is null ? null : new BiliImage(avatar)));
+                owner.ValueKind == JsonValueKind.Object ? Text(owner, "name") : Text(item, "author"), avatar?.AbsoluteUri.ToImage(96)));
         }
         var stat = Get(item, "stat");
         var counts = new VideoCommunityInformation(id, Number(stat, "view") ?? Number(item, "play"),
@@ -237,7 +237,7 @@ public sealed partial class UserSpaceService : IDisposable
             Number(stat, "coin"), Number(stat, "reply") ?? Number(item, "comment"), Number(stat, "share"));
         var time = Number(item, "pubdate") ?? Number(item, "created");
         DateTimeOffset? published = time is > 0 and <= 253402300799 ? DateTimeOffset.FromUnixTimeSeconds(time.Value) : null;
-        var video = new VideoInformation(new MediaIdentifier(id, Text(item, "title"), cover is null ? null : new BiliImage(cover)),
+        var video = new VideoInformation(new MediaIdentifier(id, Text(item, "title"), cover?.AbsoluteUri.ToVideoCover()),
             publisher!, Number(item, "duration") ?? Duration(Text(item, "length")), Text(item, "bvid"), published, communityInformation: counts);
         var description = Text(item, "desc") ?? Text(item, "description");
         if (!string.IsNullOrWhiteSpace(description) && description.Trim() != "-") video.AddExtensionIfNotNull(VideoExtensionDataId.Description, description.Trim());
@@ -304,7 +304,7 @@ public sealed partial class UserSpaceService : IDisposable
         if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.UserInfo.Length != 0) return null;
         if (!(uri.Host == "hdslb.com" || uri.Host.EndsWith(".hdslb.com", StringComparison.OrdinalIgnoreCase)
             || uri.Host == "biliimg.com" || uri.Host.EndsWith(".biliimg.com", StringComparison.OrdinalIgnoreCase))) return null;
-        // Keep one canonical source URL; ImageEx/BiliImage owns display-size transforms.
+        // Normalize the source before applying the card's SDK thumbnail preset.
         var path = uri.AbsolutePath;
         var transform = path.IndexOf('@');
         return new UriBuilder(uri) { Scheme = "https", Port = -1, Path = transform < 0 ? path : path[..transform] }.Uri;

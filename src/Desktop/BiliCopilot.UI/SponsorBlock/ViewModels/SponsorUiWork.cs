@@ -18,7 +18,6 @@ internal static class SponsorUiWork
 {
     internal static Task Track(object owner, Task actualTask)
     {
-        ArgumentNullException.ThrowIfNull(actualTask);
         Register(owner, actualTask);
         // T5-10: Register precedes returning the identical operation task; registered UI runners never join their own Runtime.Close/Wait.
         #pragma warning disable VSTHRD003
@@ -28,7 +27,6 @@ internal static class SponsorUiWork
 
     internal static Task<T> Track<T>(object owner, Task<T> actualTask)
     {
-        ArgumentNullException.ThrowIfNull(actualTask);
         Register(owner, actualTask);
         // T5-11: Register precedes returning the identical typed operation task; no wrapper or self-dependent close join is introduced.
         #pragma warning disable VSTHRD003

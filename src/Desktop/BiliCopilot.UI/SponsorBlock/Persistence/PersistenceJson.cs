@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BiliCopilot.UI.SponsorBlock.Models;
 
 namespace BiliCopilot.UI.SponsorBlock.Persistence;
 
@@ -54,7 +55,7 @@ internal static class PersistenceJson
                 || !ContentPreferencesValidation.HasShape(preferences)) return false;
         }
         else if (!HasFields(element, "WhitelistedUpUids", "Filters", "Statistics", "Journal")) return false;
-        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("Journal", out var journal)
+        if (!element.TryGetProperty("Journal", out var journal)
             || journal.ValueKind != JsonValueKind.Array) return false;
         foreach (var entry in journal.EnumerateArray())
         {
@@ -76,21 +77,8 @@ internal static class PersistenceJson
     internal static JsonDocument Parse(ReadOnlyMemory<byte> bytes)
     {
         var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 32 });
-        if (!Unique(document.RootElement)) { document.Dispose(); throw new JsonException("Duplicate property"); }
+        if (!SponsorJsonProperties.AreUnique(document.RootElement)) { document.Dispose(); throw new JsonException("Duplicate property"); }
         return document;
-    }
-
-    private static bool Unique(JsonElement value)
-    {
-        if (value.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in value.EnumerateObject())
-                if (!names.Add(property.Name) || !Unique(property.Value)) return false;
-        }
-        else if (value.ValueKind == JsonValueKind.Array)
-            foreach (var item in value.EnumerateArray()) if (!Unique(item)) return false;
-        return true;
     }
 
     internal static PersistenceStatus ValidateSettings(SponsorLocalSettings? settings)

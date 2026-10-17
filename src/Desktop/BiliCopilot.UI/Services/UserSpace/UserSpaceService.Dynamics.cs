@@ -1,5 +1,6 @@
 // Copyright (c) Bili Copilot. All rights reserved.
 
+using Richasy.BiliKernel.Adapters;
 using Richasy.BiliKernel.Models;
 using Richasy.BiliKernel.Models.Appearance;
 using Richasy.BiliKernel.Models.Media;
@@ -32,7 +33,7 @@ public sealed partial class UserSpaceService
         var modules = Required(item, "modules");
         var author = Required(modules, "module_author");
         var avatar = ImageUrl(Text(author, "face"));
-        var user = new UserProfile(Identifier(Required(author, "mid")), Text(author, "name"), avatar is null ? null : new BiliImage(avatar));
+        var user = new UserProfile(Identifier(Required(author, "mid")), Text(author, "name"), avatar?.AbsoluteUri.ToImage(96));
         var dynamic = Required(modules, "module_dynamic");
         var major = Get(dynamic, "major");
         var desc = Get(dynamic, "desc");
@@ -61,7 +62,7 @@ public sealed partial class UserSpaceService
         {
             var aid = Identifier(Required(archive, "aid"));
             var cover = ImageUrl(Text(archive, "cover")) ?? throw Schema();
-            data = new VideoInformation(new MediaIdentifier(aid, Text(archive, "title"), new BiliImage(cover)),
+            data = new VideoInformation(new MediaIdentifier(aid, Text(archive, "title"), cover.AbsoluteUri.ToVideoCover()),
                 new PublisherProfile(user), Duration(Text(archive, "duration_text")) ?? throw Schema(), Text(archive, "bvid"));
             type = MomentItemType.Video;
             replyType = CommentTargetType.Video;

@@ -31,8 +31,6 @@ internal interface IPageActivationHost
 /// </summary>
 internal sealed class PageActivationScope
 {
-    private long _epoch;
-
     /// <summary>
     /// Raised synchronously on the UI thread whenever any page activation input changes.
     /// Listeners must re-query <see cref="IPageActivationHost.IsPageActive(UIElement)"/>.
@@ -45,23 +43,9 @@ internal sealed class PageActivationScope
     public bool IsMainCovered { get; private set; }
 
     /// <summary>
-    /// Gets the latest issued epoch.
-    /// </summary>
-    public long CurrentEpoch => _epoch;
-
-    /// <summary>
-    /// Issues a new monotonic activation epoch.
-    /// </summary>
-    public long NextEpoch() => ++_epoch;
-
-    /// <summary>
     /// Notifies all registered listeners that activation inputs changed.
     /// </summary>
-    public void NotifyChanged()
-    {
-        ++_epoch;
-        ActivationChanged?.Invoke(this, EventArgs.Empty);
-    }
+    public void NotifyChanged() => ActivationChanged?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
     /// Gets a value indicating whether a one-shot "back to main" arrival is waiting to be consumed.

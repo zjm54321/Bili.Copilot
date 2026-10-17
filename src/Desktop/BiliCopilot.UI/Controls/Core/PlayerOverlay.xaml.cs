@@ -879,34 +879,6 @@ public sealed partial class PlayerOverlay : PlayerControlBase
         host.RequestOwnerClose(request.Owner);
     }
 
-    internal bool TryGetCompactHeaderGeometry(UIElement islandRoot, out Rect headerRect, out Rect buttonPanelRect)
-    {
-        headerRect = default;
-        buttonPanelRect = default;
-
-        if (!_loaded || !IsLoaded || Visibility != Visibility.Visible || ViewModel is not { } vm
-            || !vm.IsEmbedded || vm.IsPlaybackClosing || vm.Presentation != PlayerPresentationMode.CompactOverlay
-            || XamlRoot is null || !ReferenceEquals(XamlRoot, islandRoot.XamlRoot)
-            || !vm.IsControlsVisible || EmbeddedHeader is not { } header || header.Visibility != Visibility.Visible
-            || !header.IsLoaded || !ReferenceEquals(header.XamlRoot, islandRoot.XamlRoot)
-            || header.ActualWidth <= 0 || header.ActualHeight <= 0
-            || EmbeddedRightButtonPanel is not { Visibility: Visibility.Visible } panel
-            || !panel.IsLoaded || !ReferenceEquals(panel.XamlRoot, islandRoot.XamlRoot)
-            || panel.ActualWidth <= 0 || panel.ActualHeight <= 0)
-        {
-            return false;
-        }
-
-        for (DependencyObject? ancestor = header; !ReferenceEquals(ancestor, islandRoot); ancestor = VisualTreeHelper.GetParent(ancestor))
-        {
-            if (ancestor is null || ancestor is UIElement { Visibility: not Visibility.Visible }) return false;
-        }
-
-        headerRect = header.TransformToVisual(islandRoot).TransformBounds(new Rect(0, 0, header.ActualWidth, header.ActualHeight));
-        buttonPanelRect = panel.TransformToVisual(islandRoot).TransformBounds(new Rect(0, 0, panel.ActualWidth, panel.ActualHeight));
-        return true;
-    }
-
     private void RequestHostChromeRegionUpdate()
     {
         if (ViewModel?.Window is MainPlayerHost host)

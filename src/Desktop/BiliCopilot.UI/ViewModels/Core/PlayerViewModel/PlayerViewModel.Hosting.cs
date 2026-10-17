@@ -3,8 +3,6 @@ using BiliCopilot.UI.ViewModels.Components;
 using BiliCopilot.UI.ViewModels.Items;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace BiliCopilot.UI.ViewModels.Core;
 
@@ -17,7 +15,6 @@ public sealed partial class PlayerViewModel
     private (IPlayerHost Host, PlayerPresentationMode Mode, bool FullScreen, bool Embedded)? _publishingHostPresentation;
     private long _publishingHostPresentationVersion;
     private long _hostPresentationPublicationVersion;
-    private long _presentationDiagnosticSequence;
 
     public Task SetPresentationAsync(PlayerPresentationMode mode)
         => IsPlaybackClosing ? Task.CompletedTask : OwnWork(SetPresentationCoreAsync(mode));
@@ -28,71 +25,19 @@ public sealed partial class PlayerViewModel
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         if (Window is not { } capturedHost || capturedHost.IsClosed) return;
         var requestVersion = ++_presentationRequestVersion;
-        var diagnostic = new MainPlayerHost.PresentationDiagnostic(unchecked(++_presentationDiagnosticSequence),
-            RuntimeHelpers.GetHashCode(this), Client is null ? 0 : RuntimeHelpers.GetHashCode(Client),
-            Player is null ? 0 : RuntimeHelpers.GetHashCode(Player), RuntimeHelpers.GetHashCode(Window));
-        var from = Presentation;
-        var start = Stopwatch.GetTimestamp();
-        var outcome = "Failed";
-        LogPresentationDiagnostic(diagnostic, from, mode, "Start", 0);
-        try
-        {
-            var phase = Stopwatch.GetTimestamp();
-            try
-            {
-                Task input;
-                try { input = CancelPlayerInputAsync(); }
-                finally { diagnostic.InputSyncMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-                await input;
-            }
-            finally { diagnostic.InputWallMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-            if (IsPlaybackClosing || capturedHost.IsClosed) { outcome = "Closing"; return; }
-            if (requestVersion != _presentationRequestVersion || !ReferenceEquals(Window, capturedHost))
-            { outcome = "Superseded"; return; }
-            var current = PlayerPresentationModes.Normalize(capturedHost.Presentation);
-            if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay &&
-                current is not (PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay))
-                _returnPresentation = current;
-            if (mode == PlayerPresentationMode.FullScreen && current != PlayerPresentationMode.FullScreen)
-                _fullScreenReturnPresentation = current;
-            phase = Stopwatch.GetTimestamp();
-            try
-            {
-                Task host;
-                try { host = capturedHost is MainPlayerHost main ? main.SetPresentationAsync(mode, diagnostic) : capturedHost.SetPresentationAsync(mode); }
-                finally { diagnostic.HostSyncMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-                await host;
-            }
-            finally { diagnostic.HostWallMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-            if (IsPlaybackClosing || capturedHost.IsClosed || requestVersion != _presentationRequestVersion ||
-                !ReferenceEquals(Window, capturedHost)) { outcome = "Superseded"; return; }
-            // Host is authoritative. Keep both actual compatibility writes and their failure semantics.
-            phase = Stopwatch.GetTimestamp();
-            try
-            {
-                Task compatibility;
-                try { compatibility = ResetPlayerPresenterModeAsync(diagnostic); }
-                finally { diagnostic.CompatibilitySyncMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-                await compatibility;
-            }
-            finally { diagnostic.CompatibilityWallMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-            outcome = "Finished";
-        }
-        finally { LogPresentationDiagnostic(diagnostic, from, mode, outcome, Stopwatch.GetElapsedTime(start).TotalMilliseconds); }
-    }
-
-    private void LogPresentationDiagnostic(MainPlayerHost.PresentationDiagnostic diagnostic, PlayerPresentationMode from, PlayerPresentationMode to, string phase, double totalMs)
-    {
-        try
-        {
-            logger.LogInformation(
-                "TEMP PresentationPerf Request VM={VM} Request={Request} Client={Client} Player={Player} Window={Window} From={From} To={To} Phase={Phase} InputSyncMs={InputSyncMs} InputWallMs={InputWallMs} HostSyncMs={HostSyncMs} HostWallMs={HostWallMs} CompatibilitySyncMs={CompatibilitySyncMs} CompatibilityWallMs={CompatibilityWallMs} FullScreenSyncMs={FullScreenSyncMs} FullScreenWallMs={FullScreenWallMs} CompactSyncMs={CompactSyncMs} CompactWallMs={CompactWallMs} TotalMs={TotalMs}",
-                diagnostic.Vm, diagnostic.Sequence, diagnostic.Client, diagnostic.Player, diagnostic.Window, from, to, phase,
-                diagnostic.InputSyncMs, diagnostic.InputWallMs, diagnostic.HostSyncMs, diagnostic.HostWallMs,
-                diagnostic.CompatibilitySyncMs, diagnostic.CompatibilityWallMs, diagnostic.FullScreenSyncMs,
-                diagnostic.FullScreenWallMs, diagnostic.CompactSyncMs, diagnostic.CompactWallMs, totalMs);
-        }
-        catch (Exception) { return; } // Best-effort diagnostics never change input restoration or owned-work completion.
+        await CancelPlayerInputAsync();
+        if (IsPlaybackClosing || capturedHost.IsClosed) return;
+        if (requestVersion != _presentationRequestVersion || !ReferenceEquals(Window, capturedHost)) return;
+        var current = PlayerPresentationModes.Normalize(capturedHost.Presentation);
+        if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay &&
+            current is not (PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay))
+            _returnPresentation = current;
+        if (mode == PlayerPresentationMode.FullScreen && current != PlayerPresentationMode.FullScreen)
+            _fullScreenReturnPresentation = current;
+        await capturedHost.SetPresentationAsync(mode);
+        if (IsPlaybackClosing || capturedHost.IsClosed || requestVersion != _presentationRequestVersion ||
+            !ReferenceEquals(Window, capturedHost)) return;
+        await ResetPlayerPresenterModeAsync();
     }
 
     private void OnHostPresentationChanged(object? sender, EventArgs args)

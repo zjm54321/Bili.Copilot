@@ -65,47 +65,25 @@ public sealed class ArticleRawHtmlClient : IDisposable
         }
     }
 
-    /// <summary>Reads the native article page without SDK cookies or credentials.</summary>
-    public async Task<string> GetInitialHtmlAsync(string articleId, CancellationToken cancellationToken = default)
-        => (await GetHtmlPageAsync(articleId, false, cancellationToken).ConfigureAwait(false)).Html;
-
     // Empty native state is common for migrated articles. The canonical CV route supplies
     // the server-validated CV-to-opus redirect; never guess an opus ID from an article ID.
-    internal async Task<ArticleHtmlPage> GetHtmlPageAsync(string articleId, bool canonical,
+    internal async Task<string> GetHtmlPageAsync(string articleId, bool canonical,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var id = ValidateArticleId(articleId);
         var current = new Uri(canonical ? "https://www.bilibili.com/read/cv" + id + "/"
             : "https://www.bilibili.com/read/native/?id=" + id);
-        var diagnostics = new ArticleHttpDiagnostics();
-        var stage = "Request";
         try
         {
             for (var redirects = 0; ; redirects++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                stage = "Request";
-                diagnostics = diagnostics with { RequestTarget = current.IdnHost + current.AbsolutePath };
                 using var request = new HttpRequestMessage(HttpMethod.Get, current);
                 using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                diagnostics = diagnostics with
-                {
-                    Status = (int)response.StatusCode,
-                    ContentType = response.Content.Headers.ContentType?.ToString(),
-                    ContentEncoding = string.Join(",", response.Content.Headers.ContentEncoding),
-                };
-                stage = "Headers";
                 if (IsRedirect(response.StatusCode))
                 {
-                    stage = "Redirect";
-                    diagnostics = diagnostics with
-                    {
-                        Redirected = true,
-                        RedirectTarget = response.Headers.Location is { } target && Uri.TryCreate(current, target, out var destination)
-                            ? destination.IdnHost + destination.AbsolutePath : null,
-                    };
                     if (redirects >= MaximumRedirects || response.Headers.Location is not { } location)
                         throw new ArticleCompatibilityException(ArticleCompatibilityFailure.UnsafeUrl);
                     current = ValidateRedirect(current, location, id);
@@ -117,34 +95,21 @@ public sealed class ArticleRawHtmlClient : IDisposable
                 if (!string.Equals(response.Content.Headers.ContentType?.MediaType, "text/html", StringComparison.OrdinalIgnoreCase)
                     || response.Content.Headers.ContentEncoding.Count != 0)
                     throw new ArticleCompatibilityException(ArticleCompatibilityFailure.UnsupportedFormat);
-                stage = "Body";
                 var html = await ReadUtf8BodyAsync(response.Content, MaximumBodyBytes,
                     ArticleContentParser.MaximumHtmlCharacters, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                return new(html, diagnostics with { PageKind = DescribeHtml(html), HtmlCharacters = html.Length });
+                return html;
             }
-        }
-        catch (ArticleCompatibilityException ex)
-        {
-            ex.SetStage(stage);
-            ex.SetTransport(diagnostics);
-            throw;
         }
         catch (HttpRequestException)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var failure = new ArticleCompatibilityException(ArticleCompatibilityFailure.MissingContent);
-            failure.SetStage(stage);
-            failure.SetTransport(diagnostics);
-            throw failure;
+            throw new ArticleCompatibilityException(ArticleCompatibilityFailure.MissingContent);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // Transport timeout is unavailable content, not caller cancellation or retry permission.
-            var failure = new ArticleCompatibilityException(ArticleCompatibilityFailure.MissingContent);
-            failure.SetStage("Timeout");
-            failure.SetTransport(diagnostics);
-            throw failure;
+            throw new ArticleCompatibilityException(ArticleCompatibilityFailure.MissingContent);
         }
     }
 
@@ -157,14 +122,9 @@ public sealed class ArticleRawHtmlClient : IDisposable
         return value;
     }
 
-    internal static string DescribeHtml(string html)
-    {
-        if (html.Contains("risk-captcha-app", StringComparison.Ordinal)
-            || html.Contains("window._riskdata_", StringComparison.Ordinal)) return "Verification";
-        if (html.Contains("__INITIAL_STATE__", StringComparison.Ordinal)) return "InitialState";
-        if (html.Contains("article-web", StringComparison.Ordinal)) return "ArticleSpaShell";
-        return "HtmlWithoutInitialState";
-    }
+    internal static bool IsVerificationPage(string html)
+        => html.Contains("risk-captcha-app", StringComparison.Ordinal)
+            || html.Contains("window._riskdata_", StringComparison.Ordinal);
 
     private static bool IsRedirect(HttpStatusCode status) => status is HttpStatusCode.MovedPermanently
         or HttpStatusCode.Found or HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;

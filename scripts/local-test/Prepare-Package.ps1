@@ -113,7 +113,6 @@ try {
     $null = Assert-LTManifest $doc $Version
     $doc.Save((Join-Path $layout 'AppxManifest.xml'))
     foreach ($relative in $files.Keys) {
-        if ((Get-LTSha256 $files[$relative].Stream) -cne $files[$relative].Sha256) { Stop-LT 'SourceChanged' 'The parent source layout changed.' }
         if ($relative -ine 'AppxManifest.xml') {
             $check = Open-LTPinned (Join-Path $layout $relative.Replace('/', '\')) $files[$relative].Sha256
             $check.Dispose()

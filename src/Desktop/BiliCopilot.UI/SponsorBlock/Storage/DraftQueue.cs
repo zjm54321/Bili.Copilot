@@ -67,10 +67,9 @@ public sealed partial class DraftQueue
     public QueueOutcome FinishCapture(MediaIdentity media, long nativeMediaGeneration, double seconds)
     {
         var capture = ActiveCapture;
-        if (capture is null || activeMedia != media || generation != nativeMediaGeneration
-            || capture.MediaKey != media.Combined || capture.NativeMediaGeneration != nativeMediaGeneration) return Fail("StaleCapture");
+        if (capture is null || activeMedia != media || generation != nativeMediaGeneration) return Fail("StaleCapture");
         var index = Index(capture.LocalDraftId);
-        if (index < 0 || !Time(seconds, capture.Duration)) return Fail("InvalidCaptureTime");
+        if (!Time(seconds, capture.Duration)) return Fail("InvalidCaptureTime");
         var start = entries[index].Draft.Segment.Segment[0];
         var result = Edit(capture.LocalDraftId, entries[index].Draft.Segment.Category,
             entries[index].Draft.Segment.ActionType, Math.Min(start, seconds), Math.Max(start, seconds));
@@ -100,7 +99,8 @@ public sealed partial class DraftQueue
         else times = action == "poi" ? [old.Draft.Segment.Segment[0], old.Draft.Segment.Segment[0]]
             : old.Draft.Segment.ActionType == "full" ? old.OrdinaryRange : old.Draft.Segment.Segment;
         var draft = old.Draft with { Revision = Id(), Segment = old.Draft.Segment with { Category = category, ActionType = action, Segment = times } };
-        if (!MediaIdentity.TryParse(draft.MediaKey, out var media) || SponsorRules.ValidateDraft(draft, media!, old.Duration) is not null) return Fail("InvalidDraft");
+        if (!SponsorRules.IsKnownSource(draft.Segment.Source)
+            || SponsorRules.ValidateShape(draft.Segment, old.Duration) is not null) return Fail("InvalidDraft");
         var risk = old.State is DraftState.SubmissionInFlight or DraftState.Unknown or DraftState.AcceptedUnconfirmed;
         return Replace(index, old with { Draft = draft, State = risk ? old.State == DraftState.AcceptedUnconfirmed
             ? DraftState.AcceptedUnconfirmed : DraftState.Unknown : DraftState.Ready,
@@ -136,8 +136,7 @@ public sealed partial class DraftQueue
         var index = Index(localDraftId);
         if (index < 0 || activeMedia != media || generation != nativeMediaGeneration) return null;
         var entry = entries[index];
-        if (entry.Draft.MediaKey != media.Combined || !SponsorRules.CanExecuteInterval(entry.Draft.Segment)
-            || SponsorRules.ValidateDraft(entry.Draft, media, entry.Duration) is not null) return null;
+        if (entry.Draft.MediaKey != media.Combined || !SponsorRules.CanExecuteInterval(entry.Draft.Segment)) return null;
         return ActivePreview = new(media.Combined, entry.Draft.Revision, nativeMediaGeneration,
             entry.Draft.Segment.Segment[0], entry.Draft.Segment.Segment[1]);
     }
@@ -145,8 +144,7 @@ public sealed partial class DraftQueue
     {
         if (!double.IsFinite(duration) || duration <= 0) return Fail("InvalidDuration");
         var candidates = entries.Where(e => e.Draft.MediaKey == media.Combined && e.State == DraftState.Ready).ToImmutableArray();
-        if (candidates.IsEmpty || candidates.Length > 100 || candidates.Any(e => e.Duration != duration
-            || SponsorRules.ValidateDraft(e.Draft, media, duration) is not null)
+        if (candidates.IsEmpty || candidates.Length > 100 || candidates.Any(e => e.Duration != duration)
             || candidates.Select(e => e.Draft.Segment.Uuid).Distinct(StringComparer.Ordinal).Count() != candidates.Length) return Fail("InvalidSubmissionSelection");
         if (pending.Count >= MaximumDrafts) return Fail("OperationCapacity");
         candidates = candidates.Select(e => e with { Draft = e.Draft with { Revision = Id() } }).ToImmutableArray();

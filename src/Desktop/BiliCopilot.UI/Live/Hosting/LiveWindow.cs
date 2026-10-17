@@ -40,10 +40,6 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
     private bool _initialized;
     private bool _isPresented;
     private bool _parentClosed;
-    private bool _viewDetached;
-    private int _failureCategories;
-
-    internal LiveFailureCategory ObservedFailures => (LiveFailureCategory)Volatile.Read(ref _failureCategories);
 
     public LiveWindow(MainWindow mainWindow, DispatcherQueue dispatcher, Action<string> report)
     {
@@ -213,15 +209,13 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
         {
             // Hide, but retain the attachment and render target until actual resource owners drain.
             try { HidePresentation(); } catch { Report("Live presentation hiding failed; resource drain continues."); }
-            var cancellationFailed = false;
             try {
                 // T3-02: Cancellation was started before close joined it; callbacks request/observe close rather than synchronously waiting for it.
                 #pragma warning disable VSTHRD003
                 await _cancel;
                 #pragma warning restore VSTHRD003
             } catch {
-                cancellationFailed = true;
-                Interlocked.Or(ref _failureCategories, (int)LiveFailureCategory.CancellationCallback);
+                Report("Live window cancellation callback failed; resource drain continues.");
             }
             try {
                 // T3-03: Close joins the actual opening owner, including its finally; cancellation is not opening completion.
@@ -274,7 +268,6 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
                 throw new InvalidOperationException("Live view detachment is unconfirmed.");
             CompletePresentationRestoration();
             _view = null;
-            _viewDetached = true;
             try { _mainWindow.LivePresentationChanged -= OnPresentationChanged; } catch { Report("Live presentation observer detachment failed."); }
             try { _mainWindow.LiveOcclusionChanged -= OnOcclusionChanged; } catch { Report("Live occlusion observer detachment failed."); }
             try { _mainWindow.EmbeddedLiveBackRequested -= OnBackRequested; } catch { Report("Live back observer detachment failed."); }
@@ -282,9 +275,6 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
             try { _mainWindow.Closed -= OnParentClosed; } catch { Report("Live parent observer detachment failed."); }
             try { _lifetime.Dispose(); } catch { Report("Live lifetime bookkeeping failed after release."); }
             ReleaseConfirmed = true;
-            if (cancellationFailed)
-                Interlocked.Or(ref _failureCategories, (int)LiveFailureCategory.CancellationAfterRelease);
-            WriteReleaseFacts();
             if (Released is { } handlers)
                 foreach (EventHandler handler in handlers.GetInvocationList())
                     try { handler(this, EventArgs.Empty); } catch { Report("Live registry release notification failed."); }
@@ -292,7 +282,6 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
         }
         catch
         {
-            WriteReleaseFacts();
             Report("Live close is incomplete. The window and owners remain retained; replacement is blocked.");
             completion.TrySetException(new InvalidOperationException("Live close is incomplete; owners are retained."));
         }
@@ -302,16 +291,10 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
         if (!_dispatcher.HasThreadAccess || !_mainWindow.DispatcherQueue.HasThreadAccess)
             throw new InvalidOperationException("Live window requires its UI dispatcher.");
     }
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void WriteReleaseFacts()
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveWindow>>(), logger => logger.LogInformation(
-            "FailureContext Stage=LiveWindowRelease CancellationStatus={CancellationStatus} OpeningStatus={OpeningStatus} SessionReleased={SessionReleased} SurfaceReleased={SurfaceReleased} ViewDetached={ViewDetached} ParentClosedUnexpectedly={ParentClosedUnexpectedly} ResourcesReleased={ResourcesReleased} Failures={Failures}",
-            _cancel.Status, _opening.Status, _session?.ReleaseConfirmed, _surface?.ReleaseConfirmed,
-            _viewDetached, _parentClosed, ReleaseConfirmed, ObservedFailures));
     private void Report(string message)
     {
         try { _report(message); }
-        catch { Interlocked.Or(ref _failureCategories, (int)LiveFailureCategory.ReportSubscriber); }
+        catch { }
     }
     private async Task Observe(Task task) { try {
             // T3-05: This observer only joins an already-issued close task; it does not produce or block that close completion.

@@ -64,7 +64,6 @@ public sealed record SegmentQuery
 {
     public SegmentQuery(MediaIdentity media, ImmutableArray<string> categories, bool includeMute = false, bool includeFull = false)
     {
-        ArgumentNullException.ThrowIfNull(media);
         if (categories.IsDefault || categories.Any(c => !SponsorRules.Categories.Any(k => k.Id == c)))
             throw new ArgumentException("Unknown category", nameof(categories));
         Media = media;

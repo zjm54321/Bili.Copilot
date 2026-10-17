@@ -48,16 +48,8 @@ internal sealed class SponsorTransport : IDisposable
                 if (inflight.Count >= 32) return new(ReadStatus.Busy);
                 // Reserve before scheduling: a cancelled waiter does not end the physical read.
                 ++physicalUsers;
-                try
-                {
-                    // Task.Run prevents synchronous handler completion racing insertion under the owner lock.
-                    task = Task.Run(() => LoadAsync(key, path, labels, schema));
-                }
-                catch
-                {
-                    --physicalUsers; // Scheduling failed while admission is still locked open.
-                    throw;
-                }
+                // Task.Run prevents synchronous handler completion racing insertion under the owner lock.
+                task = Task.Run(() => LoadAsync(key, path, labels, schema));
                 inflight.Add(key, task);
             }
         }
@@ -72,7 +64,7 @@ internal sealed class SponsorTransport : IDisposable
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(SponsorClient.Service, path));
             result = await ExchangeCoreAsync(request, lifetime.Token).ConfigureAwait(false);
-            if (result.Status == ReadStatus.Success && (result.Bytes is null || !schema(result.Bytes)))
+            if (result.Status == ReadStatus.Success && !schema(result.Bytes!))
                 result = new(ReadStatus.SchemaFailure, HttpStatus: result.HttpStatus);
             lock (gate)
             {
@@ -160,12 +152,6 @@ internal sealed class SponsorTransport : IDisposable
         catch (Exception ex) when (ex is HttpRequestException or IOException or ObjectDisposedException)
         { return new(ReadStatus.TransportFailure, HttpStatus: observedStatus); }
         finally { if (admitted) requestBudget.Release(); }
-    }
-
-    internal (int Entries, int Bytes, int Inflight) InspectCache(bool labels)
-    {
-        lock (gate) return (cache.Count(p => p.Value.Labels == labels),
-            cache.Where(p => p.Value.Labels == labels).Sum(p => p.Value.Response.Bytes?.Length ?? 0), inflight.Count);
     }
 
     public void Dispose()

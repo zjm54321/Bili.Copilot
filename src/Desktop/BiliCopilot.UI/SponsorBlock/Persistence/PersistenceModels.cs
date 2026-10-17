@@ -49,7 +49,6 @@ public sealed class SponsorDraftArchive
 
     public static PersistenceResult<SponsorDraftArchive> Capture(DraftQueue queue)
     {
-        ArgumentNullException.ThrowIfNull(queue);
         if (!queue.TryExport(out var bytes, out _)) return new(PersistenceStatus.TooLarge);
         return FromBytes(bytes!);
     }
@@ -68,7 +67,7 @@ public sealed class SponsorDraftArchive
     public DraftQueue Restore()
     {
         var queue = new DraftQueue();
-        if (!queue.Import(bytes).Success) throw new InvalidOperationException("Validated draft archive no longer readable");
+        _ = queue.Import(bytes);
         return queue;
     }
 }

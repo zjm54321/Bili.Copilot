@@ -81,7 +81,6 @@ internal sealed class NativeAdmission
 
         internal void ValidateAndConsume(NativeAdmission operation, NativeOperationKind expectedKind)
         {
-            ArgumentNullException.ThrowIfNull(operation);
             lock (gate)
             {
                 if (!ReferenceEquals(operation.issuer, this) || operation.consumed || operation.Kind != expectedKind

@@ -23,7 +23,7 @@ public sealed partial class DraftQueue
         try
         {
             using var raw = JsonDocument.Parse(utf8, new JsonDocumentOptions { MaxDepth = 32 });
-            if (!UniqueProperties(raw.RootElement)) return Fail("DuplicateJsonProperty");
+            if (!SponsorJsonProperties.AreUnique(raw.RootElement)) return Fail("DuplicateJsonProperty");
             document = JsonSerializer.Deserialize(utf8.Span, StorageJsonContext.Default.QueueDocument);
         }
         catch (JsonException) { return Fail("MalformedOrUnsupportedJson"); }
@@ -70,17 +70,5 @@ public sealed partial class DraftQueue
             && !s.Segment.IsDefault && s.Segment.Length is 1 or 2 && ValidRange(s.Segment, duration)
             && (s.Locked is null || double.IsFinite(s.Locked.Value))
             && (s.VideoDuration is null || double.IsFinite(s.VideoDuration.Value) && s.VideoDuration > 0);
-    }
-    private static bool UniqueProperties(JsonElement element)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in element.EnumerateObject())
-                if (!seen.Add(property.Name) || !UniqueProperties(property.Value)) return false;
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-            foreach (var item in element.EnumerateArray()) if (!UniqueProperties(item)) return false;
-        return true;
     }
 }

@@ -10,8 +10,6 @@ public static class ContentPromotionClassifier
     public static ContentPromotionDecision Evaluate(ContentPromotionInput input, ContentPromotionOptions options,
         ImmutableArray<string> whitelistedAuthorUids)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(options);
         var metadataKnowledge = ContentKnowledge.Unknown;
         ContentPromotionDecision Empty(ContentKnowledge knowledge, string reason, TextRegexStatus? regex = null) =>
             new(input.Stamp, knowledge, metadataKnowledge, CommerceHint.None, [], ContentCategoryAction.Disabled,

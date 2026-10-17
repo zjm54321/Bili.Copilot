@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
 using BiliCopilot.UI.ViewModels.View;
+using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Models.Article;
 using Richasy.WinUIKernel.Share.Base;
 using System.ComponentModel;
@@ -229,8 +230,9 @@ public sealed partial class ArticleReaderPage : ArticleReaderPageBase, IParamete
         {
             result = await Reader.LoadContentAsync(content, cts.Token);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            this.Get<ILogger<ArticleReaderPage>>().LogWarning("文章渲染失败（{ExceptionType}）", ex.GetType().Name);
             result = ArticleReaderRenderResult.NavigationFailed;
         }
         finally
@@ -301,7 +303,11 @@ public sealed partial class ArticleReaderPage : ArticleReaderPageBase, IParamete
         UpdateReaderPresentation();
         ArticleReaderRenderResult result;
         try { result = await Reader.LoadWebPageAsync(target, token); }
-        catch (Exception) { result = ArticleReaderRenderResult.NavigationFailed; }
+        catch (Exception ex)
+        {
+            this.Get<ILogger<ArticleReaderPage>>().LogWarning("文章网页加载失败（{ExceptionType}）", ex.GetType().Name);
+            result = ArticleReaderRenderResult.NavigationFailed;
+        }
         finally
         {
             if (ReferenceEquals(_renderCts, cts))

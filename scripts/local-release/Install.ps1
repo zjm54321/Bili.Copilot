@@ -76,11 +76,7 @@ function Assert-PayloadRelativePath($RelativePath, [string]$Kind) {
 
 function Resolve-PayloadPath([string]$Root, $RelativePath, [string]$Kind) {
     Assert-PayloadRelativePath $RelativePath $Kind
-    $payload = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Root, 'payload'))
     $full = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Root, $RelativePath))
-    if (-not $full.StartsWith($payload + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        Stop-Release ('{0} 路径越出 payload 目录: {1}' -f $Kind, $RelativePath)
-    }
     Assert-NoReparsePoint $full
     return $full
 }
@@ -450,10 +446,6 @@ function Get-UserPackagesByName([string]$Name) {
     return @(Get-AppxPackage -Name $Name -ErrorAction Stop | ForEach-Object { ConvertTo-PackageRecord $_ })
 }
 
-function Get-UserPackageSnapshot {
-    return @(Get-AppxPackage -ErrorAction Stop | ForEach-Object { ConvertTo-PackageRecord $_ } | Sort-Object PackageFullName)
-}
-
 function Read-InstalledSignatureBytes($Record) {
     $storeRoot = [System.IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles), 'WindowsApps') + '\'
     if (-not $Record.InstallLocation.StartsWith($storeRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -562,7 +554,7 @@ function Assert-PayloadInventory([string]$Root, $Data) {
 
 function Close-PreflightContext($Context) {
     if ($null -eq $Context) { return }
-    foreach ($stream in @($Context.Streams)) { try { $stream.Dispose() } catch { } }
+    foreach ($stream in $Context.Streams) { $stream.Dispose() }
     $Context.Streams.Clear()
 }
 
@@ -596,7 +588,6 @@ function Invoke-Preflight([string]$Root, [string]$ExpectedManifestSha256, [strin
         $cerPath = Resolve-PayloadPath $Root $data.certificate.relativePath '证书'
         $cerStream = Open-PinnedFile $cerPath $data.certificate.sha256 '证书'
         try { $ctx.CerBytes = Read-StreamBytes $cerStream } finally { $cerStream.Dispose() }
-        if ((Get-Sha256Hex $ctx.CerBytes) -cne $data.certificate.sha256) { Stop-Release '证书读取字节与固定摘要不一致' }
         $ctx.Certificate = Get-CertificateFacts $ctx.CerBytes
         Assert-CertificateFacts $ctx.Certificate $ctx.CerBytes $data.certificate ([DateTime]::UtcNow)
 
@@ -660,7 +651,6 @@ try {
     exit 23
 } catch { exit 24 }
 '@
-    if ($EncodedData -cnotmatch '^[A-Za-z0-9+/=]+$') { Stop-Release '引导数据编码无效' }
     return $fixed.Replace('__DATA__', $EncodedData)
 }
 
@@ -713,35 +703,6 @@ function Get-FailureFacts($ErrorRecord) {
     return [ordered]@{ hresult = $hresult; activityId = $activity; message = $message }
 }
 
-function Compare-PackageSnapshots($Before, $After, $Context) {
-    $pins = $Context.Data.package
-    $Before = @($Before | Where-Object { $null -ne $_ })
-    $After = @($After | Where-Object { $null -ne $_ })
-    $beforeNames = @($Before | ForEach-Object { $_.PackageFullName })
-    $afterNames = @($After | ForEach-Object { $_.PackageFullName })
-    $added = @($After | Where-Object { $beforeNames -cnotcontains $_.PackageFullName })
-    $removed = @($Before | Where-Object { $afterNames -cnotcontains $_.PackageFullName })
-    $allowedDependencies = @($Context.DependencyReport | Where-Object { $_.state -ceq 'WillAddPinnedLocal' })
-    $dependencyAdded = @()
-    $unexpected = @()
-    foreach ($item in $added) {
-        if ($item.PackageFullName -ceq $pins.packageFullName) { continue }
-        $match = @($allowedDependencies | Where-Object { $_.name -ceq $item.Name -and $_.version -ceq $item.Version })
-        if ($match.Count -eq 1 -and $item.IsFramework) { $dependencyAdded += [ordered]@{ name = $item.Name; packageFullName = $item.PackageFullName; version = $item.Version }; continue }
-        $unexpected += ('新增: ' + $item.PackageFullName)
-    }
-    foreach ($item in $removed) {
-        if ($item.Name -ceq $pins.name -and [version]$item.Version -lt [version]$pins.version) { continue }
-        $unexpected += ('消失: ' + $item.PackageFullName)
-    }
-    foreach ($item in $After) {
-        if ($item.Name -ceq $pins.name) { continue }
-        $old = @($Before | Where-Object { $_.PackageFullName -ceq $item.PackageFullName })
-        if ($old.Count -eq 1 -and ($old[0].Status -cne $item.Status -or $old[0].InstallLocation -cne $item.InstallLocation)) { $unexpected += ('变化: ' + $item.PackageFullName) }
-    }
-    return [pscustomobject]@{ DependencyAdded = $dependencyAdded; Unexpected = $unexpected }
-}
-
 function Assert-PostInstallIdentity($Context) {
     $pins = $Context.Data.package
     $items = @(Get-UserPackagesByName $pins.name | Where-Object { $_.Name -ceq $pins.name })
@@ -760,11 +721,6 @@ function Assert-PostInstallIdentity($Context) {
     }
 }
 
-function Assert-OriginalContext([string]$Sid) {
-    if ((Get-CallerSid) -cne $Sid) { Stop-Release '原始调用者 SID 已变化' }
-    if (Test-ProcessElevated) { Stop-Release '父进程权限上下文已变化（检测到提权）' }
-}
-
 function New-InstallResult([bool]$InstallRequested) {
     $mode = 'Preflight'
     if ($InstallRequested) { $mode = 'Install' }
@@ -776,7 +732,6 @@ function New-InstallResult([bool]$InstallRequested) {
         phases            = [ordered]@{
             Preflight           = [ordered]@{ status = 'NotRun' }
             CertAdded           = [ordered]@{ status = 'NotAttempted' }
-            DependencyChanges   = [ordered]@{ status = 'NotAttempted'; added = @() }
             Deployment          = [ordered]@{ status = 'NotAttempted'; hresult = $null; activityId = $null }
             PostInstallIdentity = [ordered]@{ status = 'NotAttempted' }
             AlreadyPresent      = [ordered]@{ status = 'No' }
@@ -794,7 +749,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
     $ctx = $null
     $certAdded = $false
     $deploymentAttempted = $false
-    $before = $null
     try {
         if (Test-ProcessElevated) { Stop-Release '父安装脚本拒绝在已提权（管理员）PowerShell 中运行；请在普通 PowerShell 中重新执行' }
         $sid = Get-CallerSid
@@ -818,7 +772,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
             $result.phases.CertAdded = [ordered]@{ status = 'Requested'; thumbprint = $ctx.Certificate.Thumbprint; store = 'LocalMachine\TrustedPeople' }
             $code = Invoke-ElevatedTrustHelper $root $ctx.ManifestSha256 $ctx.Data.scripts.trustSha256 $sid
             $result.phases.CertAdded.helperExitCode = $code
-            Assert-OriginalContext $sid
             if (-not (Test-MachineTrustedPeopleExact $ctx.CerBytes $ctx.Certificate.Thumbprint)) {
                 Stop-Release ('证书助手退出码 {0}；原用户复查 LocalMachine\TrustedPeople 未发现完全相同证书；未部署' -f $code)
             }
@@ -827,7 +780,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
             $result.phases.CertAdded.verifiedBySid = $sid
         }
 
-        Assert-OriginalContext $sid
         $fresh = Invoke-Preflight $root $ctx.ManifestSha256 $InstallScriptPath
         Close-PreflightContext $ctx
         $ctx = $fresh
@@ -838,7 +790,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
             return $result
         }
 
-        $before = @(Get-UserPackageSnapshot)
         $deploymentAttempted = $true
         $result.phases.Deployment = [ordered]@{ status = 'Attempted'; hresult = $null; activityId = $null; dependencyPaths = @($ctx.DependencyPaths | ForEach-Object { [System.IO.Path]::GetFileName($_) }) }
         try { Invoke-PackageDeployment $ctx.PackagePath ([string[]]@($ctx.DependencyPaths)) }
@@ -850,11 +801,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
             throw
         }
         $result.phases.Deployment.status = 'Succeeded'
-        Assert-OriginalContext $sid
-        $after = @(Get-UserPackageSnapshot)
-        $changes = Compare-PackageSnapshots $before $after $ctx
-        $result.phases.DependencyChanges = [ordered]@{ status = 'Observed'; added = @($changes.DependencyAdded); unexpected = @($changes.Unexpected) }
-        if ($changes.Unexpected.Count -gt 0) { Stop-Release ('部署后其他受保护包元数据发生变化: ' + ($changes.Unexpected -join '; ')) }
         $result.phases.PostInstallIdentity = Assert-PostInstallIdentity $ctx
         $result.outcome = 'Installed'
     } catch {
@@ -865,12 +811,6 @@ function Invoke-ReleaseInstaller([string]$DeliveryRoot, [bool]$InstallRequested,
         $result.activityId = $facts.activityId
         if ($deploymentAttempted) {
             if ($result.phases.Deployment.activityId) { $result.activityId = $result.phases.Deployment.activityId; $result.hresult = $result.phases.Deployment.hresult }
-            if ($result.phases.DependencyChanges.status -ceq 'NotAttempted' -and $null -ne $before) {
-                try {
-                    $observed = Compare-PackageSnapshots $before @(Get-UserPackageSnapshot) $ctx
-                    $result.phases.DependencyChanges = [ordered]@{ status = 'ObservedAfterFailure'; added = @($observed.DependencyAdded); unexpected = @($observed.Unexpected) }
-                } catch { $result.phases.DependencyChanges = [ordered]@{ status = 'Unavailable'; added = @() } }
-            }
             if ($result.phases.Deployment.status -ceq 'Succeeded' -and $result.phases.PostInstallIdentity.status -ceq 'NotAttempted') {
                 $result.phases.PostInstallIdentity = [ordered]@{ status = 'Failed'; reason = $facts.message }
             }
@@ -916,7 +856,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-Host ('结果: {0}' -f $result.outcome)
         if ($result.failure) { Write-Host ('原因: ' + $result.failure) }
         if ($result.outcome -ceq 'PreflightPassed') { Write-Host '预检通过，未做任何更改。确认后执行: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 -Install' }
-        Write-Output ($result | ConvertTo-Json -Depth 8)
         $exitCode = Get-InstallerExitCode $result
     } catch {
         Write-Output ('BLOCKED: ' + $_.Exception.Message)

@@ -145,7 +145,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition x:Name="ChromeRightInsetColumn" Width="0" />
             </Grid.ColumnDefinitions>
-            <Grid x:Name="ChromeContentGrid" Grid.Column="1">
+            <Grid Grid.Column="1">
                 <Grid.ColumnDefinitions>
                     <!--  0: Back  -->
                     <ColumnDefinition Width="Auto" />
@@ -184,7 +184,6 @@
                 </Button>
 
                 <Viewbox
-                    x:Name="ChromeIcon"
                     Grid.Column="1"
                     MaxWidth="20"
                     MaxHeight="20"

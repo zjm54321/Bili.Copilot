@@ -123,7 +123,6 @@ public sealed partial class SponsorEditorViewModel : ObservableObject
     /// </summary>
     internal void Bind(SponsorApplicationCoordinator app, Guid attachment)
     {
-        ArgumentNullException.ThrowIfNull(app);
         var queue = DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("SponsorEditorBindRequiresUiThread");
         Unbind();
         _epoch++;

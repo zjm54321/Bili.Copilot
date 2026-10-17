@@ -232,10 +232,10 @@
                 VerticalAlignment="Bottom"
                 SelectionChanged="OnSelectorChanged"
                 Visibility="{x:Bind ViewModel.IsSearchMode, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}">
-                <SelectorBarItem x:Name="HomeTabItem" Text="主页" />
-                <SelectorBarItem x:Name="DynamicsTabItem" Text="动态" />
-                <SelectorBarItem x:Name="SubmissionsTabItem" Text="投稿" />
-                <SelectorBarItem x:Name="CollectionsTabItem" Text="合集与系列" />
+                <SelectorBarItem Text="主页" />
+                <SelectorBarItem Text="动态" />
+                <SelectorBarItem Text="投稿" />
+                <SelectorBarItem Text="合集与系列" />
             </SelectorBar>
 
             <StackPanel

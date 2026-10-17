@@ -68,7 +68,6 @@ public sealed partial class SponsorPersistenceStore
     public Task<PersistenceResult<SponsorLocalSnapshot>> UpdateSettingsAsync(string expectedVersion,
         System.Func<SponsorLocalSettings, SponsorLocalSettings> update, CancellationToken cancellationToken = default) => LockedAsync(async token =>
     {
-        System.ArgumentNullException.ThrowIfNull(update);
         var current = await ReadStateAsync(token).ConfigureAwait(false);
         if (!Usable(current)) return current;
         if (current.Value!.Version != expectedVersion) return new(PersistenceStatus.Conflict);

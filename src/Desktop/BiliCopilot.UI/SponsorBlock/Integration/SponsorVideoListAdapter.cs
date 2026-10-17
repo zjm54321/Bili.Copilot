@@ -68,7 +68,6 @@ internal sealed partial class SponsorVideoListAdapter
     internal void Activate(SponsorVideoListScope scope)
     {
         CheckCaller();
-        ArgumentNullException.ThrowIfNull(scope);
         if (scope.Id == Guid.Empty || scope.Generation < 0) throw new ArgumentException("A real list scope is required.", nameof(scope));
         if (_closed || _cleanupFailed) return;
         var account = CaptureAccount();
@@ -86,7 +85,6 @@ internal sealed partial class SponsorVideoListAdapter
     internal Task RequestAsync(SponsorVideoListSnapshot snapshot)
     {
         CheckCaller();
-        ArgumentNullException.ThrowIfNull(snapshot);
         if (!ContextMatches(snapshot)) return Task.CompletedTask;
         if (snapshot.PassRevision < 0 || snapshot.Rows.IsDefault || snapshot.Rows.Length > 128
             || snapshot.Rows.Any(row => row is null || row.Original is null || row.Video is null))

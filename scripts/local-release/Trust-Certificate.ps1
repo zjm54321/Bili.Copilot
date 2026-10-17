@@ -78,11 +78,7 @@ function Assert-PayloadRelativePath($RelativePath, [string]$Kind) {
 
 function Resolve-PayloadPath([string]$Root, $RelativePath, [string]$Kind) {
     Assert-PayloadRelativePath $RelativePath $Kind
-    $payload = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Root, 'payload'))
     $full = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($Root, $RelativePath))
-    if (-not $full.StartsWith($payload + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        Stop-Release ('{0} 路径越出 payload 目录: {1}' -f $Kind, $RelativePath)
-    }
     Assert-NoReparsePoint $full
     return $full
 }
@@ -435,7 +431,6 @@ function Invoke-TrustHelper([string]$DeliveryRoot, [string]$ManifestSha256, [str
         $cerPath = Resolve-PayloadPath $root $data.certificate.relativePath '证书'
         $cerStream = Open-PinnedFile $cerPath $data.certificate.sha256 '证书'
         try { $cerBytes = Read-StreamBytes $cerStream } finally { $cerStream.Dispose() }
-        if ((Get-Sha256Hex $cerBytes) -cne $data.certificate.sha256) { Stop-Release '证书读取字节与固定摘要不一致' }
         $facts = Get-CertificateFacts $cerBytes
         Assert-CertificateFacts $facts $cerBytes $data.certificate ([DateTime]::UtcNow)
 
@@ -443,15 +438,15 @@ function Invoke-TrustHelper([string]$DeliveryRoot, [string]$ManifestSha256, [str
         $packageStream = Open-PinnedFile $packagePath $data.package.sha256 'MSIX'
         $appx = Get-AppxManifestFacts $packageStream 'MSIX'
         Assert-PackageIdentity $appx $data.package $facts.Subject
-        $signerKind = Assert-SignerBinding (Get-NativeSignature $packagePath) $cerBytes
+        $null = Assert-SignerBinding (Get-NativeSignature $packagePath) $cerBytes
 
         if (Test-MachineTrustedPeopleExact $cerBytes $facts.Thumbprint) {
-            Write-Host ('证书 {0} 已存在于 LocalMachine\TrustedPeople，未更改（调用者 SID {1}，签名状态 {2}）' -f $facts.Thumbprint, $OriginalCallerSid, $signerKind)
+            Write-Host ('证书 {0} 已受信任，未更改。' -f $facts.Thumbprint)
             return 10
         }
         Add-CertificateToMachineTrustedPeople $cerBytes
         if (-not (Test-MachineTrustedPeopleExact $cerBytes $facts.Thumbprint)) { Stop-Release '写入后复查未发现完全相同证书' }
-        Write-Host ('已将证书 {0} 添加到 LocalMachine\TrustedPeople（调用者 SID {1}）' -f $facts.Thumbprint, $OriginalCallerSid)
+        Write-Host ('已将证书 {0} 添加到 LocalMachine\TrustedPeople。' -f $facts.Thumbprint)
         return 0
     } catch {
         Write-Host ('证书助手未完成: ' + $_.Exception.Message)

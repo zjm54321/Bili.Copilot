@@ -23,7 +23,6 @@ public static partial class SponsorPlaybackRules
     // One normalization/admission/request/undo seam. No fictional capabilities or cloned policy inputs.
     private static CommonEvaluation EvaluateCore(PlaybackInput input, PlaybackExecutionContext? execution)
     {
-        ArgumentNullException.ThrowIfNull(input);
         var diagnostics = ImmutableArray.CreateBuilder<PlaybackDiagnostic>();
         var notices = ImmutableArray.CreateBuilder<PlaybackNotice>();
         var markers = ImmutableArray.CreateBuilder<PlaybackMarker>();

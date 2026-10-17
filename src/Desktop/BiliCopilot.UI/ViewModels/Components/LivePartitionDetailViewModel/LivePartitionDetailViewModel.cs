@@ -48,8 +48,7 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
         ClearLoadError();
         try
         {
-            // The SDK omits sort_type when tag is null. Several live areas then return
-            // code=0 with an empty list, which the SDK treats as a failed request.
+            // Always send sort_type=online; omitting it can return an empty list.
             var (lives, tags, nextPageNumber) = await _service.GetPartitionLiveListAsync(Data.Data, DefaultTag);
             var children = tags?.Select(WithUsableSort).ToList() ?? [];
             var firstTag = children.FirstOrDefault(tag => tag.SortType == DefaultSortType);
@@ -175,8 +174,7 @@ public sealed partial class LivePartitionDetailViewModel : ViewModelBase<Partiti
                 pn = cachePN;
             }
 
-            // Also normalize a server-provided 综合 tag whose sort_type is empty.
-            // Refresh starts at pn=0 after evicting its offset; the SDK sends page=1.
+            // Normalize empty server sort_type; pn=0 maps to the SDK's page=1.
             var (rooms, _, nextPn) = await _service.GetPartitionLiveListAsync(Data.Data, WithUsableSort(CurrentTag), pn);
             _childPartitionOffsetCache[CurrentTag] = nextPn;
             TryAddRooms(rooms);

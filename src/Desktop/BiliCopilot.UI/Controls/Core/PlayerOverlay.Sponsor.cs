@@ -1,6 +1,5 @@
 // Copyright (c) Bili Copilot. All rights reserved.
 
-using BiliCopilot.UI.Controls.Player.StoreIsland;
 using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.SponsorBlock.Controls;
 using BiliCopilot.UI.SponsorBlock.ViewModels;
@@ -13,32 +12,7 @@ using System.Runtime.CompilerServices;
 
 namespace BiliCopilot.UI.Controls.Core;
 
-/// <summary>
-/// SponsorBlock view host of the player overlay.
-/// <para>
-/// Contract: the composer creates and binds <see cref="SponsorPlaybackViewModel"/> /
-/// <see cref="SponsorEditorViewModel"/> for the current player attachment, then calls
-/// <see cref="BindSponsorViews"/> once. This host only associates those view models with its
-/// controls (marker strip, notice strip, full panel) and their lifetime. It never loads, attaches,
-/// detaches or closes the coordinator, never calls the view models' Bind/Unbind, and never
-/// drives the player. Unload drops the view subscriptions but keeps the registration so a reload
-/// shows the same pair; <see cref="UnbindSponsorViews"/> or a different PlayerViewModel forgets it.
-/// </para>
-/// <para>
-/// The full panel opens in a light-dismiss <see cref="Flyout"/> owned by this overlay. Its opening
-/// goes through the existing <c>OnOverlayFlyoutOpened</c> → <see cref="IslandPopupClaims"/> path, so
-/// it holds the same per-opening player input claim (IsPopupVisible) as the other overlay flyouts,
-/// is cancelled with them by <c>CancelPendingInput</c>, and its Closed releases only its own claim.
-/// The flyout keeps the default ShouldConstrainToRootBounds (the overlay's own XAML root), so it adds
-/// no windowed popup and no new native z-order.
-/// </para>
-/// <para>
-/// Entries: the overlay header rows (standalone title bar / embedded full-screen header) bind
-/// <see cref="SponsorEntryVisibility"/>; the ordinary embedded page header (EmbeddedPlayerView)
-/// asks <see cref="IsSponsorPageEntryAvailable"/> and opens the same flyout through
-/// <see cref="TryToggleSponsorPanelFromPage"/>. The transports no longer carry an entry.
-/// </para>
-/// </summary>
+/// <summary>Associates composer-owned SponsorBlock views; panel openings share the overlay's popup claims.</summary>
 public sealed partial class PlayerOverlay
 {
     private const double SponsorPanelPreferredWidth = 400;
@@ -86,9 +60,6 @@ public sealed partial class PlayerOverlay
         get => (Visibility)GetValue(SponsorEntryVisibilityProperty);
         private set => SetValue(SponsorEntryVisibilityProperty, value);
     }
-
-    /// <summary>Whether a SponsorBlock view pair is registered on this overlay.</summary>
-    internal bool HasSponsorViews => _sponsorPlayback is not null && _sponsorEditor is not null;
 
     /// <summary>
     /// Whether the ordinary embedded page header may show the SponsorBlock entry for <paramref name="owner"/>:
@@ -323,10 +294,7 @@ public sealed partial class PlayerOverlay
         panel.PlaybackViewModel = playback;
         panel.EditorViewModel = editor;
 
-        // Drops down (Placement=Bottom) from below the overlay header row when that header is shown
-        // and the area is tall enough; otherwise from the top edge (embedded page header right above
-        // the video, compact 432x243). Always right-aligned under the header entries so the video
-        // stays visible on the left; the panel's own lists scroll inside this height.
+        // Open below a visible header when it fits, otherwise at the video's top edge.
         var rootWidth = RootGrid.ActualWidth;
         var rootHeight = RootGrid.ActualHeight;
         var headerShown = IsOverlayHeaderVisible(vm.IsControlsVisible, vm.IsEmbedded, vm.Presentation) == Visibility.Visible;

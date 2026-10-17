@@ -21,8 +21,8 @@ internal sealed class MpvSponsorPlaybackBackend : ISponsorPlaybackBackend
 
     internal MpvSponsorPlaybackBackend(MpvClient client, NativeAdmission.Issuer issuer)
     {
-        this.client = client ?? throw new ArgumentNullException(nameof(client));
-        this.issuer = issuer ?? throw new ArgumentNullException(nameof(issuer));
+        this.client = client;
+        this.issuer = issuer;
     }
 
     public Task<NativePlaybackSnapshot> ReadAsync(NativeAdmission operation) => Task.Run(async () =>

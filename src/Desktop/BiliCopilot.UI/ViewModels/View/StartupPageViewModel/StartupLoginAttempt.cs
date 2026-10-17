@@ -39,11 +39,6 @@ internal sealed class StartupLoginAttempt
     {
         lock (_gate)
         {
-            if (_completed)
-            {
-                return;
-            }
-
             _completed = true;
             // Do not await callbacks here: a callback may itself be waiting for login to return.
             if (!_cancellationStarted || _cancellationCompleted)

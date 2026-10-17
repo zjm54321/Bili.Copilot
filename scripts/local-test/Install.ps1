@@ -100,7 +100,6 @@ try {
     }
     Import-Module (Join-Path $root 'LocalTest.psm1') -Force
     Assert-LTWindows
-    Assert-LTFamilyDerivation
     Assert-Fields $data @('schemaVersion', 'package', 'signerCertificateSha256', 'scripts')
     Assert-Fields $data.scripts @('installSha256', 'moduleSha256', 'configSha256')
     Assert-Fields $data.package @('file', 'sha256', 'name', 'publisher', 'version', 'architecture', 'applicationId', 'packageFamilyName', 'packageFullName', 'toastActivatorClsid', 'exeSha256', 'fileVersion', 'productVersion')

@@ -15,11 +15,7 @@ public sealed record SponsorContentPreferences(
     public static SponsorContentPreferences Default { get; } = FromOptions(new(), new());
 
     /// <summary>Does not mutate the snapshot or persist an absent section.</summary>
-    public static SponsorContentPreferences GetEffective(SponsorAuxiliarySnapshot snapshot)
-    {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        return snapshot.ContentPreferences ?? Default;
-    }
+    public static SponsorContentPreferences GetEffective(SponsorAuxiliarySnapshot snapshot) => snapshot.ContentPreferences ?? Default;
 
     public static SponsorContentPreferences FromOptions(ContentPromotionOptions content, DanmakuAidOptions danmakuAid) =>
         new(1, PersistedContentOptions.FromOptions(content), PersistedDanmakuAidOptions.FromOptions(danmakuAid));
@@ -32,11 +28,8 @@ public sealed record PersistedTextRegexLimits(
     [property: JsonRequired] int MaximumMatches,
     [property: JsonRequired] int TimeoutMilliseconds)
 {
-    public static PersistedTextRegexLimits FromOptions(TextRegexLimits options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return new(options.MaximumPatternLength, options.MaximumInputLength, options.MaximumMatches, options.TimeoutMilliseconds);
-    }
+    public static PersistedTextRegexLimits FromOptions(TextRegexLimits options) =>
+        new(options.MaximumPatternLength, options.MaximumInputLength, options.MaximumMatches, options.TimeoutMilliseconds);
 
     public TextRegexLimits ToOptions() => new()
     {
@@ -61,14 +54,11 @@ public sealed record PersistedContentOptions(
     [property: JsonRequired] string DynamicRegex,
     [property: JsonRequired] PersistedTextRegexLimits RegexLimits)
 {
-    public static PersistedContentOptions FromOptions(ContentPromotionOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return new(options.FeatureEnabled, options.DynamicEnabled, options.DynamicInAuthorSpaceEnabled,
+    public static PersistedContentOptions FromOptions(ContentPromotionOptions options) =>
+        new(options.FeatureEnabled, options.DynamicEnabled, options.DynamicInAuthorSpaceEnabled,
             options.CommentEnabled, options.BlockReplies, options.IgnoreWhitelist, options.GoodsAction,
             options.ForwardedGoodsAction, options.SuspicionAction, options.SuspicionHideThreshold,
             options.DynamicRegex, PersistedTextRegexLimits.FromOptions(options.RegexLimits));
-    }
 
     public ContentPromotionOptions ToOptions() => new()
     {
@@ -97,13 +87,10 @@ public sealed record PersistedDanmakuAidOptions(
     [property: JsonRequired] string OffsetPattern,
     [property: JsonRequired] PersistedTextRegexLimits RegexLimits)
 {
-    public static PersistedDanmakuAidOptions FromOptions(DanmakuAidOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return new(options.EnableDanmakuSkip, options.EnableAuto, options.EnableClickableTimestamp,
+    public static PersistedDanmakuAidOptions FromOptions(DanmakuAidOptions options) =>
+        new(options.EnableDanmakuSkip, options.EnableAuto, options.EnableClickableTimestamp,
             options.EnableSubmissionMenu, options.CheckNearbySegments, options.DisableSkipping,
             options.OffsetPattern, PersistedTextRegexLimits.FromOptions(options.RegexLimits));
-    }
 
     public DanmakuAidOptions ToOptions() => new()
     {

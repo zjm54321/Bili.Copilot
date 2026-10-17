@@ -24,8 +24,6 @@ public sealed partial class SponsorClient : IDisposable
     // Internal fake-handler seam cannot change the production service host or inject Bili HttpClient defaults.
     internal SponsorClient(SponsorNetworkConsent consent, HttpMessageHandler handler, TimeProvider clock, TimeSpan timeout)
     {
-        ArgumentNullException.ThrowIfNull(consent);
-        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30)) throw new ArgumentOutOfRangeException(nameof(timeout));
         this.consent = consent;
         transport = new(handler, clock, timeout);
     }
@@ -63,10 +61,8 @@ public sealed partial class SponsorClient : IDisposable
     }
 
     /// <summary>Separate full-label read/cache pool, never a playback interval.</summary>
-    public Task<ReadResult<ImmutableArray<SponsorSegment>>> GetFullLabelsAsync(MediaIdentity media,
-        bool refresh = false, CancellationToken cancellationToken = default) => GetFullLabelsCoreAsync(media, refresh, cancellationToken);
-
-    private async Task<ReadResult<ImmutableArray<SponsorSegment>>> GetFullLabelsCoreAsync(MediaIdentity media, bool refresh, CancellationToken token)
+    public async Task<ReadResult<ImmutableArray<SponsorSegment>>> GetFullLabelsAsync(MediaIdentity media,
+        bool refresh = false, CancellationToken cancellationToken = default)
     {
         if (!consent.NetworkEnabled) return new(ReadStatus.Disabled);
         var categories = SponsorRules.Categories.Where(c => c.AllowedActions.Contains("full")).Select(c => c.Id).ToArray();
@@ -74,7 +70,7 @@ public sealed partial class SponsorClient : IDisposable
             + "&" + JsonQuery("actionTypes", new[] { "full" }, SponsorJsonContext.Default.StringArray);
         var wire = await transport.ReadAsync(path, media.Combined + "|full", true, refresh,
             b => Schema(b, SponsorJsonContext.Default.SegmentBucketArray, a => a.All(v => v is not null && v.VideoId is not null
-                && !v.Segments.IsDefault && v.Segments.All(ValidRaw))), token).ConfigureAwait(false);
+                && !v.Segments.IsDefault && v.Segments.All(ValidRaw))), cancellationToken).ConfigureAwait(false);
         if (wire.Status == ReadStatus.Empty404) return new(ReadStatus.Empty404, [], wire.HttpStatus);
         if (wire.Status != ReadStatus.Success) return new(wire.Status, HttpStatus: wire.HttpStatus);
         var exact = Parse(wire.Bytes!, SponsorJsonContext.Default.SegmentBucketArray)!
@@ -107,7 +103,6 @@ public sealed partial class SponsorClient : IDisposable
                 && a.Count(p => p.BvId == media.BvId && p.Cid == media.Cid) <= 1), cancellationToken).ConfigureAwait(false);
         if (wire.Status != ReadStatus.Success) return new(wire.Status, HttpStatus: wire.HttpStatus);
         var exact = Parse(wire.Bytes!, SponsorJsonContext.Default.PortVideoArray)!.Where(v => v.BvId == media.BvId && v.Cid == media.Cid).ToArray();
-        if (exact.Length > 1) return new(ReadStatus.SchemaFailure, HttpStatus: wire.HttpStatus, Reason: "AmbiguousPortIdentity");
         return new(exact.Length == 0 ? ReadStatus.Empty200 : ReadStatus.Success, exact.FirstOrDefault(), wire.HttpStatus);
     }
 
@@ -125,6 +120,5 @@ public sealed partial class SponsorClient : IDisposable
             : new(wire.Status, HttpStatus: wire.HttpStatus);
     }
 
-    internal (int Entries, int Bytes, int Inflight) InspectCache(bool labels = false) => transport.InspectCache(labels);
     public void Dispose() => transport.Dispose();
 }

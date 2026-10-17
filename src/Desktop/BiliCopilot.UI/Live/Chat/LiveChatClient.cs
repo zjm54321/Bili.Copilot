@@ -2,6 +2,8 @@
 
 using System.Diagnostics;
 using System.Net.WebSockets;
+using BiliCopilot.UI.Toolkits;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Richasy.BiliKernel.Bili.Authorization;
 
@@ -28,9 +30,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
     private TaskCompletionSource<bool>? _disposeCompletion;
     private Task? _disposeWorker;
     private bool _poisoned;
-    private int _failureCategories;
-
-    internal LiveFailureCategory ObservedFailures => (LiveFailureCategory)Volatile.Read(ref _failureCategories);
 
     internal LiveChatClient(HttpMessageHandler handler, IBiliCookiesResolver cookies, IBiliTokenResolver tokens,
         Func<LiveAccountStamp> account, DispatcherQueue dispatcher)
@@ -161,7 +160,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                 try
                 {
                     QueueStatus(owner, LiveChatState.Connecting, null);
-                    LiveChatDiagnostics.Write("Connect", "Starting discovery");
                     var credentials = await LiveChatDispatch.InvokeAsync(_dispatcher, () =>
                     {
                         lock (_gate)
@@ -186,7 +184,7 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                 lock (_gate) owner.IsConnected = false;
                 if (owner.Stop.IsCancellationRequested)
                     break;
-                LiveChatDiagnostics.Write("Disconnected", failure.Message);
+                ReportFailure(failure);
                 if (owner.ReleaseFailed || !failure.Transient)
                 {
                     QueueStatus(owner, failure.Closed ? LiveChatState.Closed : failure.Unavailable ? LiveChatState.Unavailable : LiveChatState.Failed,
@@ -213,14 +211,13 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
             if (!owner.Stop.IsCancellationRequested)
             {
                 var failure = Classify(exception);
+                ReportFailure(failure);
                 QueueStatus(owner, failure.Unavailable ? LiveChatState.Unavailable : LiveChatState.Failed, failure.Message);
                 terminalFailure = failure;
             }
         }
         finally
         {
-            if (owner.Stop.IsCancellationRequested)
-                LiveChatDiagnostics.Write("Disconnected", "Session or account canceled");
             // The callback only requests cancellation. Join its actual unregister before Done,
             // so DrainAsync cannot dispose Stop while that callback is still using it.
             try { await owner.AccountCancellation.DisposeAsync().ConfigureAwait(false); }
@@ -256,7 +253,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                 connectDeadline.CancelAfter(TimeSpan.FromSeconds(15));
                 attempt.Connector = attempt.Socket.ConnectAsync(discovery.Endpoint, connectDeadline.Token);
                 await attempt.Connector.ConfigureAwait(false);
-                LiveChatDiagnostics.Write("Connect", "WebSocket connected");
             }
             QueueStatus(owner, LiveChatState.Authenticating, null);
             using (var authDeadline = CancellationTokenSource.CreateLinkedTokenSource(attempt.Stop.Token))
@@ -350,7 +346,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                 {
                     // Only known server-restart/internal/try-later closes are transient.
                     var code = (int?)result.CloseStatus;
-                    LiveChatDiagnostics.Write("Close", "WebSocket close received", code ?? 0);
                     throw new LiveChatFailure("Live chat connection closed.", code is 1011 or 1012 or 1013,
                         closed: code is 1000 or 1001);
                 }
@@ -365,7 +360,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                     if (operation == 8)
                     {
                         LiveProtocol.RequireAuthenticationSuccess(body);
-                        LiveChatDiagnostics.Write("Authentication", "Accepted");
                         attempt.Auth.TrySetResult(true);
                     }
                     else if (operation == 3)
@@ -386,11 +380,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                         var message = LiveProtocol.ReadMessage(owner.Binding, body);
                         if (message is not null)
                         {
-                            if (!attempt.FirstMessageReceived)
-                            {
-                                attempt.FirstMessageReceived = true;
-                                LiveChatDiagnostics.Write("Receive", "First chat message parsed");
-                            }
                             QueueMessage(owner, message);
                         }
                     }
@@ -710,7 +699,13 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
         catch (Exception) { RecordFailure(category); }
     }
 
-    private void RecordFailure(LiveFailureCategory category) => Interlocked.Or(ref _failureCategories, (int)category);
+    private void RecordFailure(LiveFailureCategory category)
+        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveChatClient>>(),
+            logger => logger.LogWarning("Live chat operation failed: {Category}", category));
+
+    private void ReportFailure(LiveChatFailure failure)
+        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveChatClient>>(),
+            logger => logger.LogWarning("Live chat failed: {Reason}", failure.Message));
 
     private static TaskCompletionSource<T> Completion<T>() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -756,7 +751,6 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
         internal Task Closer = Task.CompletedTask;
         internal LiveChatFailure? HeartbeatFailure;
         internal long? ConnectedAt;
-        internal bool FirstMessageReceived;
     }
 
     private sealed class SendAttempt

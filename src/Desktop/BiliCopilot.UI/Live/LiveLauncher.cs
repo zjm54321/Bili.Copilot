@@ -203,13 +203,12 @@ public sealed class LiveLauncher : IAsyncDisposable
         async Task CloseCoreAsync()
         {
             await Task.Yield();
-            var cancellationFailed = false;
             try {
                 // T3-06: Opening cancellation starts before this close join; its callbacks do not synchronously await the close consumer.
                 #pragma warning disable VSTHRD003
                 await cancel;
                 #pragma warning restore VSTHRD003
-            } catch { cancellationFailed = true; }
+            } catch { Report("Live opening cancellation callback failed; resource drain continues."); }
             if (pending is not null) try {
                 // T3-07: The captured opening task must finish, including CTS disposal in finally, before its owner can be replaced.
                 #pragma warning disable VSTHRD003
@@ -229,7 +228,6 @@ public sealed class LiveLauncher : IAsyncDisposable
             {
                 try { await CloseWindowAsync(current); } catch { releaseFailed = true; }
             }
-            WriteReleaseFacts(cancellationFailed, !releaseFailed && _current is null);
             if (releaseFailed || _current is { ReleaseConfirmed: false })
                 throw new InvalidOperationException("Live release is unconfirmed.");
         }
@@ -255,11 +253,6 @@ public sealed class LiveLauncher : IAsyncDisposable
         try { _registry.Release(window); }
         catch { Report("Live registry accounting failed after confirmed release."); }
     }
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void WriteReleaseFacts(bool cancellationFailed, bool resourcesReleased)
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveLauncher>>(), logger => logger.LogInformation(
-            "FailureContext Stage=LiveLauncherRelease CancellationCallbackFailed={CancellationCallbackFailed} ResourcesReleased={ResourcesReleased}",
-            cancellationFailed, resourcesReleased));
     private LiveAccountStamp CaptureAccount()
         => new(_account.AccountId, _account.AccountGeneration, _account.AccountCancellationToken);
     private void CheckUi()

@@ -220,11 +220,9 @@ internal sealed class LiveRouteCoordinator
         catch { return Task.FromException(Failure()); }
     }
 
-    [System.Diagnostics.Conditional("DEBUG")]
     private void WriteCancellationFailure()
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveRouteCoordinator>>(), logger => logger.LogInformation(
-            "FailureContext Stage=LiveRouteCancellation Failure={Failure} ReleaseUnconfirmed={ReleaseUnconfirmed}",
-            LiveFailureCategory.CancellationCallback, _releaseUnconfirmed));
+        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveRouteCoordinator>>(),
+            logger => logger.LogWarning("Live route cancellation callback failed; resource drain continues."));
 
     private static InvalidOperationException Failure()
         => new("播放切换或关闭未完成，原播放所有者仍被保留。");

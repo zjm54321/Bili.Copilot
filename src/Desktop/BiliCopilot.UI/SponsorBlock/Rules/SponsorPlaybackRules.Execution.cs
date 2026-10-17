@@ -6,8 +6,6 @@ public static partial class SponsorPlaybackRules
 {
     public static PlaybackExecutionPlan EvaluateExecution(PlaybackInput input, PlaybackExecutionContext context)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(context);
         if (context.Stamp != input.Stamp) return RejectedExecution(input, PlaybackExecutionValidity.StaleContext);
         if (!ValidExecutionContext(input, context)) return RejectedExecution(input, PlaybackExecutionValidity.InvalidContext);
 

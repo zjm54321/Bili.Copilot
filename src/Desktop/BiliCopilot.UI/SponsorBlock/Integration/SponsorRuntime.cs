@@ -51,7 +51,6 @@ internal sealed partial class SponsorRuntime
     /// Must be called immediately after task creation. Returns that same task, never a surrogate.</summary>
     internal Task TrackUiWork(Task actualTask)
     {
-        ArgumentNullException.ThrowIfNull(actualTask);
         lock (uiWorkSync)
         {
             uiWork.RemoveWhere(task => task.IsCompleted);
@@ -87,16 +86,6 @@ internal sealed partial class SponsorRuntime
         try
         {
             LastLoadResult = await Coordinator.LoadAsync();
-            SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<SponsorRuntime>>(), logger =>
-            {
-                var observed = Coordinator.Snapshot;
-                logger.LogInformation(
-                    "FailureContext Stage=SponsorInitialLoadResult Result={Result} ResultPersistence={ResultPersistence} Persistence={Persistence} StoreVersionKnown={StoreVersionKnown} CommittedNetworkEnabled={CommittedNetworkEnabled} CommittedViewedEnabled={CommittedViewedEnabled} HasSaveError={HasSaveError} Closed={Closed}",
-                    LastLoadResult.Status, LastLoadResult.Persistence, observed.Persistence, observed.StoreVersion is not null,
-                    observed.StoreVersion is not null ? (bool?)observed.Settings.NetworkEnabled : null,
-                    observed.StoreVersion is not null ? (bool?)observed.Settings.ViewedTelemetryEnabled : null,
-                    settings.HasSaveError, observed.Closed);
-            });
             failureStage = FailureStage.SponsorSettingsBind;
             if (!closing && !settingsBound)
             {
@@ -117,7 +106,6 @@ internal sealed partial class SponsorRuntime
 
     public void BindSettingsPage(SettingsPage page)
     {
-        ArgumentNullException.ThrowIfNull(page);
         dispatcher.CheckAccess();
         if (!page.DispatcherQueue.HasThreadAccess || closing) return;
         // A global VM's commands cannot identify which of two pages was clicked. Associate only
@@ -133,7 +121,6 @@ internal sealed partial class SponsorRuntime
 
     public void UnbindSettingsPage(SettingsPage page)
     {
-        ArgumentNullException.ThrowIfNull(page);
         dispatcher.CheckAccess();
         page.UnbindSponsorSettings();
         backups.Disassociate(page);

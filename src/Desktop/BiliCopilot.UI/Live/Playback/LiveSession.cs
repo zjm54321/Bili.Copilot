@@ -55,9 +55,6 @@ public sealed class LiveSession : ILiveSession
     private bool _sending;
     private bool _controlPending;
     private bool _releaseBlocked;
-    private int _failureCategories;
-
-    internal LiveFailureCategory ObservedFailures => (LiveFailureCategory)Volatile.Read(ref _failureCategories);
 
     public LiveSession(IClassicPlaybackBackend backend, ClassicMediaSourceService sources,
         ILiveChatClient chat, Func<LiveAccountStamp> account, DispatcherQueue dispatcher)
@@ -453,13 +450,12 @@ public sealed class LiveSession : ILiveSession
             ClearInbox();
             Notify();
             _scope?.Invalidate();
-            var cancellationFailed = false;
             try {
                 // T4-06: Shutdown cancellation starts before close joins it; account callbacks never synchronously wait for this close consumer.
                 #pragma warning disable VSTHRD003
                 await _cancelShutdown;
                 #pragma warning restore VSTHRD003
-            } catch { cancellationFailed = true; RecordFailure(LiveFailureCategory.CancellationCallback); }
+            } catch { RecordFailure(LiveFailureCategory.CancellationCallback); }
             // T4-07: The retained observer tail drains actual serial media work; producers do not await the close consumer.
             #pragma warning disable VSTHRD003
             await _tail; // Observer tail drains every actual media task, including late SDK results.
@@ -472,7 +468,7 @@ public sealed class LiveSession : ILiveSession
                     #pragma warning disable VSTHRD003
                     await scope.Cancellation;
                     #pragma warning restore VSTHRD003
-                } catch { cancellationFailed = true; RecordFailure(LiveFailureCategory.CancellationCallback); }
+                } catch { RecordFailure(LiveFailureCategory.CancellationCallback); }
                 // T4-09: Terminal close retains and joins the independently owned connect task before releasing chat/backend owners.
                 #pragma warning disable VSTHRD003
                 await Observe(scope.Connect);
@@ -490,9 +486,6 @@ public sealed class LiveSession : ILiveSession
             // Drain it even after an owner fails, and before disposing tokens or confirming release.
             try { await _accountRegistration.DisposeAsync(); }
             catch { RecordFailure(LiveFailureCategory.RegistrationRelease); }
-            if (chatReleased && backendReleased && cancellationFailed)
-                RecordFailure(LiveFailureCategory.CancellationAfterRelease);
-            WriteReleaseFacts(chatReleased, backendReleased, cancellationFailed);
             // Completed callback faults are not running work or evidence of native ownership.
             // Both actual disposals must succeed. Cached close is never a disposal retry.
             if (!chatReleased || !backendReleased)
@@ -704,13 +697,9 @@ public sealed class LiveSession : ILiveSession
         catch { RecordFailure(LiveFailureCategory.OwnedTaskFault); }
     }
 
-    private void RecordFailure(LiveFailureCategory category) => Interlocked.Or(ref _failureCategories, (int)category);
-
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void WriteReleaseFacts(bool chatReleased, bool backendReleased, bool cancellationFailed)
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveSession>>(), logger => logger.LogInformation(
-            "FailureContext Stage=LiveSessionRelease ChatReleased={ChatReleased} BackendReleased={BackendReleased} CancellationCallbackFailed={CancellationCallbackFailed} ResourcesReleased={ResourcesReleased} Failures={Failures}",
-            chatReleased, backendReleased, cancellationFailed, chatReleased && backendReleased, ObservedFailures));
+    private void RecordFailure(LiveFailureCategory category)
+        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<LiveSession>>(),
+            logger => logger.LogWarning("Live session operation failed: {Category}", category));
 
     private sealed class Scope : IDisposable
     {

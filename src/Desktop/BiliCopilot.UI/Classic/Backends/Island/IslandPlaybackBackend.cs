@@ -14,7 +14,6 @@ namespace BiliCopilot.UI.Classic.Backends.Island;
 /// <summary>
 /// Owns the engine, not the HWND. The host must keep its dedicated render HWND alive until
 /// DisposeAsync finishes. No MpvPlayer or second mpv event pump is created here.
-/// Live diagnostics use only the library's managed events, never native event memory.
 /// </summary>
 public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
 {
@@ -32,7 +31,6 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
     private MpvClient? _client;
     private TaskCompletionSource<bool>? _ready;
     private bool _releaseUnconfirmed;
-    private EventHandler? _loadingHandler;
     private EventHandler? _loadedHandler;
     private EventHandler? _endHandler;
     private EventHandler<MpvError>? _errorHandler;
@@ -129,7 +127,7 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
             EnsureCurrent(generation, cancellationToken);
             try
             {
-                await OpenCoreAsync(media, generation, cancellationToken, media.LiveCandidates[index], index + 1).ConfigureAwait(false);
+                await OpenCoreAsync(media, generation, cancellationToken, media.LiveCandidates[index]).ConfigureAwait(false);
                 return;
             }
             catch (BackendFailure error) when (error.EndBeforeReady && index + 1 < count)
@@ -143,7 +141,7 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
     }
 
     private async Task OpenCoreAsync(ClassicResolvedMedia media, long generation, CancellationToken cancellationToken,
-        ClassicLiveStreamCandidate? candidate = null, int attempt = 1)
+        ClassicLiveStreamCandidate? candidate = null)
     {
         // A client per open is deliberate: mpv's public file events have no media identity.
         // Rebinding handlers on a reused client would mislabel a previous file's late end event.
@@ -194,10 +192,7 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
             failureStage = FailureStage.IslandConfigure;
             EnsureCurrent(generation, cancellationToken);
             var client = _client;
-            // The live Referer travels through MpvPlayOptions.HttpHeaders below. Do not
-            // introduce another native client or a second event reader for diagnostics.
             var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            int? liveReadinessError = null;
             lock (_sync) { _ready = ready; if (!IsCurrent(generation)) ready.TrySetCanceled(); }
             using var readyCancellation = cancellationToken.Register(() => ready.TrySetCanceled(cancellationToken));
             // Complete readiness directly, never enqueue behind the Open that is waiting for it.
@@ -213,9 +208,6 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
                     if (!IsCurrent(generation) || !ReferenceEquals(_client, client)) return;
                     if (!ready.Task.IsCompleted)
                     {
-                        if (media.Live is not null)
-                            WriteLiveReadinessFacts(uri, candidate, attempt, endBeforeReady: true, sdkError: liveReadinessError);
-                        WriteReadinessFacts(endBeforeReady: true);
                         ready.TrySetException(new BackendFailure("Island media ended before it became ready.") { EndBeforeReady = true });
                         return;
                     }
@@ -229,31 +221,12 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
                 if (_state != ClassicPlaybackState.Ended) throw new BackendFailure("Island media stopped unexpectedly.");
                 });
             };
-#if DEBUG
-            var readinessErrorReported = false;
-#endif
             _errorHandler = (_, error) =>
             {
                 var failure = new BackendFailure($"Island playback failed (mpv {(int)error}).");
                 lock (_sync)
                 {
                     if (!IsCurrent(generation) || !ReferenceEquals(_client, client)) return;
-                    if (media.Live is not null && !ready.Task.IsCompletedSuccessfully && liveReadinessError is null)
-                    {
-                        // Keep the first SDK error even if end-file won the readiness race.
-                        // No native strings, pointers or event data escape the SDK.
-                        liveReadinessError = (int)error;
-                        WriteLiveReadinessFacts(uri, candidate, attempt, endBeforeReady: false, sdkError: liveReadinessError);
-                    }
-#if DEBUG
-                    // End can win the readiness race before mpv supplies its numeric error.
-                    // Retain that first code too, but never log an unbounded native event stream.
-                    if (!ready.Task.IsCompletedSuccessfully && !readinessErrorReported)
-                    {
-                        readinessErrorReported = true;
-                        WriteReadinessFacts(mpvError: (int)error);
-                    }
-#endif
                     // The wrapper synthesizes ErrorOccurred from log messages (including HTTP
                     // errors) before it delivers end-file. For live admission, wait for that
                     // end event so the pre-ready retry classification survives. The SDK does
@@ -293,9 +266,7 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
             _loaded = true;
             if (_decode == ClassicDecodePreference.D3D11)
             {
-                WriteReadinessFacts(strictDecodeCheck: true);
                 var confirmed = string.Equals(MpvNative.GetPropertyString(client.Handle, "hwdec-current"), "d3d11va", StringComparison.Ordinal);
-                WriteReadinessFacts(strictDecodeCheck: true, strictDecodeConfirmed: confirmed);
                 if (!confirmed) throw new BackendFailure("D3D11 decoding is unavailable for this Island media/device.");
             }
             failureStage = FailureStage.IslandInitialSample;
@@ -376,17 +347,14 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
         if (_releaseUnconfirmed)
             throw new BackendFailure("Island engine release remains unconfirmed; its HWND and owner must be retained. Library disposal cannot safely be retried.");
         lock (_sync) { _ready?.TrySetCanceled(); _ready = null; }
-        client.ReachFileLoading -= _loadingHandler;
         client.ReachFileLoaded -= _loadedHandler;
         client.ReachFileEnd -= _endHandler;
         client.ErrorOccurred -= _errorHandler;
-        _loadingHandler = _loadedHandler = _endHandler = null;
+        _loadedHandler = _endHandler = null;
         _errorHandler = null;
         Exception? stopFailure = null;
-        WriteReleaseFacts(TaskStatus.Running, null);
         try { Check(await client.StopAsync().ConfigureAwait(false), "Island stop failed."); }
         catch (Exception error) { stopFailure = error; }
-        WriteReleaseFacts(stopFailure is null ? TaskStatus.RanToCompletion : TaskStatus.Faulted, TaskStatus.Running);
         try
         {
             // This awaits the library's disposal, NOT a join of its private untracked event task.
@@ -397,11 +365,9 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
         {
             // MpvClient sets IsDisposed before finishing cleanup. A second no-op call is NOT proof.
             _releaseUnconfirmed = true;
-            WriteReleaseFacts(stopFailure is null ? TaskStatus.RanToCompletion : TaskStatus.Faulted, TaskStatus.Faulted);
             throw new BackendFailure("Island engine release is unconfirmed; retain its HWND and owner. Safe retry is unavailable.");
         }
         _client = null; // Only a successful disposal releases ownership.
-        WriteReleaseFacts(stopFailure is null ? TaskStatus.RanToCompletion : TaskStatus.Faulted, TaskStatus.RanToCompletion);
         if (stopFailure is not null) _safeError = "Island stop failed, but engine disposal completed.";
     }
 
@@ -477,26 +443,6 @@ public sealed class IslandPlaybackBackend : IClassicPlaybackBackend
     }
 
     private static string SafeMessage(Exception error) => error is BackendFailure ? error.Message : "Classic Island operation failed; no backend was substituted.";
-
-    private void WriteLiveReadinessFacts(Uri uri, ClassicLiveStreamCandidate? candidate, int attempt,
-        bool endBeforeReady, int? sdkError)
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<IslandPlaybackBackend>>(), logger => logger.LogInformation(
-            "FailureContext Stage=IslandReady EndBeforeReady={EndBeforeReady} Attempt={Attempt} MaxAttempts=3 StreamHost={StreamHost} StreamFormat={StreamFormat} StreamCodec={StreamCodec} FormatSource=UrlPath DiagnosticSource=SdkEvents SdkError={SdkError} EndReason=Unavailable EndDataAvailable=false",
-            endBeforeReady, attempt, uri.Host, candidate?.Format ?? "unknown", candidate?.Codec ?? "unknown", sdkError));
-
-    // Temporary DEBUG-only, finite facts. Never emit a native string/property value or media data.
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void WriteReadinessFacts(bool endBeforeReady = false, int? mpvError = null,
-        bool strictDecodeCheck = false, bool? strictDecodeConfirmed = null)
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<IslandPlaybackBackend>>(), logger => logger.LogInformation(
-            "FailureContext Stage=IslandReady Decode={Decode} EndBeforeReady={EndBeforeReady} MpvError={MpvError} StrictD3D11Check={StrictD3D11Check} StrictD3D11Confirmed={StrictD3D11Confirmed}",
-            _decode, endBeforeReady, mpvError, strictDecodeCheck, strictDecodeConfirmed));
-
-    [System.Diagnostics.Conditional("DEBUG")]
-    private void WriteReleaseFacts(TaskStatus stopStatus, TaskStatus? disposeStatus)
-        => SafeFailureContext.TryWriteFacts(() => this.Get<ILogger<IslandPlaybackBackend>>(), logger => logger.LogInformation(
-            "FailureContext Stage=IslandRelease StopStatus={StopStatus} DisposeStatus={DisposeStatus} ResourcesReleased={ResourcesReleased} ReleaseUnconfirmed={ReleaseUnconfirmed}",
-            stopStatus, disposeStatus, _client is null && !_releaseUnconfirmed, _releaseUnconfirmed));
 
     private static void Check(Result result, string safeError) { if (result.IsFailed) throw new BackendFailure(safeError); }
     private sealed class BackendFailure : Exception

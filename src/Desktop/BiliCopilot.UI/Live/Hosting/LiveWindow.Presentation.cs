@@ -197,7 +197,6 @@ public sealed partial class LiveWindow
     {
         if (_view is not null)
         {
-            _view.VideoLayoutChanged += OnVideoLayoutChanged;
             _windowInput = new LivePresentationInput(_view, () => CanUsePresentation && IsCompactOverlay,
                 BeginCompactMove, ExitFullScreenFromInput, keyboardRoot: _mainWindow.Content as UIElement);
         }
@@ -205,11 +204,8 @@ public sealed partial class LiveWindow
             BeginCompactMove, ExitFullScreenFromInput, () => _view?.RevealTransport());
     }
 
-    private void OnVideoLayoutChanged(object? sender, EventArgs args) => RefreshNativeBounds();
-
     private void DetachPresentationInput()
     {
-        if (_view is not null) _view.VideoLayoutChanged -= OnVideoLayoutChanged;
         _windowInput?.Detach();
         _windowInput = null;
         _surface?.DetachPresentationInput();

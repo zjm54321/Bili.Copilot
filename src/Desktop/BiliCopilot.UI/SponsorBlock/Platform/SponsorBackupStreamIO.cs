@@ -18,7 +18,6 @@ internal static class SponsorBackupStreamIO
     /// </summary>
     internal static async Task<byte[]> ReadBoundedAsync(Stream stream)
     {
-        ArgumentNullException.ThrowIfNull(stream);
         using var result = new MemoryStream();
         var buffer = new byte[ReadBufferBytes];
         var total = 0;
