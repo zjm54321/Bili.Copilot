@@ -20,6 +20,8 @@ public sealed partial class UserSpacePage : UserSpacePageBase, IParameterPage
     {
         if (parameter is UserProfile profile)
         {
+            // 头部资料卡独立拉取用户卡片，不经过 ViewModel 的请求队列，避免覆盖列表加载/空态/错误态.
+            ProfileHeader.SetProfile(profile);
             ViewModel.InitializeCommand.Execute(profile);
         }
     }

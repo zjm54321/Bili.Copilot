@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <local:UserSpacePageControlBase
     x:Class="BiliCopilot.UI.Controls.Moment.UserSpacePageHeader"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -12,232 +12,253 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="16,0">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition />
-            <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <StackPanel
-            x:Name="LeftContainer"
-            VerticalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="12">
-            <Button
-                Margin="-12,0,0,0"
-                Padding="16,12"
-                VerticalAlignment="Center"
-                Background="Transparent"
-                BorderThickness="0"
-                Command="{x:Bind ViewModel.InitializeUserInformationCommand, Mode=OneWay}">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}">
-                    <Run Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Text="{x:Bind ViewModel.UserName, Mode=OneWay}" />
-                    <Run Text="{ext:Locale Name=UserSpaceTitle}" />
-                </TextBlock>
-                <Button.Flyout>
-                    <Flyout Placement="Bottom">
-                        <Grid Width="320">
-                            <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.Card, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid>
-                                        <controls:BasicCoverImage
-                                            Width="48"
-                                            Height="48"
-                                            VerticalAlignment="Top"
-                                            CornerRadius="24"
-                                            DecodeWidth="100"
-                                            Source="{x:Bind ViewModel.Card.Profile.User.Avatar.SourceUri, Mode=OneWay}" />
-                                        <Image
-                                            Width="16"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Bottom"
-                                            Source="ms-appx:///Assets/vip.png"
-                                            Visibility="{x:Bind ViewModel.Card.Profile.IsVip, Mode=OneWay}" />
-                                    </Grid>
+    <!--
+        Fluent 分层头部：标准 Layer 卡片承载资料（头像 / 昵称 / 签名 / 统计），操作按钮在卡片右侧对齐；
+        次要操作（固定到侧边栏）收进“更多”菜单；标签栏位于卡片下方并与卡片左缘对齐。
+    -->
+    <Grid x:Name="RootGrid" Padding="24,16,24,0" RowSpacing="4">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="LayoutStates">
+                <VisualState x:Name="WideState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="760" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <!-- 窄屏：操作按钮换到资料下方左对齐，边距收窄 -->
+                <VisualState x:Name="NarrowState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="RootGrid.Padding" Value="16,12,16,0" />
+                        <Setter Target="ProfileCard.Padding" Value="16,12" />
+                        <Setter Target="RightContainer.(Grid.Row)" Value="1" />
+                        <Setter Target="RightContainer.(Grid.Column)" Value="1" />
+                        <Setter Target="RightContainer.HorizontalAlignment" Value="Left" />
+                        <Setter Target="RightContainer.Margin" Value="0,12,0,0" />
+                        <Setter Target="RefreshText.Visibility" Value="Collapsed" />
+                        <Setter Target="SignBlock.MaxLines" Value="1" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
 
-                                    <Grid Grid.Column="1" ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition />
-                                            <ColumnDefinition />
-                                            <ColumnDefinition />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel HorizontalAlignment="Center" Spacing="4">
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Style="{StaticResource BodyStrongTextBlockStyle}"
-                                                Text="{x:Bind ViewModel.Card.Community.FansCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                Text="{ext:Locale Name=FansCount}" />
-                                        </StackPanel>
-                                        <StackPanel
-                                            Grid.Column="1"
-                                            HorizontalAlignment="Center"
-                                            Spacing="4">
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Style="{StaticResource BodyStrongTextBlockStyle}"
-                                                Text="{x:Bind ViewModel.Card.Community.FollowCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                Text="{ext:Locale Name=FollowCount}" />
-                                        </StackPanel>
-                                        <StackPanel
-                                            Grid.Column="2"
-                                            HorizontalAlignment="Center"
-                                            Spacing="4">
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Style="{StaticResource BodyStrongTextBlockStyle}"
-                                                Text="{x:Bind ViewModel.Card.Community.LikeCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
-                                            <TextBlock
-                                                HorizontalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                Text="{ext:Locale Name=LikeCount}" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Grid>
-                                <StackPanel Spacing="8">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock
-                                            VerticalAlignment="Center"
-                                            Style="{StaticResource BodyStrongTextBlockStyle}"
-                                            Text="{x:Bind ViewModel.Card.Profile.User.Name, Mode=OneWay}" />
-                                        <Image
-                                            Height="12"
-                                            VerticalAlignment="Center"
-                                            Source="{x:Bind ViewModel.Card.Profile.Level, Mode=OneWay, Converter={StaticResource LevelImageConverter}}" />
-                                        <Border
-                                            Padding="4,2"
-                                            VerticalAlignment="Center"
-                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                            CornerRadius="{StaticResource ControlCornerRadius}">
-                                            <TextBlock
-                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                IsTextSelectionEnabled="True"
-                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                Text="{x:Bind ViewModel.Card.Profile.User.Id, Mode=OneWay}" />
-                                        </Border>
-                                    </StackPanel>
-                                    <base:TrimTextBlock
-                                        HorizontalAlignment="Left"
-                                        FontSize="12"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        MaxLines="2"
-                                        Text="{x:Bind ViewModel.Card.Profile.Introduce, Mode=OneWay}" />
-                                </StackPanel>
-                            </StackPanel>
-                            <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.Card, Mode=OneWay, Converter={StaticResource ObjectToVisibilityReverseConverter}}">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition />
-                                    </Grid.ColumnDefinitions>
-                                    <base:Shimmer
-                                        Height="48"
-                                        HorizontalAlignment="Stretch"
-                                        CornerRadius="24"
-                                        IsActive="{x:Bind ViewModel.Card, Mode=OneWay, Converter={StaticResource ObjectToBoolReverseConverter}}" />
-                                    <base:Shimmer
-                                        Grid.Column="1"
-                                        Height="48"
-                                        HorizontalAlignment="Stretch"
-                                        CornerRadius="{StaticResource ControlCornerRadius}"
-                                        IsActive="{x:Bind ViewModel.Card, Mode=OneWay, Converter={StaticResource ObjectToBoolReverseConverter}}" />
-                                </Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-                                <base:Shimmer
-                                    Height="48"
-                                    HorizontalAlignment="Stretch"
-                                    CornerRadius="{StaticResource ControlCornerRadius}"
-                                    IsActive="{x:Bind ViewModel.Card, Mode=OneWay, Converter={StaticResource ObjectToBoolReverseConverter}}" />
-                            </StackPanel>
-                        </Grid>
-                    </Flyout>
-                </Button.Flyout>
-            </Button>
+        <!-- 资料卡（搜索模式下仍保留，便于确认当前空间） -->
+        <Border
+            x:Name="ProfileCard"
+            Padding="20,16"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource OverlayCornerRadius}">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-            <ToggleButton
-                Width="32"
-                Height="32"
-                Padding="0"
-                VerticalAlignment="Center"
-                HorizontalContentAlignment="Center"
-                VerticalContentAlignment="Center"
-                Command="{x:Bind ViewModel.ToggleFollowCommand, Mode=OneWay}"
-                CornerRadius="16"
-                IsChecked="{x:Bind ViewModel.IsFollowed, Mode=OneWay}"
-                ToolTipService.ToolTip="{ext:Locale Name=Follow}">
-                <ic:SymbolIcon
-                    FontSize="14"
-                    IconVariant="{x:Bind ViewModel.IsFollowed, Mode=OneWay, Converter={StaticResource BoolToIconVariantConverter}}"
-                    Symbol="Heart" />
-            </ToggleButton>
-        </StackPanel>
+                <!-- 头像 -->
+                <Border
+                    Width="64"
+                    Height="64"
+                    VerticalAlignment="Top"
+                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="32">
+                    <controls:BasicCoverImage
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        CornerRadius="32"
+                        DecodeWidth="128"
+                        Source="{x:Bind local:UserSpacePageHeader.GetAvatar(Profile, Card), Mode=OneWay}" />
+                </Border>
 
-        <SelectorBar
-            x:Name="Selector"
-            Grid.Column="0"
-            Grid.ColumnSpan="3"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Visibility="{x:Bind ViewModel.IsSearchMode, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
+                <!-- 昵称 / 签名 / 统计 -->
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Spacing="4">
+                    <TextBlock
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="{x:Bind local:UserSpacePageHeader.GetDisplayName(Profile, Card, ViewModel.UserName), Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap" />
+                    <base:TrimTextBlock
+                        x:Name="SignBlock"
+                        HorizontalAlignment="Left"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        MaxLines="2"
+                        Text="{x:Bind local:UserSpacePageHeader.FormatSign(Card), Mode=OneWay}"
+                        Visibility="{x:Bind Card, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />
+                    <StackPanel
+                        Margin="0,4,0,0"
+                        Orientation="Horizontal"
+                        Spacing="20"
+                        Visibility="{x:Bind Card, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Card.Community.FansCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="粉丝" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Card.Community.FollowCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="关注" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Card.Community.LikeCount, Mode=OneWay, Converter={StaticResource CountConverter}}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="获赞" />
+                        </StackPanel>
+                    </StackPanel>
 
-        <StackPanel
-            Grid.Column="1"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="8"
-            Visibility="{x:Bind ViewModel.IsSearchMode, Mode=OneWay}">
-            <TextBlock VerticalAlignment="Center">
-                <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{ext:Locale Name=Search}" />
-                <Run
-                    FontWeight="Bold"
-                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                    Text="{x:Bind ViewModel.SearchKeyword, Mode=OneWay}" />
-            </TextBlock>
-            <Button
-                VerticalAlignment="Center"
-                Command="{x:Bind ViewModel.ExitSearchCommand}"
-                Style="{StaticResource IconButtonStyle}"
-                ToolTipService.ToolTip="{ext:Locale Name=ExitSearch}">
-                <ic:SymbolIcon FontSize="14" Symbol="Dismiss" />
-            </Button>
-        </StackPanel>
-
-        <StackPanel
-            x:Name="RightContainer"
-            Grid.Column="2"
-            VerticalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="8">
-            <Button
-                VerticalAlignment="Center"
-                Command="{x:Bind ViewModel.PinCommand, Mode=OneWay}"
-                Style="{StaticResource IconButtonStyle}"
-                ToolTipService.ToolTip="{ext:Locale Name=FixedContent}">
-                <ic:SymbolIcon FontSize="14" Symbol="Pin" />
-            </Button>
-            <Button
-                VerticalAlignment="Center"
-                AutomationProperties.Name="{ext:Locale Name=Refresh}"
-                Command="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ic:SymbolIcon
-                        VerticalAlignment="Center"
-                        FontSize="12"
-                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                        Symbol="ArrowSync" />
-                    <TextBlock VerticalAlignment="Center" Text="{ext:Locale Name=Refresh}" />
+                    <!-- 资料加载中：签名与统计骨架 -->
+                    <StackPanel Spacing="8" Visibility="{x:Bind local:UserSpacePageHeader.IsCardLoadingVisible(Card, IsCardFailed), Mode=OneWay}">
+                        <base:Shimmer
+                            Width="240"
+                            Height="14"
+                            HorizontalAlignment="Left"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            IsActive="{x:Bind local:UserSpacePageHeader.IsCardLoading(Card, IsCardFailed), Mode=OneWay}" />
+                        <base:Shimmer
+                            Width="180"
+                            Height="14"
+                            HorizontalAlignment="Left"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            IsActive="{x:Bind local:UserSpacePageHeader.IsCardLoading(Card, IsCardFailed), Mode=OneWay}" />
+                    </StackPanel>
                 </StackPanel>
-            </Button>
-        </StackPanel>
+
+                <!-- 操作：关注（主操作）/ 刷新 / 更多（固定到侧边栏），右侧对齐 -->
+                <StackPanel
+                    x:Name="RightContainer"
+                    Grid.Column="2"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        MinWidth="88"
+                        Command="{x:Bind ViewModel.ToggleFollowCommand, Mode=OneWay}"
+                        Content="{ext:Locale Name=Follow}"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Visibility="{x:Bind local:UserSpacePageHeader.IsUnfollowedVisible(ViewModel.IsFollowed), Mode=OneWay}" />
+                    <Button
+                        MinWidth="88"
+                        Command="{x:Bind ViewModel.ToggleFollowCommand, Mode=OneWay}"
+                        Content="{ext:Locale Name=Followed}"
+                        ToolTipService.ToolTip="{ext:Locale Name=Unfollow}"
+                        Visibility="{x:Bind local:UserSpacePageHeader.IsFollowedVisible(ViewModel.IsFollowed), Mode=OneWay}" />
+                    <!-- 关系未知（加载中或本人空间）：禁用占位，保持布局稳定 -->
+                    <Button
+                        MinWidth="88"
+                        Content="{ext:Locale Name=Follow}"
+                        IsEnabled="False"
+                        Visibility="{x:Bind local:UserSpacePageHeader.IsFollowUnknownVisible(ViewModel.IsFollowed), Mode=OneWay}" />
+                    <Button
+                        AutomationProperties.Name="{ext:Locale Name=Refresh}"
+                        Command="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}"
+                        ToolTipService.ToolTip="{ext:Locale Name=Refresh}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ic:SymbolIcon
+                                VerticalAlignment="Center"
+                                FontSize="14"
+                                Symbol="ArrowSync" />
+                            <TextBlock
+                                x:Name="RefreshText"
+                                VerticalAlignment="Center"
+                                Text="{ext:Locale Name=Refresh}" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        AutomationProperties.Name="更多"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="更多">
+                        <ic:SymbolIcon FontSize="16" Symbol="MoreHorizontal" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuFlyoutItem Command="{x:Bind ViewModel.PinCommand, Mode=OneWay}" Text="固定到侧边栏">
+                                    <MenuFlyoutItem.Icon>
+                                        <ic:SymbolIcon Symbol="Pin" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Command="{x:Bind ViewModel.OpenHomeInBrowserCommand, Mode=OneWay}" Text="{ext:Locale Name=OpenUserHomeInBrowser}">
+                                    <MenuFlyoutItem.Icon>
+                                        <ic:SymbolIcon Symbol="Globe" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 标签栏：与资料卡左缘对齐（SelectorBar 项自带 12px 内边距，故左移抵消） -->
+        <Grid Grid.Row="1" MinHeight="44">
+            <SelectorBar
+                x:Name="Selector"
+                Margin="-12,0,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Bottom"
+                SelectionChanged="OnSelectorChanged"
+                Visibility="{x:Bind ViewModel.IsSearchMode, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}">
+                <SelectorBarItem x:Name="HomeTabItem" Text="主页" />
+                <SelectorBarItem x:Name="DynamicsTabItem" Text="动态" />
+                <SelectorBarItem x:Name="SubmissionsTabItem" Text="投稿" />
+                <SelectorBarItem x:Name="CollectionsTabItem" Text="合集与系列" />
+            </SelectorBar>
+
+            <StackPanel
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8"
+                Visibility="{x:Bind ViewModel.IsSearchMode, Mode=OneWay}">
+                <TextBlock VerticalAlignment="Center">
+                    <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{ext:Locale Name=Search}" />
+                    <Run
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                        Text="{x:Bind ViewModel.SearchKeyword, Mode=OneWay}" />
+                </TextBlock>
+                <Button
+                    VerticalAlignment="Center"
+                    Command="{x:Bind ViewModel.ExitSearchCommand}"
+                    Style="{StaticResource IconButtonStyle}"
+                    ToolTipService.ToolTip="{ext:Locale Name=ExitSearch}">
+                    <ic:SymbolIcon FontSize="14" Symbol="Dismiss" />
+                </Button>
+            </StackPanel>
+        </Grid>
     </Grid>
 </local:UserSpacePageControlBase>

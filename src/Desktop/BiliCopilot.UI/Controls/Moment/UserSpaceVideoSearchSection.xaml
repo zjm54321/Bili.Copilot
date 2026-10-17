@@ -15,9 +15,9 @@
     mc:Ignorable="d">
 
     <Grid>
-        <controls:IncrementVerticalScrollControl x:Name="View">
+        <controls:IncrementVerticalScrollControl x:Name="View" ScrollPadding="16,0">
             <controls:IncrementVerticalScrollControl.Element>
-                <Grid Margin="0,16">
+                <Grid Margin="0,12">
                     <repeater:AppRepeater
                         x:Name="VideoRepeater"
                         ItemsSource="{x:Bind ViewModel.SearchVideos, Mode=OneWay}"

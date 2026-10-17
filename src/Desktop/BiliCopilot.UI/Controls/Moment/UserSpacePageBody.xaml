@@ -3,27 +3,1107 @@
     x:Class="BiliCopilot.UI.Controls.Moment.UserSpacePageBody"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:components="using:BiliCopilot.UI.ViewModels.Components"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:components="using:BiliCopilot.UI.Controls.Components"
+    xmlns:controls="using:BiliCopilot.UI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:ext="using:BiliCopilot.UI.Extensions"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:items="using:BiliCopilot.UI.ViewModels.Items"
     xmlns:local="using:BiliCopilot.UI.Controls.Moment"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:repeater="using:Richasy.WinUIKernel.Share.Base.Repeater"
+    xmlns:services="using:BiliCopilot.UI.Services.UserSpace"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    xmlns:viewmodels="using:BiliCopilot.UI.ViewModels.View"
     mc:Ignorable="d">
+
     <UserControl.Resources>
-        <DataTemplate x:Key="VideoTemplate" x:DataType="components:UserMomentDetailViewModel">
-            <local:VideoMomentSpaceControl ViewModel="{x:Bind}" />
+        <!--
+            重要：视频和图文卡片通过 Tag 显式传递行数据；其他点击处理器读取模板继承的数据上下文。
+            严禁在模板元素上用 x:Bind 回写 DataContext，否则生成的 DataContextChanged 处理器会递归重入导致栈溢出闪退。
+        -->
+
+        <!-- 图文：与动态/专栏卡片相近的竖向卡 -->
+        <UniformGridLayout
+            x:Key="UserSpaceOpusLayout"
+            ItemsStretch="Fill"
+            MinColumnSpacing="16"
+            MinItemHeight="260"
+            MinItemWidth="220"
+            MinRowSpacing="16" />
+
+        <!-- 音频：紧凑横向条目卡 -->
+        <UniformGridLayout
+            x:Key="UserSpaceAudioLayout"
+            ItemsStretch="Fill"
+            MinColumnSpacing="16"
+            MinItemHeight="76"
+            MinItemWidth="300"
+            MinRowSpacing="16" />
+
+        <!-- 动态：沿用 MomentCardControl 视觉的瀑布流，按窗口宽度自动分列（CommunityToolkit StaggeredLayout） -->
+        <toolkit:StaggeredLayout
+            x:Key="UserSpaceMomentLayout"
+            ColumnSpacing="16"
+            DesiredColumnWidth="400"
+            ItemsStretch="Fill"
+            RowSpacing="16" />
+
+        <!-- 封面右下角时长徽标：与 VideoCardControl 一致（黑色 60% 底 + 白色说明文字） -->
+        <Style x:Key="CoverBadgeStyle" TargetType="Border">
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <SolidColorBrush Opacity="0.6" Color="Black" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 主题色说明标签（置顶理由、合集/系列） -->
+        <Style x:Key="AccentPillStyle" TargetType="Border">
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
+        </Style>
+
+        <!-- 分区标题：主题色竖条 + 标题 -->
+        <Style x:Key="SectionTitleStyle" BasedOn="{StaticResource BodyStrongTextBlockStyle}" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- 大卡统计项：数字 BodyStrong + 说明 Caption（次要前景） -->
+        <Style x:Key="FeaturedStatNumberStyle" BasedOn="{StaticResource BodyStrongTextBlockStyle}" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="FeaturedStatLabelStyle" BasedOn="{StaticResource CaptionTextBlockStyle}" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!--
+            大卡信息区（宽/窄排布共用）：
+            标题（两行）→ 置顶/代表作标签 + 推荐理由（FeaturedReason 非空时）→ 视频简介（最多 3 行，省略号；无数据时隐藏）
+            → 统计（播放/弹幕/点赞/投币/收藏/评论/发布时间，未知项隐藏，自动换行）.
+        -->
+        <DataTemplate x:Key="FeaturedVideoInfoTemplate" x:DataType="services:UserSpaceVideoRow">
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <base:TrimTextBlock
+                    HorizontalAlignment="Left"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    MaxLines="2"
+                    Text="{x:Bind Title, Mode=OneTime}" />
+                <!-- 标签 + 推荐理由（同一行，理由单行截断；完整理由见悬停提示） -->
+                <Grid
+                    Grid.Row="1"
+                    ColumnSpacing="8"
+                    Visibility="{x:Bind local:UserSpacePageBody.IsFeaturedMetaVisible(FeaturedKind, FeaturedReason), Mode=OneTime}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource AccentPillStyle}" Visibility="{x:Bind local:UserSpacePageBody.IsFeaturedKindVisible(FeaturedKind), Mode=OneTime}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <ic:SymbolIcon
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                IconVariant="Filled"
+                                Symbol="{x:Bind local:UserSpacePageBody.GetFeaturedKindSymbol(FeaturedKind), Mode=OneTime}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="{x:Bind local:UserSpacePageBody.FormatFeaturedKind(FeaturedKind), Mode=OneTime}" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind FeaturedReason, Mode=OneTime}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap"
+                        ToolTipService.ToolTip="{x:Bind FeaturedReason, Mode=OneTime}"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsTextVisible(FeaturedReason), Mode=OneTime}" />
+                </Grid>
+                <!-- 视频简介：读取 VideoInformation 的 Description 扩展数据；当前数据层未写入时整行隐藏 -->
+                <base:TrimTextBlock
+                    Grid.Row="2"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    FontSize="13"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    MaxLines="3"
+                    Text="{x:Bind local:UserSpacePageBody.GetVideoDescription(Video), Mode=OneTime}"
+                    Visibility="{x:Bind local:UserSpacePageBody.IsVideoDescriptionVisible(Video), Mode=OneTime}" />
+                <!-- 统计：自动换行，窄时折到第二行 -->
+                <toolkit:WrapPanel
+                    Grid.Row="3"
+                    HorizontalSpacing="16"
+                    Orientation="Horizontal"
+                    VerticalSpacing="6">
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(ViewCount), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatCount(ViewCount), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="播放" />
+                    </StackPanel>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsVideoStatVisible(Video, 'danmaku'), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatVideoStat(Video, 'danmaku'), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="弹幕" />
+                    </StackPanel>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsVideoStatVisible(Video, 'like'), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatVideoStat(Video, 'like'), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="点赞" />
+                    </StackPanel>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsVideoStatVisible(Video, 'coin'), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatVideoStat(Video, 'coin'), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="投币" />
+                    </StackPanel>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(FavoriteCount), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatCount(FavoriteCount), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="收藏" />
+                    </StackPanel>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsVideoStatVisible(Video, 'comment'), Mode=OneTime}">
+                        <TextBlock Style="{StaticResource FeaturedStatNumberStyle}" Text="{x:Bind local:UserSpacePageBody.FormatVideoStat(Video, 'comment'), Mode=OneTime}" />
+                        <TextBlock Style="{StaticResource FeaturedStatLabelStyle}" Text="评论" />
+                    </StackPanel>
+                    <base:IconTextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        IconBrush="{ThemeResource TextFillColorTertiaryBrush}"
+                        Symbol="CalendarClock"
+                        Text="{x:Bind local:UserSpacePageBody.FormatPublishTime(PublishTime), Mode=OneTime}"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsTimeVisible(PublishTime), Mode=OneTime}" />
+                </toolkit:WrapPanel>
+            </Grid>
         </DataTemplate>
-        <DataTemplate x:Key="ComprehensiveTemplate" x:DataType="components:UserMomentDetailViewModel">
-            <local:ComprehensiveMomentSpaceControl ViewModel="{x:Bind}" />
+
+        <!-- 大卡封面：16:9，右下角时长徽标（与 VideoCardControl 一致） -->
+        <DataTemplate x:Key="FeaturedVideoCoverTemplate" x:DataType="services:UserSpaceVideoRow">
+            <Grid>
+                <controls:BasicCoverImage
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    CornerRadius="{StaticResource ControlCornerRadius}"
+                    DecodeWidth="640"
+                    Source="{x:Bind Cover, Mode=OneTime}" />
+                <Border Style="{StaticResource CoverBadgeStyle}" Visibility="{x:Bind local:UserSpacePageBody.IsDurationVisible(Duration), Mode=OneTime}">
+                    <TextBlock
+                        Foreground="White"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind local:UserSpacePageBody.FormatDuration(Duration), Mode=OneTime}" />
+                </Border>
+            </Grid>
         </DataTemplate>
-        <ext:MomentSectionTemplateSelector
-            x:Key="Selector"
-            ComprehensiveTemplate="{StaticResource ComprehensiveTemplate}"
-            VideoTemplate="{StaticResource VideoTemplate}" />
+
+        <!-- 置顶/代表作共用同一模板；页面宽度单向决定卡片尺寸和内部行列，不替换模板或布局 -->
+        <DataTemplate x:Key="FeaturedVideoTemplate" x:DataType="services:UserSpaceVideoRow">
+            <base:CardControl
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                AutomationProperties.Name="{x:Bind Title, Mode=OneTime}"
+                Click="OnVideoRowClick"
+                Loaded="OnFeaturedCardLoaded"
+                Tag="{x:Bind}"
+                Unloaded="OnFeaturedCardUnloaded">
+                <Grid Padding="12" ColumnSpacing="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="0" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ContentControl
+                        Width="312"
+                        Height="176"
+                        VerticalAlignment="Top"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch"
+                        Content="{x:Bind}"
+                        ContentTemplate="{StaticResource FeaturedVideoCoverTemplate}"
+                        IsHitTestVisible="False"
+                        IsTabStop="False" />
+                    <ContentControl
+                        Grid.Column="1"
+                        Padding="0,2,4,0"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch"
+                        Content="{x:Bind}"
+                        ContentTemplate="{StaticResource FeaturedVideoInfoTemplate}"
+                        IsHitTestVisible="False"
+                        IsTabStop="False" />
+                </Grid>
+            </base:CardControl>
+        </DataTemplate>
+
+        <!--
+            标准视频卡片：照搬 VideoCardControl 的 RecommendVideoCardStyle 视觉
+            （base:CardControl、封面 4,4,0,0 圆角、底部 102 信息区、右下时长、两行标题、播放量图标）。
+            尺寸由 App.xaml 中的 VideoLayout（与首页/搜索相同）决定。
+        -->
+        <DataTemplate x:Key="VideoCardTemplate" x:DataType="services:UserSpaceVideoRow">
+            <base:CardControl
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                AutomationProperties.Name="{x:Bind Title, Mode=OneTime}"
+                Click="OnVideoRowClick"
+                Tag="{x:Bind}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="102" />
+                    </Grid.RowDefinitions>
+                    <controls:BasicCoverImage
+                        CornerRadius="4,4,0,0"
+                        DecodeWidth="600"
+                        Source="{x:Bind Cover, Mode=OneTime}" />
+                    <Border
+                        Margin="4"
+                        Padding="4"
+                        VerticalAlignment="Bottom"
+                        Style="{StaticResource AccentPillStyle}"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsReasonVisible(Reason), Mode=OneTime}">
+                        <TextBlock
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{x:Bind Reason, Mode=OneTime}" />
+                    </Border>
+                    <Border Style="{StaticResource CoverBadgeStyle}" Visibility="{x:Bind local:UserSpacePageBody.IsDurationVisible(Duration), Mode=OneTime}">
+                        <TextBlock
+                            Foreground="White"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{x:Bind local:UserSpacePageBody.FormatDuration(Duration), Mode=OneTime}" />
+                    </Border>
+                    <Grid
+                        Grid.Row="1"
+                        Padding="12,8,12,12"
+                        RowSpacing="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <!-- 首行：发布日期（空间内作者恒为本人，故以日期代替作者名） -->
+                        <TextBlock
+                            HorizontalAlignment="Left"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{x:Bind local:UserSpacePageBody.FormatPublishTime(PublishTime), Mode=OneTime}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsTimeVisible(PublishTime), Mode=OneTime}" />
+                        <base:TrimTextBlock
+                            Grid.Row="1"
+                            HorizontalAlignment="Left"
+                            MaxLines="2"
+                            Text="{x:Bind Title, Mode=OneTime}" />
+                        <Grid Grid.Row="2" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <base:IconTextBlock
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                IconBrush="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Symbol="PlayCircle"
+                                Text="{x:Bind local:UserSpacePageBody.FormatCount(ViewCount), Mode=OneTime}"
+                                ToolTipService.ToolTip="{ext:Locale Name=PlayCount}"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(ViewCount), Mode=OneTime}" />
+                            <base:IconTextBlock
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                IconBrush="{ThemeResource TextFillColorTertiaryBrush}"
+                                Symbol="Star"
+                                Text="{x:Bind local:UserSpacePageBody.FormatCount(FavoriteCount), Mode=OneTime}"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsMetricVisible(FavoriteCount), Mode=OneTime}" />
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </base:CardControl>
+        </DataTemplate>
+
+        <!-- 横向轨道中的标准视频卡（合集/系列组内）：固定尺寸后复用同一张卡片 -->
+        <DataTemplate x:Key="VideoRailCardTemplate" x:DataType="services:UserSpaceVideoRow">
+            <ContentControl
+                Width="224"
+                Height="232"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Content="{x:Bind}"
+                ContentTemplate="{StaticResource VideoCardTemplate}"
+                IsTabStop="False" />
+        </DataTemplate>
+
+        <!-- 投稿图文：通过 Tag 传递独立的 cv/opus 身份，在应用内阅读；不按 OriginalUri 禁用卡片。 -->
+        <DataTemplate x:Key="OpusTemplate" x:DataType="services:UserSpaceOpusRow">
+            <base:CardControl
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Click="OnOpusRowClick"
+                Tag="{x:Bind}">
+                <Grid IsHitTestVisible="False">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <controls:BasicCoverImage
+                        CornerRadius="4,4,0,0"
+                        DecodeWidth="600"
+                        Source="{x:Bind Cover, Mode=OneTime}"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsCoverVisible(Cover), Mode=OneTime}" />
+                    <Grid
+                        Padding="16,12,16,8"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        CornerRadius="4,4,0,0"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsCoverCollapsed(Cover), Mode=OneTime}">
+                        <TextBlock
+                            Margin="-2,-8,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            FontFamily="Georgia"
+                            FontSize="44"
+                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                            Opacity="0.35"
+                            Text="“" />
+                        <base:TrimTextBlock
+                            Margin="0,28,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            FontSize="14"
+                            MaxLines="5"
+                            Text="{x:Bind Content, Mode=OneTime}" />
+                    </Grid>
+                    <Grid
+                        Grid.Row="1"
+                        Padding="12,8,12,12"
+                        RowSpacing="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <base:TrimTextBlock
+                            HorizontalAlignment="Left"
+                            MaxLines="2"
+                            Text="{x:Bind Content, Mode=OneTime}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsCoverVisible(Cover), Mode=OneTime}" />
+                        <StackPanel
+                            Grid.Row="1"
+                            Orientation="Horizontal"
+                            Spacing="16">
+                            <base:IconTextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                IconBrush="{ThemeResource TextFillColorTertiaryBrush}"
+                                Symbol="ThumbLike"
+                                Text="{x:Bind LikeText, Mode=OneTime}"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsTextVisible(LikeText), Mode=OneTime}" />
+                            <base:IconTextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                IconBrush="{ThemeResource TextFillColorTertiaryBrush}"
+                                Symbol="Eye"
+                                Text="{x:Bind ViewText, Mode=OneTime}"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsTextVisible(ViewText), Mode=OneTime}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </base:CardControl>
+        </DataTemplate>
+
+        <!-- 投稿音频：显示真实 au{id}，OriginalUri 为空时禁用打开 -->
+        <DataTemplate x:Key="AudioTemplate" x:DataType="services:UserSpaceAudioRow">
+            <base:CardControl
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Click="OnAudioRowClick"
+                IsEnabled="{x:Bind local:UserSpacePageBody.IsUriValid(OriginalUri), Mode=OneTime}">
+                <Grid Padding="12" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border
+                        Width="48"
+                        Height="48"
+                        VerticalAlignment="Center"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                        CornerRadius="{StaticResource OverlayCornerRadius}">
+                        <ic:SymbolIcon
+                            FontSize="22"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                            Symbol="MusicNote2" />
+                    </Border>
+                    <StackPanel
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Spacing="2">
+                        <TextBlock
+                            Style="{StaticResource BodyStrongTextBlockStyle}"
+                            Text="{x:Bind local:UserSpacePageBody.FormatAudioId(Id), Mode=OneTime}"
+                            TextTrimming="CharacterEllipsis" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="音频投稿 · 在浏览器中打开"
+                            TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <ic:SymbolIcon
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        FontSize="16"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Symbol="Open" />
+                </Grid>
+            </base:CardControl>
+        </DataTemplate>
+
+        <!--
+            合集与系列分组：Fluent 卡片容器 = 组头（封面/类别/名称/总数/操作）+ 固定高度的横向视频轨道。
+            轨道区域始终保留 240px 高度：未加载时给出明确入口，加载中显示骨架，失败/空组就地提示，已加载显示可横向滚动的小卡片。
+        -->
+        <DataTemplate x:Key="CollectionGroupTemplate" x:DataType="viewmodels:UserSpaceCollectionViewModel">
+            <Border
+                Padding="16"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource OverlayCornerRadius}">
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <controls:BasicCoverImage
+                            Width="80"
+                            Height="45"
+                            VerticalAlignment="Center"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            DecodeWidth="160"
+                            Source="{x:Bind Data.Cover, Mode=OneWay}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsCoverVisible(Data.Cover), Mode=OneWay}" />
+                        <StackPanel
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Spacing="2">
+                            <TextBlock
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Data.Name, Mode=OneWay}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="NoWrap" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}">
+                                <Run Text="{x:Bind local:UserSpacePageBody.FormatCollectionKind(Data.Kind), Mode=OneWay}" />
+                                <Run Text="{x:Bind local:UserSpacePageBody.FormatCollectionCountSuffix(Data.Count), Mode=OneWay}" />
+                            </TextBlock>
+                        </StackPanel>
+                        <!-- 组头右侧：加载中进度 / 已有内容时的“加载更多” -->
+                        <StackPanel
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal"
+                            Spacing="8">
+                            <!-- 播放全部：调用 ViewModel.PlayCollectionCommand(该分组) -->
+                            <Button
+                                Click="OnPlayCollectionClick"
+                                CommandParameter="{x:Bind}"
+                                ToolTipService.ToolTip="播放全部">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <ic:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="14"
+                                        IconVariant="Filled"
+                                        Symbol="Play" />
+                                    <TextBlock VerticalAlignment="Center" Text="播放全部" />
+                                </StackPanel>
+                            </Button>
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind local:UserSpacePageBody.IsStateLoadingActive(State), Mode=OneWay}"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsStateLoading(State), Mode=OneWay}" />
+                            <!-- 已有视频但追加失败：组头内重试，不清空已加载内容 -->
+                            <StackPanel
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsGroupAppendErrorVisible(State, Videos.Count), Mode=OneWay}">
+                                <ic:SymbolIcon
+                                    VerticalAlignment="Center"
+                                    FontSize="14"
+                                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                    Symbol="Warning"
+                                    ToolTipService.ToolTip="{x:Bind local:UserSpacePageBody.FormatGroupError(Error), Mode=OneWay}" />
+                                <HyperlinkButton
+                                    Padding="8,4"
+                                    Click="OnLoadCollectionClick"
+                                    Content="重试" />
+                            </StackPanel>
+                            <HyperlinkButton
+                                Padding="8,4"
+                                Click="OnLoadCollectionClick"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsGroupLoadMoreVisible(State, HasMore, Videos.Count), Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock VerticalAlignment="Center" Text="加载更多" />
+                                    <ic:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Symbol="ChevronRight" />
+                                </StackPanel>
+                            </HyperlinkButton>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 轨道区：固定高度，避免外层 StackLayout 把空组压成 0 高 -->
+                    <Grid Grid.Row="1" Height="240">
+                        <!-- 已加载：横向滚动的小视频卡片；两侧翻页按钮便于鼠标用户横向浏览 -->
+                        <Grid Visibility="{x:Bind local:UserSpacePageBody.IsGroupRailVisible(State, Videos.Count), Mode=OneWay}">
+                            <!--
+                                纵向滚轮不被截走：内容面板的 PointerWheelChanged 先于 ScrollViewer 处理，
+                                未按 Shift 的纵向滚轮转交外层页面滚动并标记 Handled；Shift+滚轮/水平滚轮/触控板横滑/翻页按钮负责横向.
+                                组内视频不虚拟化（ItemsControl + StackPanel），避免回收导致封面请求被反复取消.
+                            -->
+                            <ScrollViewer
+                                HorizontalScrollBarVisibility="Auto"
+                                HorizontalScrollMode="Enabled"
+                                IsHorizontalRailEnabled="True"
+                                IsHorizontalScrollChainingEnabled="True"
+                                IsVerticalScrollChainingEnabled="True"
+                                VerticalScrollBarVisibility="Disabled"
+                                VerticalScrollMode="Disabled"
+                                ZoomMode="Disabled">
+                                <StackPanel
+                                    Background="Transparent"
+                                    Orientation="Horizontal"
+                                    PointerWheelChanged="OnRailPointerWheelChanged"
+                                    Spacing="12">
+                                    <ItemsControl
+                                        IsTabStop="False"
+                                        ItemTemplate="{StaticResource VideoRailCardTemplate}"
+                                        ItemsSource="{x:Bind Videos, Mode=OneWay}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="12" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                    <!-- 轨道末尾：继续加载本组 -->
+                                    <Button
+                                        Width="120"
+                                        Height="232"
+                                        VerticalAlignment="Top"
+                                        Click="OnLoadCollectionClick"
+                                        Visibility="{x:Bind local:UserSpacePageBody.IsGroupLoadMoreVisible(State, HasMore, Videos.Count), Mode=OneWay}">
+                                        <StackPanel HorizontalAlignment="Center" Spacing="8">
+                                            <ic:SymbolIcon
+                                                HorizontalAlignment="Center"
+                                                FontSize="20"
+                                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                                Symbol="ChevronRight" />
+                                            <TextBlock HorizontalAlignment="Center" Text="加载更多" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Button
+                                Width="32"
+                                Height="56"
+                                Margin="-8,0,0,12"
+                                Padding="0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="向左滚动"
+                                Click="OnRailScrollLeftClick"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                ToolTipService.ToolTip="向左滚动">
+                                <ic:SymbolIcon FontSize="12" Symbol="ChevronLeft" />
+                            </Button>
+                            <Button
+                                Width="32"
+                                Height="56"
+                                Margin="0,0,-8,12"
+                                Padding="0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="向右滚动"
+                                Click="OnRailScrollRightClick"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                ToolTipService.ToolTip="向右滚动">
+                                <ic:SymbolIcon FontSize="12" Symbol="ChevronRight" />
+                            </Button>
+                        </Grid>
+
+                        <!-- 未加载：明确的入口（切到本标签时可见分组会自动加载，此按钮兜底） -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsGroupIdleVisible(State, Videos.Count), Mode=OneWay}">
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="12">
+                                <ic:SymbolIcon
+                                    HorizontalAlignment="Center"
+                                    FontSize="28"
+                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                    Symbol="Collections" />
+                                <Button
+                                    HorizontalAlignment="Center"
+                                    Click="OnLoadCollectionClick"
+                                    Style="{StaticResource AccentButtonStyle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ic:SymbolIcon
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Symbol="Play" />
+                                        <TextBlock VerticalAlignment="Center" Text="查看本组视频" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 首次加载中：骨架卡片 -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="12"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsGroupFirstLoadingVisible(State, Videos.Count), Mode=OneWay}">
+                            <base:Shimmer
+                                Width="224"
+                                Height="232"
+                                VerticalAlignment="Top"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                IsActive="{x:Bind local:UserSpacePageBody.IsStateLoadingActive(State), Mode=OneWay}" />
+                            <base:Shimmer
+                                Width="224"
+                                Height="232"
+                                VerticalAlignment="Top"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                IsActive="{x:Bind local:UserSpacePageBody.IsStateLoadingActive(State), Mode=OneWay}" />
+                            <base:Shimmer
+                                Width="224"
+                                Height="232"
+                                VerticalAlignment="Top"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                IsActive="{x:Bind local:UserSpacePageBody.IsStateLoadingActive(State), Mode=OneWay}" />
+                        </StackPanel>
+
+                        <!-- 失败：就地提示与重试（已加载的视频仍保留在轨道中，此时提示放在组头下方的轨道区上层） -->
+                        <StackPanel
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="12"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsGroupErrorVisible(State, Videos.Count), Mode=OneWay}">
+                            <ic:SymbolIcon
+                                HorizontalAlignment="Center"
+                                FontSize="24"
+                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                Symbol="Warning" />
+                            <TextBlock
+                                MaxWidth="360"
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:UserSpacePageBody.FormatGroupError(Error), Mode=OneWay}"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Center" Click="OnLoadCollectionClick">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <ic:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Symbol="ArrowSync" />
+                                    <TextBlock VerticalAlignment="Center" Text="重试" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- 空组 -->
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="这个分组还没有视频"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsGroupEmptyVisible(State, Videos.Count), Mode=OneWay}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
 
-    <ContentControl
-        Content="{x:Bind ViewModel.SelectedSection, Mode=OneWay}"
-        ContentTemplateSelector="{StaticResource Selector}"
-        Style="{StaticResource AppContentControlStyle}" />
+    <!-- 空降助手：显式声明作者空间上下文 -->
+    <Grid sponsor:SponsorContentPlace.Kind="AuthorSpace">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="LayoutStates">
+                <VisualState x:Name="WideState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="900" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <!-- 窄屏：投稿二级筛选换行到类型切换下方，边距收窄与头部对齐 -->
+                <VisualState x:Name="NarrowState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ScrollViewer.ScrollPadding" Value="16,0,16,0" />
+                        <Setter Target="SecondaryFilterPanel.(Grid.Row)" Value="1" />
+                        <Setter Target="SecondaryFilterPanel.(Grid.Column)" Value="0" />
+                        <Setter Target="SecondaryFilterPanel.HorizontalAlignment" Value="Left" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
+        <controls:IncrementVerticalScrollControl
+            x:Name="ScrollViewer"
+            LoadMoreCommand="{x:Bind AutoLoadMoreCommand, Mode=OneTime}"
+            RefreshCommand="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}"
+            ScrollPadding="24,0,24,0">
+            <controls:IncrementVerticalScrollControl.Element>
+                <!-- 不设 MaxWidth：内容与头部资料卡同宽、左缘对齐，超宽屏也不居中成独立块 -->
+                <Grid
+                    Margin="0,16,0,24"
+                    RowSpacing="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Tab 1: 主页 -->
+                    <StackPanel Spacing="28" Visibility="{x:Bind local:UserSpacePageBody.IsTabVisible(ViewModel.SelectedTab, services:UserSpaceTab.Home), Mode=OneWay}">
+                        <!-- 置顶与代表作 -->
+                        <StackPanel Spacing="12" Visibility="{x:Bind local:UserSpacePageBody.IsFeaturedSectionVisible(ViewModel.FeaturedVideos.Count, ViewModel.FeaturedState), Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Border
+                                    Width="4"
+                                    Height="16"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="2" />
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="置顶与代表作" />
+                            </StackPanel>
+                            <!--
+                                置顶/代表作：大卡（与普通投稿小卡区分），与下方“最新投稿”同一左缘.
+                                使用非虚拟化换行面板；卡片尺寸由页面宽度决定，不依赖面板测量结果.
+                            -->
+                            <ItemsControl
+                                HorizontalAlignment="Stretch"
+                                IsTabStop="False"
+                                ItemTemplate="{StaticResource FeaturedVideoTemplate}"
+                                ItemsSource="{x:Bind ViewModel.FeaturedVideos, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <toolkit:WrapPanel HorizontalSpacing="16" Orientation="Horizontal" VerticalSpacing="16" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            <!-- 首次置顶加载：与卡片同尺寸的骨架，左对齐 -->
+                            <StackPanel
+                                HorizontalAlignment="Left"
+                                Orientation="Horizontal"
+                                Spacing="16"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsFeaturedLoading(ViewModel.FeaturedVideos.Count, ViewModel.FeaturedState), Mode=OneWay}">
+                                <base:Shimmer
+                                    Width="560"
+                                    Height="200"
+                                    CornerRadius="{StaticResource ControlCornerRadius}"
+                                    IsActive="{x:Bind local:UserSpacePageBody.IsFeaturedLoadingActive(ViewModel.FeaturedVideos.Count, ViewModel.FeaturedState), Mode=OneWay}" />
+                                <base:Shimmer
+                                    Width="560"
+                                    Height="200"
+                                    CornerRadius="{StaticResource ControlCornerRadius}"
+                                    IsActive="{x:Bind local:UserSpacePageBody.IsFeaturedLoadingActive(ViewModel.FeaturedVideos.Count, ViewModel.FeaturedState), Mode=OneWay}" />
+                            </StackPanel>
+                            <!-- 置顶加载失败与显式重试（不影响下方最新投稿） -->
+                            <InfoBar
+                                IsClosable="False"
+                                IsOpen="True"
+                                Message="{x:Bind local:UserSpacePageBody.FormatFeaturedError(ViewModel.FeaturedError), Mode=OneWay}"
+                                Severity="Warning"
+                                Visibility="{x:Bind local:UserSpacePageBody.IsStateError(ViewModel.FeaturedState), Mode=OneWay}">
+                                <InfoBar.ActionButton>
+                                    <Button Command="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}" Content="重试" />
+                                </InfoBar.ActionButton>
+                            </InfoBar>
+                        </StackPanel>
+
+                        <!-- 最新投稿：与首页相同的 VideoLayout 网格 -->
+                        <StackPanel Spacing="12" Visibility="{x:Bind local:UserSpacePageBody.HasItems(ViewModel.HomeVideos.Count), Mode=OneWay}">
+                            <Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border
+                                        Width="4"
+                                        Height="16"
+                                        VerticalAlignment="Center"
+                                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                        CornerRadius="2" />
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="最新投稿" />
+                                </StackPanel>
+                                <HyperlinkButton
+                                    Padding="8,4"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Click="OnViewAllSubmissionsClick">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock VerticalAlignment="Center" Text="全部投稿" />
+                                        <ic:SymbolIcon
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Symbol="ChevronRight" />
+                                    </StackPanel>
+                                </HyperlinkButton>
+                            </Grid>
+                            <repeater:AppRepeater
+                                ItemTemplate="{StaticResource VideoCardTemplate}"
+                                ItemsSource="{x:Bind ViewModel.HomeVideos, Mode=OneWay}"
+                                Layout="{StaticResource VideoLayout}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Tab 2: 动态：沿用 MomentCardControl 个人动态视觉，瀑布流按窗口宽度自适应分列铺满；置顶动态带“置顶”标签 -->
+                    <!-- 使用原生 ItemsRepeater（AppRepeater 不暴露 ElementPrepared/TryGetElement，置顶标签需要它们） -->
+                    <ItemsRepeater
+                        x:Name="DynamicsRepeater"
+                        ElementPrepared="OnDynamicElementPrepared"
+                        Layout="{StaticResource UserSpaceMomentLayout}"
+                        Loaded="OnDynamicsLoaded"
+                        SizeChanged="OnDynamicsSizeChanged"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsTabVisible(ViewModel.SelectedTab, services:UserSpaceTab.Dynamics), Mode=OneWay}">
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="items:MomentItemViewModel">
+                                <Grid>
+                                    <components:MomentCardControl Style="{StaticResource PersonalFullMomentCardStyle}" ViewModel="{x:Bind}" />
+                                    <!-- 可见性由 code-behind 在 ElementPrepared 中按 IsPinnedMoment(Id, ViewModel.PinnedDynamicId) 设置 -->
+                                    <Border
+                                        x:Name="PinnedBadge"
+                                        Margin="0,12,12,0"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        IsHitTestVisible="False"
+                                        Style="{StaticResource AccentPillStyle}"
+                                        Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <ic:SymbolIcon
+                                                VerticalAlignment="Center"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                IconVariant="Filled"
+                                                Symbol="Pin" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Text="置顶" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+
+                    <!-- Tab 3: 投稿 -->
+                    <StackPanel Spacing="16" Visibility="{x:Bind local:UserSpacePageBody.IsTabVisible(ViewModel.SelectedTab, services:UserSpaceTab.Submissions), Mode=OneWay}">
+                        <!-- 工具栏：左侧类型切换，右侧二级排序/筛选（窄屏换行） -->
+                        <Grid ColumnSpacing="16" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <SelectorBar
+                                x:Name="SubmissionSelector"
+                                Margin="-12,0,0,0"
+                                HorizontalAlignment="Left"
+                                SelectionChanged="OnSubmissionSelectionChanged">
+                                <SelectorBarItem x:Name="SubmissionVideoItem" Text="视频" />
+                                <SelectorBarItem x:Name="SubmissionOpusItem" Text="图文" />
+                                <SelectorBarItem x:Name="SubmissionAudioItem" Text="音频" />
+                            </SelectorBar>
+                            <StackPanel
+                                x:Name="SecondaryFilterPanel"
+                                Grid.Column="1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="2">
+                                <ic:SymbolIcon
+                                    VerticalAlignment="Center"
+                                    FontSize="14"
+                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                    Symbol="Filter" />
+                                <SelectorBar
+                                    x:Name="VideoOrderSelector"
+                                    SelectionChanged="OnVideoOrderSelectionChanged"
+                                    Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Video), Mode=OneWay}">
+                                    <SelectorBarItem x:Name="OrderLatestItem" Text="最新发布" />
+                                    <SelectorBarItem x:Name="OrderPlayedItem" Text="最多播放" />
+                                    <SelectorBarItem x:Name="OrderFavoritedItem" Text="最多收藏" />
+                                </SelectorBar>
+                                <SelectorBar
+                                    x:Name="OpusFilterSelector"
+                                    SelectionChanged="OnOpusFilterSelectionChanged"
+                                    Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Opus), Mode=OneWay}">
+                                    <SelectorBarItem x:Name="OpusAllItem" Text="全部图文" />
+                                    <SelectorBarItem x:Name="OpusArticleItem" Text="专栏" />
+                                    <SelectorBarItem x:Name="OpusDynamicItem" Text="动态" />
+                                </SelectorBar>
+                                <!-- 音频无排序：显示说明以保持工具栏高度稳定 -->
+                                <TextBlock
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="按发布时间排列"
+                                    Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Audio), Mode=OneWay}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- 视频：与首页/搜索一致的 VideoLayout 网格 -->
+                        <repeater:AppRepeater
+                            ItemTemplate="{StaticResource VideoCardTemplate}"
+                            ItemsSource="{x:Bind ViewModel.SubmissionVideos, Mode=OneWay}"
+                            Layout="{StaticResource VideoLayout}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Video), Mode=OneWay}" />
+
+                        <!-- 图文 -->
+                        <ItemsRepeater
+                            ItemTemplate="{StaticResource OpusTemplate}"
+                            ItemsSource="{x:Bind ViewModel.OpusPosts, Mode=OneWay}"
+                            Layout="{StaticResource UserSpaceOpusLayout}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Opus), Mode=OneWay}" />
+
+                        <!-- 音频 -->
+                        <ItemsRepeater
+                            ItemTemplate="{StaticResource AudioTemplate}"
+                            ItemsSource="{x:Bind ViewModel.AudioTracks, Mode=OneWay}"
+                            Layout="{StaticResource UserSpaceAudioLayout}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsSubmissionVisible(ViewModel.SelectedSubmission, services:UserSubmissionKind.Audio), Mode=OneWay}" />
+                    </StackPanel>
+
+                    <!-- Tab 4: 合集与系列（竖向多组，组内横向内容与独立分页） -->
+                    <ItemsRepeater
+                        x:Name="CollectionRepeater"
+                        ElementPrepared="OnCollectionElementPrepared"
+                        VerticalCacheLength="6"
+                        ItemTemplate="{StaticResource CollectionGroupTemplate}"
+                        ItemsSource="{x:Bind ViewModel.Collections, Mode=OneWay}"
+                        Visibility="{x:Bind local:UserSpacePageBody.IsTabVisible(ViewModel.SelectedTab, services:UserSpaceTab.Collections), Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Orientation="Vertical" Spacing="16" />
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+
+                    <!-- 状态区：位于内容下方——首屏时居上，翻页时位于列表底部，不再遮挡已加载内容 -->
+                    <Grid Grid.Row="1">
+                        <base:EmptyHolder
+                            Margin="0,48"
+                            Description="暂无内容"
+                            Emoji="&#x1F440;"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsStateEmpty(ViewModel.State), Mode=OneWay}" />
+
+                        <base:LoadingWidget
+                            Margin="0,24"
+                            Text="{ext:Locale Name=LoadingAndWait}"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsInitialLoading(ViewModel.IsLoading, ViewModel.State), Mode=OneWay}" />
+
+                        <StackPanel
+                            Margin="0,48"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="12"
+                            Visibility="{x:Bind local:UserSpacePageBody.IsStateError(ViewModel.State), Mode=OneWay}">
+                            <Border
+                                Width="56"
+                                Height="56"
+                                HorizontalAlignment="Center"
+                                Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                                CornerRadius="28">
+                                <ic:SymbolIcon
+                                    FontSize="26"
+                                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                    Symbol="Warning" />
+                            </Border>
+                            <TextBlock
+                                MaxWidth="420"
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.ErrorText, Mode=OneWay}"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <Button
+                                HorizontalAlignment="Center"
+                                Command="{x:Bind ViewModel.RefreshCommand, Mode=OneWay}"
+                                Style="{StaticResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <ic:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Symbol="ArrowSync" />
+                                    <TextBlock VerticalAlignment="Center" Text="重试" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </controls:IncrementVerticalScrollControl.Element>
+        </controls:IncrementVerticalScrollControl>
+    </Grid>
 </local:UserSpacePageControlBase>

@@ -2,6 +2,7 @@
 
 using BiliCopilot.UI.Models.Constants;
 using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.ViewModels.Components;
 using BiliCopilot.UI.ViewModels.View;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,8 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
         _service = this.Get<IMomentDiscoveryService>();
         _logger = this.Get<ILogger<MomentUperSectionViewModel>>();
         _ownerRefreshCommand = ownerRefreshCommand;
+        _account = this.Get<AccountViewModel>();
+        _accountGeneration = _account.AccountGeneration;
         IsTotal = data is null;
         Avatar = data?.User?.Avatar.Uri;
         Name = data?.User?.Name ?? ResourceToolkit.GetLocalizedString(StringNames.AllDynamic);
@@ -33,195 +36,194 @@ public sealed partial class MomentUperSectionViewModel : ViewModelBase<MomentPro
 
     internal void InjectFirstPageData(MomentView momentView)
     {
-        // The owner seeds a new, unpublished section on the UI thread. Do not queue
-        // collection writes: its Initialize/Refresh task must include publication.
+        if (_isRetired || _accountGeneration != _account.AccountGeneration) return;
+        IsEmpty = false;
         _preventLoadMore = momentView.HasMoreMoments != true;
         _offset = momentView.Offset;
         _baseline = momentView.UpdateBaseline;
+        IsPrefetchExhausted = _preventLoadMore;
+        _isSeeded = true;
         Items.Clear();
         foreach (var item in momentView.Moments)
         {
+            if (_isRetired || _accountGeneration != _account.AccountGeneration) return;
+            if (Items.Any(existing => existing.Data.Id == item.Id)) continue;
             Items.Add(new MomentItemViewModel(item, MomentCardStyle.Comprehensive, ShowComment));
         }
-
         IsEmpty = Items.Count == 0;
+        ListUpdated?.Invoke(this, EventArgs.Empty);
     }
 
-    internal void NotifyListUpdated()
-        => ListUpdated?.Invoke(this, EventArgs.Empty);
+    internal void NotifyListUpdated() => ListUpdated?.Invoke(this, EventArgs.Empty);
+
+    internal async Task CancelAndDrainAsync()
+    {
+        var cancellation = _requestCancellation;
+        var loadTask = _loadTask;
+        if (cancellation is not null) await cancellation.CancelAsync();
+#pragma warning disable VSTHRD003
+        await loadTask; // Real request completion; canceling is not a drain.
+#pragma warning restore VSTHRD003
+    }
 
     internal Task RetireAsync()
     {
-        // Stop accepting work before the owner drains this generation and replaces it.
         _isRetired = true;
-        // Return this retired generation's real drain task; retirement holds no gate and is not a prerequisite of that load.
-#pragma warning disable VSTHRD003
-        return _loadTask;
-#pragma warning restore VSTHRD003
+        return CancelAndDrainAsync();
     }
 
     [RelayCommand]
-    private Task InitializeAsync()
+    private async Task InitializeAsync()
     {
-        if (_isRetired || !_loadTask.IsCompleted)
+        if (_isRetired) return;
+        if (_accountGeneration == _account.AccountGeneration && (Items.Count > 0 || _preventLoadMore || _isSeeded))
         {
-            // Join existing work without reopening a retired generation; this caller holds no gate and is not its prerequisite.
-#pragma warning disable VSTHRD003
-            return _loadTask;
-#pragma warning restore VSTHRD003
+            return;
         }
 
-        if (Items.Count > 0 || _preventLoadMore)
-        {
-            return Task.CompletedTask;
-        }
-
-        return LoadItemsAsync();
+        await LoadItemsAsync();
     }
 
     [RelayCommand]
-    private Task RefreshAsync()
+    private async Task RefreshAsync()
     {
         if (IsTotal)
         {
-            throw new Exception("请在外层视图模型中刷新综合动态，以便更新 UP 列表");
+            throw new InvalidOperationException("请在外层视图模型中刷新综合动态，以便更新 UP 列表");
         }
 
-        if (_isRetired)
+        if (_isRetired || _isRefreshing) return;
+        _isRefreshing = true;
+        try
         {
-            // A retired section only exposes its existing drain, never a new refresh; no gate or load dependency is introduced.
-#pragma warning disable VSTHRD003
-            return _loadTask;
-#pragma warning restore VSTHRD003
+            await CancelAndDrainAsync();
+            if (_isRetired) return;
+            ResetItems();
         }
-
-        return !_refreshTask.IsCompleted ? _refreshTask : StartLoad(refresh: true);
+        finally { _isRefreshing = false; }
+        await LoadItemsAsync();
     }
 
     [RelayCommand]
     private Task LoadItemsAsync()
     {
-        if (_isRetired || !_loadTask.IsCompleted)
+        if (_isRetired || IsLoading || _isRefreshing) return Task.CompletedTask;
+        if (_accountGeneration != _account.AccountGeneration)
         {
-            // Join the full current load/refresh or retired drain; paging holds no gate and cannot become its prerequisite.
-#pragma warning disable VSTHRD003
-            return _loadTask;
-#pragma warning restore VSTHRD003
+            ResetItems();
+            // Total and UP ownership must be rebuilt together by the outer model.
+            if (IsTotal) return Task.CompletedTask;
         }
-
-        return IsEmpty || _preventLoadMore ? Task.CompletedTask : StartLoad(refresh: false);
+        if (IsEmpty || _preventLoadMore || (IsTotal && !_isSeeded)) return Task.CompletedTask;
+        IsLoading = true;
+        IsAppending = Items.Count > 0;
+        HasAppendError = false;
+        _requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_account.AccountCancellationToken);
+        var loadTask = FetchItemsAsync(_accountGeneration, _requestCancellation);
+        _loadTask = loadTask;
+        return loadTask;
     }
 
-    private Task StartLoad(bool refresh)
+    private async Task FetchItemsAsync(long generation, CancellationTokenSource cancellation)
     {
-        var previousLoad = _loadTask;
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _loadTask = completion.Task;
-        if (refresh)
-        {
-            _refreshTask = completion.Task;
-        }
-
-        _ = CompleteLoadAsync(previousLoad, completion, refresh);
-        return completion.Task;
-    }
-
-    private async Task CompleteLoadAsync(Task previousLoad, TaskCompletionSource completion, bool refresh)
-    {
+        var token = cancellation.Token;
         try
         {
-            try
-            {
-                // Drain only the captured predecessor, never our own published slot.
-                // Capture precedes successor publication; this gate-free successor cannot be the predecessor's prerequisite.
-#pragma warning disable VSTHRD003
-                await previousLoad;
-#pragma warning restore VSTHRD003
-            }
-            catch
-            {
-                // A prior failure must not poison subsequent refreshes.
-            }
-
-            if (refresh)
-            {
-                _offset = default;
-                _baseline = default;
-                IsEmpty = false;
-                _preventLoadMore = false;
-                Items.Clear();
-            }
-
-            await LoadItemsCoreAsync();
-            completion.SetResult();
-        }
-        catch (Exception ex)
-        {
-            completion.SetException(ex);
-        }
-    }
-
-    private async Task LoadItemsCoreAsync()
-    {
-        try
-        {
-            IsLoading = true;
             if (IsTotal)
             {
-                await LoadComprehensiveItemsAsync();
+                await LoadComprehensiveItemsAsync(generation, token);
             }
             else
             {
-                await LoadUperItemsAsync();
-                if (HasUnread)
+                await LoadUperItemsAsync(generation, token);
+                if (IsCurrentRequest(generation, token) && HasUnread)
                 {
                     HasUnread = false;
                 }
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            if (!IsCurrentRequest(generation, token)) return;
             _preventLoadMore = true;
+            HasAppendError = true;
             _logger.LogError(ex, "加载动态列表失败.");
         }
         finally
         {
-            IsEmpty = Items.Count == 0;
+            if (IsCurrentRequest(generation, token)) IsEmpty = Items.Count == 0;
+            if (ReferenceEquals(_requestCancellation, cancellation)) _requestCancellation = null;
+            cancellation.Dispose();
+            IsAppending = false;
             IsLoading = false;
         }
     }
 
-    private async Task LoadComprehensiveItemsAsync()
+    private async Task LoadComprehensiveItemsAsync(long generation, CancellationToken token)
     {
-        var view = await _service.GetComprehensiveMomentsAsync(_offset, _baseline);
+        var view = await _service.GetComprehensiveMomentsAsync(_offset, _baseline, token);
+        if (!IsCurrentRequest(generation, token)) return;
         if (view is not null)
         {
             _offset = view.Offset;
             _baseline = view.UpdateBaseline;
             _preventLoadMore = view.HasMoreMoments != true;
+            IsPrefetchExhausted = _preventLoadMore;
             foreach (var item in view.Moments.Select(p => new MomentItemViewModel(p, MomentCardStyle.Comprehensive, ShowComment)))
             {
+                if (!IsCurrentRequest(generation, token)) return;
+                if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
                 Items.Add(item);
             }
 
-            ListUpdated?.Invoke(this, EventArgs.Empty);
+            if (IsCurrentRequest(generation, token)) ListUpdated?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    private async Task LoadUperItemsAsync()
+    private async Task LoadUperItemsAsync(long generation, CancellationToken token)
     {
-        var (moments, offset, hasMore) = await _service.GetUserMomentsAsync(Data.User, _offset);
+        var (moments, offset, hasMore) = await _service.GetUserMomentsAsync(Data.User, _offset, token);
+        if (!IsCurrentRequest(generation, token)) return;
         _offset = offset;
         _preventLoadMore = !hasMore || string.IsNullOrEmpty(offset);
+        IsPrefetchExhausted = _preventLoadMore;
         if (moments is not null)
         {
             foreach (var item in moments.Select(p => new MomentItemViewModel(p, MomentCardStyle.Comprehensive, ShowComment)))
             {
+                if (!IsCurrentRequest(generation, token)) return;
+                if (Items.Any(existing => existing.Data.Id == item.Data.Id)) continue;
                 Items.Add(item);
             }
 
-            ListUpdated?.Invoke(this, EventArgs.Empty);
+            if (IsCurrentRequest(generation, token)) ListUpdated?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    [RelayCommand]
+    private async Task RetryAppendAsync()
+    {
+        if (_isRetired || IsLoading || _isRefreshing || !HasAppendError) return;
+        _preventLoadMore = false;
+        IsEmpty = false;
+        await LoadItemsAsync();
+    }
+
+    private bool IsCurrentRequest(long generation, CancellationToken token)
+        => !_isRetired && !token.IsCancellationRequested && generation == _account.AccountGeneration;
+
+    private void ResetItems()
+    {
+        _accountGeneration = _account.AccountGeneration;
+        _offset = default;
+        _baseline = default;
+        _preventLoadMore = false;
+        _isSeeded = false;
+        IsEmpty = false;
+        HasAppendError = false;
+        IsPrefetchExhausted = false;
+        Items.Clear();
     }
 
     private void ShowComment(MomentItemViewModel item)

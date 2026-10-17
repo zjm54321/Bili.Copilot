@@ -2,6 +2,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using BiliCopilot.UI.ViewModels.Components;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.Moment;
 using System.Collections.ObjectModel;
@@ -15,10 +16,23 @@ public sealed partial class MomentUperSectionViewModel
 {
     private readonly IMomentDiscoveryService _service;
     private readonly ILogger<MomentUperSectionViewModel> _logger;
+    private readonly AccountViewModel _account;
     private readonly IAsyncRelayCommand? _ownerRefreshCommand;
+    private long _accountGeneration;
+    private CancellationTokenSource? _requestCancellation;
     private Task _loadTask = Task.CompletedTask;
-    private Task _refreshTask = Task.CompletedTask;
+    private bool _isRefreshing;
     private bool _isRetired;
+    private bool _isSeeded;
+
+    [ObservableProperty]
+    private bool _isAppending;
+
+    [ObservableProperty]
+    private bool _hasAppendError;
+
+    [ObservableProperty]
+    private bool _isPrefetchExhausted;
     private bool _preventLoadMore;
     private string? _offset;
     private string? _baseline;
@@ -42,9 +56,6 @@ public sealed partial class MomentUperSectionViewModel
     /// </summary>
     public bool IsTotal { get; init; }
 
-    /// <summary>
-    /// 刷新当前动态流；全部动态必须由外层同时刷新 UP 列表.
-    /// </summary>
     public IAsyncRelayCommand? RefreshFeedCommand => IsTotal ? _ownerRefreshCommand : RefreshCommand;
 
     /// <summary>
