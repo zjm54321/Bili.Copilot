@@ -138,7 +138,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
         }
 
         ActiveMainWindow();
-        var lastSelectedPage = SettingsToolkit.ReadLocalSetting(SettingNames.LastSelectedFeaturePage, string.Empty);
+        var currentContent = _navFrame.GetCurrentContent();
         if (IsOverlayOpen)
         {
             IsOverlayOpen = false;
@@ -146,9 +146,9 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
             CheckSubPageStatus();
         }
 
-        if (lastSelectedPage == pageType.FullName && _navFrame.GetCurrentContent() is not null && _navFrame.GetCurrentContent().GetType().FullName == lastSelectedPage)
+        if (currentContent?.GetType() == pageType)
         {
-            if (_navFrame.GetCurrentContent() is ICancelPageViewModel cancelPage)
+            if (currentContent is ICancelPageViewModel cancelPage)
             {
                 cancelPage.CancelLoading();
             }

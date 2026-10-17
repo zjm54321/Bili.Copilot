@@ -5,6 +5,7 @@ using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Input;
@@ -187,11 +188,17 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         }
 
         MoveAndResize();
-        this.Get<ILogger<App>>().LogInformation($"App version: {this.Get<IAppToolkit>().GetPackageVersion()}");
         var localTheme = SettingsToolkit.ReadLocalSetting(SettingNames.AppTheme, ElementTheme.Default);
         this.Get<AppViewModel>().ChangeThemeCommand.Execute(localTheme);
         AppWindow.Changed += OnWindowChanged;
         _isFirstActivated = false;
+        _ = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (!_isTerminalClosePermitted)
+            {
+                this.Get<ILogger<App>>().LogInformation($"App version: {this.Get<IAppToolkit>().GetPackageVersion()}");
+            }
+        });
     }
 
     internal void UnregisterEventHandlers()

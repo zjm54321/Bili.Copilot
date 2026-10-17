@@ -46,16 +46,16 @@ public sealed partial class LivePartitionPageViewModel : LayoutPageViewModelBase
     [RelayCommand]
     private void Initialize()
     {
-        if (MainSections.Count > 1)
+        if (MainSections.Count > 1 || IsSectionLoading)
         {
             return;
         }
 
         IsSectionLoading = true;
         IsFollowRoomsEmpty = true;
-        try
+        if (!this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
         {
-            this.Get<DispatcherQueue>().TryEnqueue(DispatcherQueuePriority.Low, async () =>
+            try
             {
                 MainSections.Clear();
                 var rcmdSection = new Partition("_", ResourceToolkit.GetLocalizedString(StringNames.RecommendLive));
@@ -73,12 +73,17 @@ public sealed partial class LivePartitionPageViewModel : LayoutPageViewModelBase
 
                 await SelectMainSectionAsync(MainSections.First());
                 SectionInitialized?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取直播间分区时出现异常");
+            }
+            finally
+            {
                 IsSectionLoading = false;
-            });
-        }
-        catch (Exception ex)
+            }
+        }))
         {
-            _logger.LogError(ex, "获取直播间分区时出现异常");
             IsSectionLoading = false;
         }
     }

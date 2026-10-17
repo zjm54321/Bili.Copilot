@@ -185,6 +185,8 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
                 {
                     mainFramePage.SetParameter(parameter);
                 }
+
+                break;
             }
         }
 
@@ -218,8 +220,9 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
         // Visibility selection remains authoritative.
         foreach (var child in RootGrid.Children)
         {
+            var wasVisible = child.Visibility == Visibility.Visible;
             child.Visibility = child == targetElement ? Visibility.Visible : Visibility.Collapsed;
-            if (child.Visibility == Visibility.Collapsed && child is ICancelPageViewModel cancelPageViewModel)
+            if (wasVisible && child.Visibility == Visibility.Collapsed && child is ICancelPageViewModel cancelPageViewModel)
             {
                 cancelPageViewModel.CancelLoading();
             }
@@ -232,7 +235,6 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
     {
         _isSwitching = true;
         var scope = ResolveScope();
-        scope.NotifyChanged();
         scope.SetMainCovered(ComputeCovering(includePendingOpen: true));
     }
 
@@ -240,7 +242,6 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
     {
         var scope = ResolveScope();
         scope.SetMainCovered(ComputeCovering(includePendingOpen: true));
-        scope.NotifyChanged();
     }
 
     private bool ComputeCovering(bool includePendingOpen)
@@ -271,7 +272,6 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
         _transition.Attach(DispatcherQueue);
         var scope = ResolveScope();
         scope.SetMainCovered(ComputeCovering(includePendingOpen: true));
-        scope.NotifyChanged();
     }
 
     private void OnFrameUnloaded(object sender, RoutedEventArgs e)
@@ -280,7 +280,6 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
         var scope = ResolveScope();
         scope.WithdrawMainBackArrival();
         scope.SetMainCovered(false);
-        scope.NotifyChanged();
     }
 
     private void OnFrameVisibilityChanged(DependencyObject sender, DependencyProperty dp)
@@ -300,6 +299,5 @@ public sealed partial class OverlayFrame : LayoutUserControlBase, IPageActivatio
         }
 
         scope.SetMainCovered(ComputeCovering(includePendingOpen: false));
-        scope.NotifyChanged();
     }
 }

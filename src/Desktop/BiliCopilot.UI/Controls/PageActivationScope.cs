@@ -81,15 +81,10 @@ internal sealed class PageActivationScope
     }
 
     /// <summary>
-    /// Updates the overlay cover state, notifying listeners only if it changed.
+    /// Publishes the overlay cover and activation inputs together in one notification.
     /// </summary>
     public void SetMainCovered(bool isCovered)
     {
-        if (IsMainCovered == isCovered)
-        {
-            return;
-        }
-
         IsMainCovered = isCovered;
         NotifyChanged();
     }

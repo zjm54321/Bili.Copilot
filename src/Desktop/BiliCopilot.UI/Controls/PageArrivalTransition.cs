@@ -14,29 +14,29 @@ namespace BiliCopilot.UI.Controls;
 internal enum PageArrivalKind
 {
     /// <summary>
-    /// NavigatingTo: fade in over 150 ms while Y holds at +140, then Y settles to 0 at 450 ms.
+    /// NavigatingTo: fade in and slide up 32 pixels over 250 ms.
     /// </summary>
     Forward,
 
     /// <summary>
-    /// BackNavigatingTo: opacity holds 0 until 150 ms, then fades to 1 at 450 ms. No offset.
+    /// BackNavigatingTo: fade in over 200 ms without an offset.
     /// </summary>
     Back,
 }
 
 /// <summary>
 /// One-shot arrival motion for the newly shown cached page root of a frame.
-/// Source-equivalent recipe of WinUI 1.8.3 (de1b1d8f) <c>ThemeTransitions.cpp:3180-3215</c>;
-/// it is not a native Frame transition. Only the current target is ever animated.
+/// Only the current target's composition opacity and translation are animated.
 /// </summary>
 internal sealed class PageArrivalTransition
 {
-    private const float TranslationOffset = 140f;
-    private const float HoldFraction = 150f / 450f;
-    private static readonly TimeSpan TotalDuration = TimeSpan.FromMilliseconds(450);
+    private const float TranslationOffset = 32f;
+    private static readonly TimeSpan ForwardDuration = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan BackDuration = TimeSpan.FromMilliseconds(200);
 
     private DispatcherQueue? _dispatcherQueue;
     private UISettings? _uiSettings;
+    private bool _animationsEnabled;
     private long _epoch;
     private UIElement? _target;
 
@@ -45,20 +45,21 @@ internal sealed class PageArrivalTransition
     /// </summary>
     public void Attach(DispatcherQueue dispatcherQueue)
     {
-        _dispatcherQueue = dispatcherQueue;
-        if (_uiSettings is not null)
+        if (_dispatcherQueue is not null)
         {
             return;
         }
 
+        _dispatcherQueue = dispatcherQueue;
         try
         {
-            _uiSettings = new UISettings();
+            _uiSettings ??= new UISettings();
+            _animationsEnabled = _uiSettings.AnimationsEnabled;
             _uiSettings.AnimationsEnabledChanged += OnAnimationsEnabledChanged;
         }
         catch (Exception)
         {
-            _uiSettings = null;
+            _animationsEnabled = false;
         }
     }
 
@@ -71,8 +72,10 @@ internal sealed class PageArrivalTransition
         if (_uiSettings is not null)
         {
             _uiSettings.AnimationsEnabledChanged -= OnAnimationsEnabledChanged;
-            _uiSettings = null;
         }
+
+        _dispatcherQueue = null;
+        _animationsEnabled = false;
     }
 
     /// <summary>
@@ -96,7 +99,8 @@ internal sealed class PageArrivalTransition
     public void Start(UIElement target, PageArrivalKind kind)
     {
         Cancel();
-        if (target.Visibility != Visibility.Visible || !AreAnimationsEnabled())
+        Attach(target.DispatcherQueue);
+        if (target.Visibility != Visibility.Visible || !_animationsEnabled)
         {
             // Reduced motion: no offset and no fade; values are already neutral.
             return;
@@ -105,22 +109,13 @@ internal sealed class PageArrivalTransition
         var epoch = _epoch;
         var visual = ElementCompositionPreview.GetElementVisual(target);
         var compositor = visual.Compositor;
-        var incoming = compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f));
+        var incoming = compositor.CreateCubicBezierEasingFunction(Vector2.Zero, new Vector2(0f, 1f));
         var linear = compositor.CreateLinearEasingFunction();
 
         var opacity = compositor.CreateScalarKeyFrameAnimation();
-        opacity.Duration = TotalDuration;
+        opacity.Duration = kind == PageArrivalKind.Forward ? ForwardDuration : BackDuration;
         opacity.InsertKeyFrame(0f, 0f, linear);
-        if (kind == PageArrivalKind.Forward)
-        {
-            opacity.InsertKeyFrame(HoldFraction, 1f, linear);
-            opacity.InsertKeyFrame(1f, 1f, linear);
-        }
-        else
-        {
-            opacity.InsertKeyFrame(HoldFraction, 0f, linear);
-            opacity.InsertKeyFrame(1f, 1f, incoming);
-        }
+        opacity.InsertKeyFrame(1f, 1f, incoming);
 
         _target = target;
         var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
@@ -132,9 +127,8 @@ internal sealed class PageArrivalTransition
             ElementCompositionPreview.SetIsTranslationEnabled(target, true);
             visual.Properties.InsertVector3("Translation", new Vector3(0f, TranslationOffset, 0f));
             var offset = compositor.CreateScalarKeyFrameAnimation();
-            offset.Duration = TotalDuration;
+            offset.Duration = ForwardDuration;
             offset.InsertKeyFrame(0f, TranslationOffset, linear);
-            offset.InsertKeyFrame(HoldFraction, TranslationOffset, linear);
             offset.InsertKeyFrame(1f, 0f, incoming);
             visual.StartAnimation("Translation.Y", offset);
         }
@@ -151,18 +145,6 @@ internal sealed class PageArrivalTransition
         visual.StopAnimation("Translation");
         visual.Opacity = 1f;
         visual.Properties.InsertVector3("Translation", Vector3.Zero);
-    }
-
-    private static bool AreAnimationsEnabled()
-    {
-        try
-        {
-            return new UISettings().AnimationsEnabled;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
     }
 
     private void OnCompleted(long epoch, UIElement target)
@@ -188,7 +170,8 @@ internal sealed class PageArrivalTransition
         // Raised off the UI thread; cancel only on the owning dispatcher.
         _ = _dispatcherQueue?.TryEnqueue(() =>
         {
-            if (!AreAnimationsEnabled())
+            _animationsEnabled = sender.AnimationsEnabled;
+            if (!_animationsEnabled)
             {
                 Cancel();
             }

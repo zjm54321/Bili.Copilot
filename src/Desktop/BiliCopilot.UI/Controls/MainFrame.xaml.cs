@@ -106,6 +106,8 @@ public sealed partial class MainFrame : LayoutUserControlBase, IPageActivationHo
                 {
                     initPage.Initialize();
                 }
+
+                break;
             }
         }
 
@@ -135,8 +137,9 @@ public sealed partial class MainFrame : LayoutUserControlBase, IPageActivationHo
         // Visibility selection remains authoritative.
         foreach (var child in RootGrid.Children)
         {
+            var wasVisible = child.Visibility == Visibility.Visible;
             child.Visibility = child == targetElement ? Visibility.Visible : Visibility.Collapsed;
-            if (child.Visibility == Visibility.Collapsed && child is ICancelPageViewModel cancelPageViewModel)
+            if (wasVisible && child.Visibility == Visibility.Collapsed && child is ICancelPageViewModel cancelPageViewModel)
             {
                 cancelPageViewModel.CancelLoading();
             }

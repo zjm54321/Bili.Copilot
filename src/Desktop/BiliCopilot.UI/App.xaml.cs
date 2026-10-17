@@ -163,10 +163,7 @@ public partial class App : Application
             var rootFolder = Microsoft.Windows.Storage.ApplicationData.GetDefault().LocalFolder;
             var fullPath = $"{rootFolder.Path}\\Logger";
             LoggerFolder = fullPath;
-            if (!Directory.Exists(fullPath))
-            {
-                _ = Directory.CreateDirectory(fullPath);
-            }
+            _ = Directory.CreateDirectory(fullPath);
 
             instance.Activated += OnInstanceActivated;
             Richasy.WinUIKernel.Share.Base.ImageExBase.EnableBackgroundDecoding = false;
