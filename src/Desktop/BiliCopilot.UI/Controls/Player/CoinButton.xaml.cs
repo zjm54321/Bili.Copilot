@@ -26,7 +26,7 @@ public sealed partial class CoinButton : LayoutUserControlBase
     /// <see cref="Command"/> 的依赖属性.
     /// </summary>
     public static readonly DependencyProperty CommandProperty =
-        DependencyProperty.Register(nameof(Command), typeof(ICommand), typeof(CoinButton), new PropertyMetadata(default));
+        DependencyProperty.Register(nameof(Command), typeof(ICommand), typeof(CoinButton), new PropertyMetadata(default, OnTipCommandChanged));
 
     /// <summary>
     /// <see cref="AlsoLike"/> 的依赖属性.
@@ -34,10 +34,16 @@ public sealed partial class CoinButton : LayoutUserControlBase
     public static readonly DependencyProperty AlsoLikeProperty =
         DependencyProperty.Register(nameof(AlsoLike), typeof(bool), typeof(CoinButton), new PropertyMetadata(default));
 
+    private readonly PlayerActionTip _coinTip;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="CoinButton"/> class.
     /// </summary>
-    public CoinButton() => InitializeComponent();
+    public CoinButton()
+    {
+        InitializeComponent();
+        _coinTip = new PlayerActionTip(this, CoinTip, () => new ICommand?[] { Command });
+    }
 
     /// <summary>
     /// 是否已投币.
@@ -82,7 +88,7 @@ public sealed partial class CoinButton : LayoutUserControlBase
             return;
         }
 
-        CoinTip.IsOpen = true;
+        _coinTip.TryOpen();
     }
 
     private void OnChecked(object sender, RoutedEventArgs e)
@@ -101,15 +107,13 @@ public sealed partial class CoinButton : LayoutUserControlBase
         }
     }
 
+    // A rebound connector replaces the command: the tip opened for the old one closes instead of running the new one.
+    private static void OnTipCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((CoinButton)d)._coinTip?.Close();
+
     private void OnOneCoinButtonClick(TeachingTip sender, object args)
-    {
-        Command?.Execute(1);
-        CoinTip.IsOpen = false;
-    }
+        => _coinTip.ExecuteAndClose(0, 1);
 
     private void OnTwoCoinButtonClick(TeachingTip sender, object args)
-    {
-        Command?.Execute(2);
-        CoinTip.IsOpen = false;
-    }
+        => _coinTip.ExecuteAndClose(0, 2);
 }

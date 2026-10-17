@@ -32,7 +32,6 @@
             </ResourceDictionary.ThemeDictionaries>
 
             <converters:CompactOverlayConverter x:Key="CompactOverlayConverter" />
-            <converters:FullWindowConverter x:Key="FullWindowConverter" />
             <converters:FullScreenConverter x:Key="FullScreenConverter" />
 
             <Style
@@ -102,6 +101,7 @@
                         IsActive="{x:Bind local:IslandTransportControls.IsBuffering(ViewModel.Player.PlaybackState, ViewModel.Player.IsLoading), Mode=OneWay}"
                         Visibility="{x:Bind local:IslandTransportControls.GetBufferingVisibility(ViewModel.Player.PlaybackState, ViewModel.Player.IsLoading), Mode=OneWay}" />
                     <Button
+                        x:Name="PlayPauseButton"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Background="{ThemeResource ButtonBackground}"
@@ -294,15 +294,6 @@
                         Style="{StaticResource CircleIconButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.Player.IsCompactOverlay, Mode=OneWay, Converter={StaticResource CompactOverlayConverter}}">
                         <ic:SymbolIcon FontSize="14" Symbol="{x:Bind ViewModel.Player.IsCompactOverlay, Mode=OneWay, Converter={StaticResource CompactOverlayConverter}}" />
-                    </Button>
-
-                    <!--  全窗口  -->
-                    <Button
-                        Margin="0,0,8,0"
-                        Click="OnToggleFullWindowClick"
-                        Style="{StaticResource CircleIconButtonStyle}"
-                        ToolTipService.ToolTip="{x:Bind GetFullWindowToolTip(ViewModel.Presentation), Mode=OneWay}">
-                        <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetFullWindowSymbol(ViewModel.Presentation), Mode=OneWay}" />
                     </Button>
 
                     <!--  全屏  -->

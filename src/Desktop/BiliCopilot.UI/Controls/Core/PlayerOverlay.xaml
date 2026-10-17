@@ -86,6 +86,86 @@
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="AutomationProperties.AutomationControlType" Value="ListItem" />
         </Style>
+        <!--  清晰度列表项：独立播放窗口标题栏与内嵌全屏/小窗标题区共用同一模板  -->
+        <DataTemplate x:Key="SourceItemTemplate" x:DataType="items:SourceItemViewModel">
+            <Button
+                Click="OnSourceItemClick"
+                DataContext="{x:Bind}"
+                IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
+                Style="{StaticResource ItemButtonStyle}">
+                <!--
+                    仅限清晰度列表：不可用项只显示为灰色文字，不绘制禁用按钮的底色与边框
+                    （窗口化清晰度列表的带边框样式保持不变）.
+                -->
+                <Button.Resources>
+                    <ResourceDictionary>
+                        <ResourceDictionary.ThemeDictionaries>
+                            <ResourceDictionary x:Key="Default">
+                                <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+                                <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="TextFillColorDisabledBrush" />
+                            </ResourceDictionary>
+                            <ResourceDictionary x:Key="Light">
+                                <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+                                <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="TextFillColorDisabledBrush" />
+                            </ResourceDictionary>
+                        </ResourceDictionary.ThemeDictionaries>
+                    </ResourceDictionary>
+                </Button.Resources>
+                <Grid>
+                    <Rectangle
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        Fill="{ThemeResource ControlFillColorDefaultBrush}"
+                        RadiusX="4"
+                        RadiusY="4"
+                        Visibility="{x:Bind IsSelected, Mode=OneWay}" />
+                    <Grid Margin="0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle
+                            Width="4"
+                            Height="20"
+                            VerticalAlignment="Center"
+                            Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                            RadiusX="2"
+                            RadiusY="2"
+                            Visibility="{x:Bind IsSelected, Mode=OneWay}" />
+                        <Grid Grid.Column="1" Margin="12,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <base:TrimTextBlock MaxLines="2" Text="{x:Bind Name, Mode=OneWay}" />
+                            <!--<base:TrimTextBlock
+                                Grid.Row="1"
+                                Margin="0,4,0,0"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                MaxLines="1"
+                                Text="{x:Bind Subtitle, Mode=OneWay}"
+                                Visibility="{x:Bind Subtitle, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />-->
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Button>
+        </DataTemplate>
+        <!--  内嵌全屏/小窗标题区的图标按钮：透明底，悬停/按下沿用深色主题按钮反馈  -->
+        <Style
+            x:Key="EmbeddedHeaderButtonStyle"
+            BasedOn="{StaticResource DefaultButtonStyle}"
+            TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
     </UserControl.Resources>
 
     <Grid x:Name="RootGrid">
@@ -104,6 +184,7 @@
         <local:PlayerInteractivePanel ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
         <ContentControl
             x:Name="EmbeddedInteractionNoticeHost"
+            Margin="{x:Bind local:PlayerOverlay.GetEmbeddedNoticeMargin(ViewModel.IsEmbedded, ViewModel.Presentation), Mode=OneWay}"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Top"
             IsTabStop="False" />
@@ -405,12 +486,17 @@
                         </LinearGradientBrush.GradientStops>
                     </LinearGradientBrush>
                 </Grid.Background>
+                <!--
+                    仅独立播放窗口加载 AppTitleBar（它会写入所在窗口的原生标题栏区域）；
+                    内嵌主窗口时不实例化，改用下方纯视觉的 EmbeddedHeader.
+                -->
                 <base:AppTitleBar
                     x:Name="HeaderBar"
                     Title="{x:Bind ViewModel.Title, Mode=OneWay}"
                     Height="44"
                     VerticalAlignment="Top"
                     x:FieldModifier="public"
+                    x:Load="{x:Bind local:PlayerOverlay.IsStandaloneHeaderLoaded(ViewModel.IsEmbedded), Mode=OneWay}"
                     AutoUpdateTitleBarButtonColor="False"
                     IsBackButtonVisible="False"
                     SizeChanged="OnHeaderBarSizeChanged"
@@ -418,7 +504,7 @@
                     TitleMaxWidth="480">
                     <base:AppTitleBar.LeftEdgeElement>
                         <Grid>
-                            <Grid Visibility="{x:Bind ViewModel.Player.IsCompactOverlay, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}">
+                            <Grid Visibility="{x:Bind local:PlayerOverlay.GetVisibilityUnlessCompact(ViewModel.Presentation), Mode=OneWay}">
                                 <Button
                                     Command="{x:Bind ViewModel.BackCommand, Mode=OneWay}"
                                     Style="{StaticResource LeftEdgeButtonStyle}"
@@ -431,7 +517,7 @@
                                 Command="{x:Bind ViewModel.ToggleCompactOverlayCommand, Mode=OneWay}"
                                 Style="{StaticResource LeftEdgeButtonStyle}"
                                 ToolTipService.ToolTip="{ext:Locale Name=ExitCompactOverlay}"
-                                Visibility="{x:Bind ViewModel.Player.IsCompactOverlay, Mode=OneWay}">
+                                Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
                                 <ic:SymbolIcon FontSize="14" Symbol="ContractDownLeft" />
                             </Button>
                         </Grid>
@@ -475,55 +561,8 @@
                                         <ItemsRepeater
                                             x:Name="SourceListView"
                                             MaxWidth="360"
+                                            ItemTemplate="{StaticResource SourceItemTemplate}"
                                             ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}">
-                                            <ItemsRepeater.ItemTemplate>
-                                                <DataTemplate x:DataType="items:SourceItemViewModel">
-                                                    <Button
-                                                        Click="OnSourceItemClick"
-                                                        DataContext="{x:Bind}"
-                                                        IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
-                                                        Style="{StaticResource ItemButtonStyle}">
-                                                        <Grid>
-                                                            <Rectangle
-                                                                HorizontalAlignment="Stretch"
-                                                                VerticalAlignment="Stretch"
-                                                                Fill="{ThemeResource ControlFillColorDefaultBrush}"
-                                                                RadiusX="4"
-                                                                RadiusY="4"
-                                                                Visibility="{x:Bind IsSelected, Mode=OneWay}" />
-                                                            <Grid Margin="0,8">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="4" />
-                                                                    <ColumnDefinition />
-                                                                </Grid.ColumnDefinitions>
-                                                                <Rectangle
-                                                                    Width="4"
-                                                                    Height="20"
-                                                                    VerticalAlignment="Center"
-                                                                    Fill="{ThemeResource AccentFillColorDefaultBrush}"
-                                                                    RadiusX="2"
-                                                                    RadiusY="2"
-                                                                    Visibility="{x:Bind IsSelected, Mode=OneWay}" />
-                                                                <Grid Grid.Column="1" Margin="12,0">
-                                                                    <Grid.RowDefinitions>
-                                                                        <RowDefinition />
-                                                                        <RowDefinition Height="Auto" />
-                                                                    </Grid.RowDefinitions>
-                                                                    <base:TrimTextBlock MaxLines="2" Text="{x:Bind Name, Mode=OneWay}" />
-                                                                    <!--<base:TrimTextBlock
-                                                                        Grid.Row="1"
-                                                                        Margin="0,4,0,0"
-                                                                        FontSize="12"
-                                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                        MaxLines="1"
-                                                                        Text="{x:Bind Subtitle, Mode=OneWay}"
-                                                                        Visibility="{x:Bind Subtitle, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />-->
-                                                                </Grid>
-                                                            </Grid>
-                                                        </Grid>
-                                                    </Button>
-                                                </DataTemplate>
-                                            </ItemsRepeater.ItemTemplate>
                                             <ItemsRepeater.Layout>
                                                 <StackLayout Spacing="4" />
                                             </ItemsRepeater.Layout>
@@ -539,7 +578,7 @@
                                 VerticalAlignment="Center"
                                 Command="{x:Bind ViewModel.ToggleTopMostCommand, Mode=OneWay}"
                                 ToolTipService.ToolTip="{ext:Locale Name=TopWindow}"
-                                Visibility="{x:Bind local:PlayerOverlay.IsTopMostButtonVisible(ViewModel.Player.IsFullScreen, ViewModel.Player.IsCompactOverlay), Mode=OneWay}">
+                                Visibility="{x:Bind local:PlayerOverlay.IsTopMostButtonVisible(ViewModel.Presentation, ViewModel.IsEmbedded), Mode=OneWay}">
                                 <Grid>
                                     <ic:SymbolIcon
                                         FontSize="14"
@@ -579,7 +618,7 @@
                                 VerticalAlignment="Center"
                                 Click="OnCloseButtonClick"
                                 Style="{StaticResource AccentButtonStyle}"
-                                Visibility="{x:Bind ViewModel.Player.IsFullScreen, Mode=OneWay}">
+                                Visibility="{x:Bind ViewModel.IsFullScreen, Mode=OneWay}">
                                 <base:IconTextBlock
                                     IconBrush="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                                     Symbol="Dismiss"
@@ -588,11 +627,169 @@
                         </StackPanel>
                     </base:AppTitleBar.Footer>
                 </base:AppTitleBar>
+                <!--
+                    内嵌主窗口全屏/小窗的纯视觉标题区：不是 AppTitleBar，不写入原生标题栏区域.
+                    只有透明背景 EmbeddedHeaderDragSurface 在小窗中把鼠标左键拖动交给宿主；按钮与标题不参与拖动.
+                -->
+                <Grid
+                    x:Name="EmbeddedHeader"
+                    Height="48"
+                    VerticalAlignment="Top"
+                    x:Load="{x:Bind local:PlayerOverlay.IsEmbeddedHeaderLoaded(ViewModel.IsEmbedded), Mode=OneWay}"
+                    ColumnSpacing="4"
+                    RequestedTheme="Dark"
+                    SizeChanged="OnEmbeddedHeaderSizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border
+                        x:Name="EmbeddedHeaderDragSurface"
+                        Grid.ColumnSpan="3"
+                        Background="Transparent"
+                        PointerPressed="OnEmbeddedHeaderPointerPressed" />
+                    <Button
+                        Margin="4,0,0,0"
+                        AutomationProperties.Name="{ext:Locale Name=BackToDefaultView}"
+                        Click="OnEmbeddedBackClick"
+                        Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                        ToolTipService.ToolTip="{ext:Locale Name=BackToDefaultView}">
+                        <ic:SymbolIcon FontSize="14" Symbol="ArrowLeft" />
+                    </Button>
+                    <TextBlock
+                        x:Name="EmbeddedTitle"
+                        Grid.Column="1"
+                        Margin="4,0"
+                        VerticalAlignment="Center"
+                        Foreground="White"
+                        IsHitTestVisible="False"
+                        MaxLines="1"
+                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind ViewModel.Title, Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap" />
+                    <StackPanel
+                        Grid.Column="2"
+                        Margin="0,0,8,0"
+                        Orientation="Horizontal"
+                        Spacing="2">
+                        <StackPanel
+                            x:Name="EmbeddedStatusPanel"
+                            Margin="0,0,6,0"
+                            Orientation="Horizontal"
+                            Spacing="2">
+                            <TextBlock
+                                Margin="0,0,8,0"
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="White"
+                                IsHitTestVisible="False"
+                                Text="{x:Bind ViewModel.CacheSpeedText, Mode=OneWay}"
+                                Visibility="{x:Bind ViewModel.CacheSpeedText, Mode=OneWay, Converter={StaticResource ObjectToVisibilityConverter}}" />
+                            <DropDownButton
+                                x:Name="EmbeddedSourceSelector"
+                                Margin="0,0,4,0"
+                                VerticalAlignment="Center"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Center"
+                                x:Load="{x:Bind ViewModel.IsSourceSelectable, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <ic:SymbolIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="14"
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                        Symbol="PlayCircle" />
+                                    <base:TrimTextBlock
+                                        MaxWidth="160"
+                                        VerticalAlignment="Center"
+                                        MaxLines="1"
+                                        Text="{x:Bind ViewModel.SelectedSource.Name, Mode=OneWay}" />
+                                </StackPanel>
+                                <DropDownButton.Flyout>
+                                    <Flyout
+                                        x:Name="EmbeddedSourceFlyout"
+                                        FlyoutPresenterStyle="{StaticResource DropDownFlyoutStyle}"
+                                        Opened="OnOverlayFlyoutOpened"
+                                        Placement="Bottom">
+                                        <ItemsRepeater
+                                            MaxWidth="360"
+                                            ItemTemplate="{StaticResource SourceItemTemplate}"
+                                            ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout Spacing="4" />
+                                            </ItemsRepeater.Layout>
+                                        </ItemsRepeater>
+                                    </Flyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                            <Button
+                                x:Name="EmbeddedSettingButton"
+                                AutomationProperties.Name="{ext:Locale Name=Settings}"
+                                Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                                ToolTipService.ToolTip="{ext:Locale Name=Settings}">
+                                <ic:SymbolIcon FontSize="14" Symbol="Settings" />
+                                <Button.Flyout>
+                                    <MenuFlyout Opened="OnOverlayFlyoutOpened" Placement="Bottom">
+                                        <MenuFlyoutItem
+                                            MinWidth="140"
+                                            MinHeight="40"
+                                            Click="OnSubtitleSettingItemClick"
+                                            IsEnabled="{x:Bind ViewModel.Player.IsPlaybackInitialized, Mode=OneWay}"
+                                            Text="{ext:Locale Name=SubtitleSetting}" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </StackPanel>
+                        <!--  小窗置顶：切换真实的窗口置顶状态，图标随宿主回读的 IsTopMost 变化  -->
+                        <Button
+                            AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedPinTip(ViewModel.IsTopMost), Mode=OneWay}"
+                            Click="OnEmbeddedPinClick"
+                            Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedPinTip(ViewModel.IsTopMost), Mode=OneWay}"
+                            Visibility="{x:Bind local:PlayerOverlay.GetCompactOnlyVisibility(ViewModel.Presentation), Mode=OneWay}">
+                            <Grid>
+                                <ic:SymbolIcon
+                                    FontSize="14"
+                                    Symbol="Pin"
+                                    Visibility="{x:Bind ViewModel.IsTopMost, Mode=OneWay, Converter={StaticResource BoolToVisibilityReverseConverter}}" />
+                                <ic:SymbolIcon
+                                    FontSize="14"
+                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                    IconVariant="Filled"
+                                    Symbol="Pin"
+                                    Visibility="{x:Bind ViewModel.IsTopMost, Mode=OneWay}" />
+                            </Grid>
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedCompactTip(ViewModel.Presentation), Mode=OneWay}"
+                            Click="OnEmbeddedCompactClick"
+                            Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedCompactTip(ViewModel.Presentation), Mode=OneWay}">
+                            <ic:SymbolIcon FontSize="14" Symbol="{x:Bind local:PlayerOverlay.GetEmbeddedCompactSymbol(ViewModel.Presentation), Mode=OneWay}" />
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenTip(ViewModel.Presentation), Mode=OneWay}"
+                            Click="OnEmbeddedFullScreenClick"
+                            Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                            ToolTipService.ToolTip="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenTip(ViewModel.Presentation), Mode=OneWay}">
+                            <ic:SymbolIcon FontSize="14" Symbol="{x:Bind local:PlayerOverlay.GetEmbeddedFullScreenSymbol(ViewModel.Presentation), Mode=OneWay}" />
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="{ext:Locale Name=CloseWindow}"
+                            Click="OnEmbeddedCloseClick"
+                            Style="{StaticResource EmbeddedHeaderButtonStyle}"
+                            ToolTipService.ToolTip="{ext:Locale Name=CloseWindow}">
+                            <ic:SymbolIcon FontSize="14" Symbol="Dismiss" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+                <!--  目标按钮在打开前由代码按当前标题区（独立窗口/内嵌）设置，避免访问未加载的元素  -->
                 <TeachingTip
+                    x:Name="SubtitleSettingsTip"
                     IsLightDismissEnabled="True"
                     IsOpen="{x:Bind ViewModel.IsSubtitleSettingsVisible, Mode=TwoWay}"
-                    PreferredPlacement="Bottom"
-                    Target="{x:Bind HeaderSettingButton}">
+                    PreferredPlacement="Bottom">
                     <StackPanel Width="280" Spacing="8">
                         <TextBlock
                             HorizontalAlignment="Left"
@@ -776,15 +973,5 @@
                 Grid.RowSpan="2"
                 Visibility="Collapsed" />
         </Grid>
-        <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup>
-                <VisualState x:Name="DefaultState" />
-                <VisualState x:Name="NarrowState">
-                    <VisualState.Setters>
-                        <Setter Target="FooterContainer.Visibility" Value="Collapsed" />
-                    </VisualState.Setters>
-                </VisualState>
-            </VisualStateGroup>
-        </VisualStateManager.VisualStateGroups>
     </Grid>
 </local:PlayerControlBase>

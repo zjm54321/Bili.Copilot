@@ -106,11 +106,6 @@ public sealed partial class PgcConnectorViewModel
     public partial List<PlayerFavoriteFolderViewModel>? FavoriteFolders { get; set; }
 
     /// <summary>
-    /// 下载视图模型.
-    /// </summary>
-    public DownloadViewModel Downloader { get; }
-
-    /// <summary>
     /// 播放视图模型.
     /// </summary>
     public PlayerViewModel Parent { get; set; }

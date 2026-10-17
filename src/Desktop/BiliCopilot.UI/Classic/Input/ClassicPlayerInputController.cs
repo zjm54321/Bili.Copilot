@@ -23,8 +23,14 @@ public sealed class ClassicPlayerInputController
     private uint? _pointer;
     private bool _touch;
     private bool _right;
-    private bool _secondTap;
-    private bool _pendingTap;
+    private readonly PlayerTapAggregationState _taps = new();
+    private PlayerTapContext _tapContext;
+    private long _inputEpoch;
+    private double _scale = 1, _width, _height;
+    internal Func<bool>? TapAdmission { get; set; }
+    internal double DoubleClickMilliseconds { get; set; }
+    internal double DoubleClickWidth { get; set; }
+    internal double DoubleClickHeight { get; set; }
     private bool _alt;
     private bool _active = true;
     private bool _blocked;
@@ -57,6 +63,8 @@ public sealed class ClassicPlayerInputController
         var handled = false;
         await _session.OnDispatcherAsync(async () =>
         {
+            _taps.Cancel();
+            CancelDelay(ref _tapDelay);
             var isAlt = key is VirtualKey.Menu or VirtualKey.LeftMenu or VirtualKey.RightMenu;
             if (_alt && !isAlt) { _alt = false; await _session.ReleaseRateAsync(2); return; }
             if (!Accept || !sourceAllowed) return;
@@ -119,20 +127,24 @@ public sealed class ClassicPlayerInputController
 
     // Host calls only for Touch/Mouse; capture before calling, and release if false.
     public async Task<bool> PointerPressedAsync(uint id, double x, double y, bool touch,
-        bool primary, bool rightButton, bool sourceAllowed, bool generated, bool modified)
+        bool primary, bool rightButton, bool sourceAllowed, bool generated, bool modified,
+        double scale = 1, double width = 0, double height = 0, double? rootX = null, double? rootY = null)
     {
         var accepted = false;
         await _session.OnDispatcherAsync(async () =>
         {
-            if (!Accept || !sourceAllowed || generated || (!touch && modified)) return;
+            if (!Accept || !sourceAllowed || generated || (!touch && modified)) { await CancelAsync(); return; }
             if (_pointer is not null || (touch && !primary)) { await CancelAsync(); return; }
             _contactGeneration = _session.Generation;
             _pointer = id;
             _touch = touch;
             _right = !touch && rightButton;
-            _secondTap = touch && _pendingTap;
-            _pendingTap = false;
             CancelDelay(ref _tapDelay);
+            _scale = scale; _width = width; _height = height;
+            _tapContext = CurrentTapContext(touch);
+            if (_right || _alt) _taps.Cancel();
+            else Observe(ExecuteTapAsync(_taps.Press(_tapContext, (rootX ?? x) * scale, (rootY ?? y) * scale,
+                TapNow, DoubleClickMilliseconds, DoubleClickWidth, DoubleClickHeight)));
             _gesture.Begin(x, y, touch);
             _startPosition = _session.PositionSeconds;
             _startVolume = _session.Volume;
@@ -152,7 +164,7 @@ public sealed class ClassicPlayerInputController
         if (_pointer != id) return;
         if (!ContactCurrent) { await CancelAsync(); return; }
         _gesture.Move(x, y);
-        if (_gesture.Phase != PlayerSurfaceGesture.Pressed) { CancelDelay(ref _holdDelay); _secondTap = false; }
+        if (_gesture.Phase != PlayerSurfaceGesture.Pressed) { CancelDelay(ref _holdDelay); _taps.Cancel(); }
         if (_gesture.Phase == PlayerSurfaceGesture.Horizontal && width > 0 && _session.Can(ClassicCapabilities.Seek))
         {
             PreviewSeconds = Math.Clamp(_startPosition + _gesture.DeltaX / width / 2 * _session.DurationSeconds,
@@ -172,20 +184,21 @@ public sealed class ClassicPlayerInputController
         var phase = _gesture.Phase;
         var preview = PreviewSeconds;
         var tap = phase == PlayerSurfaceGesture.Pressed;
-        var toggle = tap && (!_touch || _secondTap) && !_right;
         var menu = tap && _right;
-        var singleTouch = tap && _touch && !_secondTap;
+        var action = tap && !_right ? _taps.Release(_tapContext, TapNow) : default;
         ResetContact();
         if (phase == PlayerSurfaceGesture.Holding) await _session.ReleaseRateAsync(1);
         else if (phase == PlayerSurfaceGesture.Horizontal && preview is double seconds && _session.SeekCommand.CanExecute(seconds))
             await _session.SeekCommand.ExecuteAsync(seconds);
         else if (menu) ContextMenuRequested?.Invoke(this, EventArgs.Empty);
-        else if (toggle && ToggleCommand.CanExecute(null)) await ToggleCommand.ExecuteAsync(null);
-        else if (singleTouch)
+        else if (tap && !menu)
         {
-            _pendingTap = true;
-            _tapDelay = new();
-            Observe(TapAfterDelayAsync(_session.Generation, _tapDelay.Token));
+            await ExecuteTapAsync(action);
+            if (_taps.Pending)
+            {
+                _tapDelay = new();
+                Observe(TapAfterDelayAsync(_session.Generation, _inputEpoch, _tapDelay.Token));
+            }
         }
     });
 
@@ -193,13 +206,14 @@ public sealed class ClassicPlayerInputController
     {
         CancelDelay(ref _holdDelay);
         CancelDelay(ref _tapDelay);
-        _pendingTap = false;
+        _inputEpoch++;
+        _taps.Cancel();
         _alt = false;
         ResetContact();
         await _session.CancelRateAsync();
     });
 
-    private bool ContactCurrent => _active && !_blocked && !_session.IsClosing && _contactGeneration == _session.Generation;
+    private bool ContactCurrent => Accept && _contactGeneration == _session.Generation && (TapAdmission?.Invoke() ?? true);
     private IAsyncRelayCommand ToggleCommand => _session.State == ClassicPlaybackState.Playing ? _session.PauseCommand : _session.PlayCommand;
     private async Task<bool> SeekStepAsync(bool forward)
     {
@@ -220,20 +234,35 @@ public sealed class ClassicPlayerInputController
     {
         await Task.Delay(500, token);
         if (token.IsCancellationRequested || !ContactCurrent || generation != _session.Generation || _pointer != pointer) return;
-        if (_gesture.TryHold()) { _secondTap = false; await _session.HoldRateAsync(1, Preferences.TemporarySpeed); }
+        if (_gesture.TryHold()) { _taps.Cancel(); await _session.HoldRateAsync(1, Preferences.TemporarySpeed); }
     }
-    private async Task TapAfterDelayAsync(long generation, CancellationToken token)
+    private async Task TapAfterDelayAsync(long generation, long epoch, CancellationToken token)
     {
-        await Task.Delay(200, token);
-        if (token.IsCancellationRequested || !Accept || generation != _session.Generation || _pointer is not null || !_pendingTap) return;
-        _pendingTap = false;
-        ToggleControlsRequested?.Invoke(this, EventArgs.Empty);
+        await Task.Delay(TimeSpan.FromMilliseconds(_taps.Remaining(TapNow)), token);
+        await _session.OnDispatcherAsync(async () =>
+        {
+            if (token.IsCancellationRequested || epoch != _inputEpoch || !Accept || generation != _session.Generation || _pointer is not null) return;
+            await ExecuteTapAsync(_taps.Expire(TapNow));
+            if (_taps.Pending) Observe(TapAfterDelayAsync(generation, epoch, token));
+        });
+    }
+    private static double TapNow => System.Diagnostics.Stopwatch.GetTimestamp() * 1000d / System.Diagnostics.Stopwatch.Frequency;
+    private PlayerTapContext CurrentTapContext(bool touch) => new(_session, _session.Generation, _inputEpoch, touch, _scale, _width, _height);
+    private bool TapCurrent(PlayerTapContext context) => Accept && !_alt
+        && context == CurrentTapContext(context.Touch) && (TapAdmission?.Invoke() ?? true);
+    private async Task ExecuteTapAsync(PlayerTapAction action)
+    {
+        if (action.Intent == PlayerTapIntent.None || !TapCurrent(action.Context)) return;
+        if (action.Intent == PlayerTapIntent.Single && action.Context.Touch)
+        { ToggleControlsRequested?.Invoke(this, EventArgs.Empty); return; }
+        var command = action.Intent == PlayerTapIntent.Double && !action.Context.Touch
+            ? HostCommands.ToggleFullScreen : ToggleCommand;
+        if (command is not null && command.CanExecute(null) && TapCurrent(action.Context)) await command.ExecuteAsync(null);
     }
     private void ResetContact()
     {
         var hadPointer = _pointer is not null;
         _pointer = null;
-        _secondTap = false;
         _right = false;
         _gesture.Reset();
         PreviewSeconds = null;

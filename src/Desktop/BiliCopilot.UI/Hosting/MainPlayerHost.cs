@@ -1,10 +1,13 @@
 using BiliCopilot.UI.Controls.Core;
 using BiliCopilot.UI.Forms;
+using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Richasy.WinUIKernel.Share.Base;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -29,9 +32,15 @@ public sealed class MainPlayerHost : IPlayerHost
     private bool _closing;
     private bool _ready;
     private Action<bool>? _activeChanged;
-    private OverlappedPresenter? _savedPresenter;
-    private RectInt32 _savedBounds;
-    private bool _savedMaximized;
+    private NormalRestoration? _normalRestore;
+    private OverlappedPresenter? _compactPresenter;
+    private RectInt32? _compactBounds;
+    private bool _compactTopMost = true;
+    private PlayerPresentationMode _presentation = PlayerPresentationMode.Normal;
+    private PlayerPresentationMode _fullScreenReturn = PlayerPresentationMode.Normal;
+    private long _presentationRequestVersion;
+    private int _presentationDepth;
+    private bool _immediateBoundsApplying;
     private PlayerPresentationMode _layout = PlayerPresentationMode.Normal;
     private PlayerPresentationMode? _publishedPresentation;
     private PlayerPresentationMode? _publishingPresentation;
@@ -50,17 +59,13 @@ public sealed class MainPlayerHost : IPlayerHost
     public bool IsEmbedded => true;
     public bool IsDisposed { get; private set; }
     public bool IsClosed => _closing || IsDisposed;
-    public bool IsPresenterChanging { get; private set; }
+    public bool IsPresenterChanging => _presentationDepth != 0;
     public IntPtr OwnerHwnd => _owner.GetWindowHandle();
     public IntPtr RenderHwnd => _renderHwnd;
     public IntPtr Handle => OwnerHwnd;
     public XamlRoot? XamlRoot => _source?.Content?.XamlRoot;
-    public PlayerPresentationMode Presentation => _owner.AppWindow.Presenter.Kind switch
-    {
-        AppWindowPresenterKind.FullScreen => PlayerPresentationMode.FullScreen,
-        AppWindowPresenterKind.CompactOverlay => PlayerPresentationMode.CompactOverlay,
-        _ => _layout,
-    };
+    // Custom compact is native Overlapped. Native kind is not the logical mode.
+    public PlayerPresentationMode Presentation => _presentation;
     public event EventHandler<Size>? SizeChanged;
     public event EventHandler? PresentationChanged;
     public event EventHandler? CloseRequested;
@@ -305,9 +310,10 @@ public sealed class MainPlayerHost : IPlayerHost
         {
             if (!IsPresenterChanging)
             {
-                if (sender.Presenter.Kind == AppWindowPresenterKind.Overlapped && _savedPresenter is not null)
+                if (sender.Presenter.Kind == AppWindowPresenterKind.Overlapped && _normalRestore is not null &&
+                    (_presentation == PlayerPresentationMode.FullScreen || !ReferenceEquals(sender.Presenter, _compactPresenter)))
                 {
-                    ApplyPresentation(_layout);
+                    ApplyPresentation(_presentation == PlayerPresentationMode.FullScreen ? _fullScreenReturn : _layout);
                     return;
                 }
                 PublishPresentation();
@@ -442,68 +448,170 @@ public sealed class MainPlayerHost : IPlayerHost
     private void ApplyPresentation(PlayerPresentationMode mode, PresentationDiagnostic? diagnostic = null)
     {
         ObjectDisposedException.ThrowIf(IsClosed, this);
+        mode = PlayerPresentationModes.Normalize(mode);
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
-        IsPresenterChanging = true;
-        _owner.UpdatePlayerBoundsSuppression(this, true);
+        if (!_owner.IsCurrentEmbeddedHost(this)) return;
+        var requestVersion = ++_presentationRequestVersion;
+        ++_presentationDepth;
         try
         {
+            _owner.UpdatePlayerBoundsSuppression(this, true);
             var transient = mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay;
-            if (transient && _savedPresenter is null)
+            if (transient && _normalRestore is null)
             {
-                _savedPresenter = _owner.AppWindow.Presenter as OverlappedPresenter
-                    ?? throw new InvalidOperationException("Main window has no restorable overlapped presenter.");
-                var position = _owner.AppWindow.Position;
-                var size = _owner.AppWindow.Size;
-                _savedBounds = new(position.X, position.Y, size.Width, size.Height);
-                _savedMaximized = _savedPresenter.State == OverlappedPresenterState.Maximized;
+                _normalRestore = CaptureNormalRestoration();
             }
-            if (transient)
+            if (_presentation == PlayerPresentationMode.CompactOverlay &&
+                ReferenceEquals(_owner.AppWindow.Presenter, _compactPresenter)) CaptureCompactState();
+            if (mode == PlayerPresentationMode.FullScreen && _presentation != PlayerPresentationMode.FullScreen)
+                _fullScreenReturn = PlayerPresentationModes.Normalize(_presentation);
+            if (mode == PlayerPresentationMode.CompactOverlay)
+            {
+                ApplyCompactPresenter(requestVersion, diagnostic);
+            }
+            else if (mode == PlayerPresentationMode.FullScreen)
             {
                 var start = Stopwatch.GetTimestamp();
-                try
-                {
-                    _owner.AppWindow.SetPresenter(mode == PlayerPresentationMode.FullScreen
-                        ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.CompactOverlay);
-                }
+                try { _owner.AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen); }
                 finally { if (diagnostic is not null) diagnostic.SetPresenterMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
             }
             else
             {
-                _layout = mode;
-                RestorePresenter(diagnostic);
+                RestorePresenter(requestVersion, diagnostic);
             }
+            if (!IsCurrentPresentationRequest(requestVersion)) return;
+            if (!transient) _layout = mode;
+            _presentation = mode;
             PublishPresentation(diagnostic);
+            if (!IsCurrentPresentationRequest(requestVersion) || _publishedPresentation != mode) return;
+            // Retain the snapshot through native restoration AND fallible root/subscriber publication.
+            ApplyImmediateBounds(requestVersion, _presentationPublicationVersion);
+            if (!IsCurrentPresentationRequest(requestVersion)) return;
+            if (!transient) _normalRestore = null;
             QueueBounds();
         }
         finally
         {
-            IsPresenterChanging = false;
+            --_presentationDepth;
             // Release on a subsequent dispatcher turn, after restoration size/position notifications.
-            _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-                _owner.UpdatePlayerBoundsSuppression(this, _savedPresenter is not null || IsPresenterChanging));
+            if (requestVersion == _presentationRequestVersion)
+                _queue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+                {
+                    if (requestVersion == _presentationRequestVersion)
+                        _owner.UpdatePlayerBoundsSuppression(this, _normalRestore is not null || IsPresenterChanging ||
+                            _presentation is PlayerPresentationMode.CompactOverlay or PlayerPresentationMode.FullScreen);
+                });
         }
     }
 
-    private void RestorePresenter(PresentationDiagnostic? diagnostic = null)
+    private bool IsCurrentPresentationRequest(long version)
+        => version == _presentationRequestVersion && !IsClosed && _owner.IsCurrentEmbeddedHost(this);
+
+    private sealed record NormalRestoration(OverlappedPresenter Presenter, WINDOWPLACEMENT Placement,
+        bool TopMost, double MinWidth, double MinHeight, bool HasBorder, bool HasTitleBar,
+        TitleBarHeightOption TitleBarHeight);
+
+    private NormalRestoration CaptureNormalRestoration()
     {
-        if (_savedPresenter is null) return;
+        var presenter = _owner.AppWindow.Presenter as OverlappedPresenter
+            ?? throw new InvalidOperationException("Main window has no restorable overlapped presenter.");
+        var placement = new WINDOWPLACEMENT { length = (uint)Marshal.SizeOf<WINDOWPLACEMENT>() };
+        if (!PInvoke.GetWindowPlacement(new(OwnerHwnd), ref placement))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Reading main window restore placement failed.");
+        // rcNormalPosition is actual restore placement even while maximized; keep its native coordinates.
+        return new(presenter, placement, presenter.IsAlwaysOnTop, _owner.MinWidth, _owner.MinHeight,
+            presenter.HasBorder, presenter.HasTitleBar, _owner.AppWindow.TitleBar.PreferredHeightOption);
+    }
+
+    private void CaptureCompactState()
+    {
+        var position = _owner.AppWindow.Position;
+        var size = _owner.AppWindow.Size;
+        _compactBounds = new(position.X, position.Y, size.Width, size.Height);
+        _compactTopMost = _compactPresenter!.IsAlwaysOnTop;
+    }
+
+    private void ApplyCompactPresenter(long version, PresentationDiagnostic? diagnostic = null)
+    {
+        if (_compactPresenter is null)
+        {
+            var presenter = OverlappedPresenter.Create();
+            presenter.SetBorderAndTitleBar(true, false);
+            presenter.IsMaximizable = false;
+            presenter.IsResizable = true;
+            _compactPresenter = presenter;
+        }
+        _owner.MinWidth = 160;
+        if (!IsCurrentPresentationRequest(version)) return;
+        _owner.MinHeight = 90;
+        if (!IsCurrentPresentationRequest(version)) return;
         var start = Stopwatch.GetTimestamp();
-        try { _owner.AppWindow.SetPresenter(_savedPresenter); }
+        try { _owner.AppWindow.SetPresenter(_compactPresenter); }
         finally { if (diagnostic is not null) diagnostic.SetPresenterMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        if (!IsCurrentPresentationRequest(version)) return;
+        start = Stopwatch.GetTimestamp();
+        try { _compactPresenter.Restore(); }
+        finally { if (diagnostic is not null) diagnostic.RestoreMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        if (!IsCurrentPresentationRequest(version)) return;
+        _compactPresenter.IsAlwaysOnTop = _compactTopMost;
+        if (!IsCurrentPresentationRequest(version)) return;
+        var area = DisplayArea.GetFromWindowId(_owner.AppWindow.Id, DisplayAreaFallback.Nearest) ?? DisplayArea.Primary;
+        var work = area.WorkArea; // physical screen pixels, as are AppWindow bounds.
+        var scale = HwndExtensions.GetDpiForWindow(OwnerHwnd) / 96d;
+        var bounds = _compactBounds ?? new RectInt32(work.X + work.Width - (int)Math.Round(480 * scale),
+            work.Y + work.Height - (int)Math.Round(270 * scale), (int)Math.Round(480 * scale), (int)Math.Round(270 * scale));
+        bounds.Width = Math.Clamp(bounds.Width, Math.Min(work.Width, (int)Math.Round(160 * scale)), work.Width);
+        bounds.Height = Math.Clamp(bounds.Height, Math.Min(work.Height, (int)Math.Round(90 * scale)), work.Height);
+        bounds.X = Math.Clamp(bounds.X, work.X, work.X + work.Width - bounds.Width);
+        bounds.Y = Math.Clamp(bounds.Y, work.Y, work.Y + work.Height - bounds.Height);
+        start = Stopwatch.GetTimestamp();
+        try { _owner.AppWindow.MoveAndResize(bounds); }
+        finally { if (diagnostic is not null) diagnostic.MoveResizeMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        if (IsCurrentPresentationRequest(version)) CaptureCompactState();
+    }
+
+    private void ApplyImmediateBounds(long requestVersion, long publicationVersion)
+    {
+        bool Current() => _queue.HasThreadAccess && _ready && !IsClosed &&
+            _owner.IsCurrentEmbeddedHost(this) && requestVersion == _presentationRequestVersion &&
+            publicationVersion == _presentationPublicationVersion && _publishedPresentation == Presentation;
+        if (_immediateBoundsApplying || !Current()) return;
+        _immediateBoundsApplying = true;
+        try
+        {
+            _slot.UpdateLayout();
+            if (Current()) UpdateBounds();
+        }
+        finally { _immediateBoundsApplying = false; }
+    }
+
+    private void RestorePresenter(long? requestVersion = null, PresentationDiagnostic? diagnostic = null)
+    {
+        if (_normalRestore is not { } saved) return;
+        bool Current() => requestVersion is null || IsCurrentPresentationRequest(requestVersion.Value);
+        var start = Stopwatch.GetTimestamp();
+        try { _owner.AppWindow.SetPresenter(saved.Presenter); }
+        finally { if (diagnostic is not null) diagnostic.SetPresenterMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
+        if (!Current()) return;
+        _owner.MinWidth = saved.MinWidth;
+        if (!Current()) return;
+        _owner.MinHeight = saved.MinHeight;
+        if (!Current()) return;
+        saved.Presenter.SetBorderAndTitleBar(saved.HasBorder, saved.HasTitleBar);
+        if (!Current()) return;
+        saved.Presenter.IsAlwaysOnTop = saved.TopMost;
+        if (!Current()) return;
+        _owner.AppWindow.TitleBar.PreferredHeightOption = saved.TitleBarHeight;
+        if (!Current()) return;
         start = Stopwatch.GetTimestamp();
         try
         {
-            if (_savedMaximized) _savedPresenter.Maximize();
-            else _savedPresenter.Restore();
+            // WINDOWPLACEMENT restores the true normal rectangle AND showCmd/maximized state.
+            var placement = saved.Placement;
+            if (!PInvoke.SetWindowPlacement(new(OwnerHwnd), in placement))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Restoring main window placement failed.");
         }
         finally { if (diagnostic is not null) diagnostic.RestoreMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
-        if (!_savedMaximized)
-        {
-            start = Stopwatch.GetTimestamp();
-            try { _owner.AppWindow.MoveAndResize(_savedBounds); }
-            finally { if (diagnostic is not null) diagnostic.MoveResizeMs += Stopwatch.GetElapsedTime(start).TotalMilliseconds; }
-        }
-        _savedPresenter = null;
     }
 
     public ValueTask DisposeAsync()
@@ -527,6 +635,8 @@ public sealed class MainPlayerHost : IPlayerHost
         _owner.UpdatePlayerBoundsSuppression(this, true);
         RestorePresenter();
         _owner.ApplyPlayerPresentation(PlayerPresentationMode.Normal);
+        _presentation = PlayerPresentationMode.Normal;
+        _normalRestore = null;
         _queue.TryEnqueue(DispatcherQueuePriority.Low, () => _owner.UpdatePlayerBoundsSuppression(this, false));
         IsDisposed = true;
         return ValueTask.CompletedTask;
@@ -553,16 +663,67 @@ public sealed class MainPlayerHost : IPlayerHost
     public void HideCursor() => _root.HideCursor();
     public void ShowTip(string message, InfoType type)
     {
-        if (_root.Children.FirstOrDefault() is PlayerOverlay overlay) overlay.ShowTip(message, type);
+        if (_root.Children.FirstOrDefault() is PlayerOverlay overlay && overlay.ViewModel is { } owner)
+            TryShowTip(owner, message, type);
     }
+    internal bool TryShowTip(PlayerViewModel expectedOwner, string message, InfoType type)
+    {
+        if (!_queue.HasThreadAccess || !_ready || IsClosed || !_slot.IsLoaded ||
+            _owner.IsEmbeddedPlayerRenderingSuspended || !_owner.IsCurrentEmbeddedHost(this, expectedOwner) ||
+            _root.Children.FirstOrDefault() is not PlayerOverlay overlay || !overlay.IsLoaded ||
+            overlay.XamlRoot is null || !ReferenceEquals(overlay.ViewModel, expectedOwner)) return false;
+        overlay.ShowTip(message, type);
+        return true;
+    }
+
+    public bool TryBeginCaptionDrag(PlayerViewModel expectedOwner, PointerRoutedEventArgs args, UIElement dragBackground)
+    {
+        bool Current() => _queue.HasThreadAccess && _ready && !IsClosed && !IsPresenterChanging &&
+            Presentation == PlayerPresentationMode.CompactOverlay && _slot.IsLoaded &&
+            _owner.IsCurrentEmbeddedHost(this, expectedOwner) && dragBackground is FrameworkElement { IsLoaded: true } element &&
+            element.XamlRoot == XamlRoot;
+        if (!Current() || dragBackground is Control || args.Handled ||
+            args.Pointer.PointerDeviceType != Windows.Devices.Input.PointerDeviceType.Mouse ||
+            !args.GetCurrentPoint(dragBackground).Properties.IsLeftButtonPressed) return false;
+        var source = args.OriginalSource as DependencyObject;
+        while (source is not null && !ReferenceEquals(source, dragBackground))
+        {
+            // Controls and hyperlinks are not caption backgrounds, even if their template bubbles.
+            if (source is Control || source is Microsoft.UI.Xaml.Documents.Hyperlink) return false;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        if (source is null) return false;
+        var hwnd = OwnerHwnd;
+        var version = _presentationRequestVersion;
+        args.Handled = true;
+        dragBackground.ReleasePointerCaptures();
+        PInvoke.ReleaseCapture();
+        if (!Current() || version != _presentationRequestVersion || hwnd != OwnerHwnd) return false;
+        // Native move loop can reenter; no lock/capture is held and no post-loop owner writes occur.
+        PInvoke.SendMessage(new(hwnd), 0x00A1u /* WM_NCLBUTTONDOWN */, new(2u) /* HTCAPTION */, new(0));
+        return true;
+    }
+
+    public bool RequestOwnerClose(PlayerViewModel expectedOwner)
+        => _queue.HasThreadAccess && _ready && !IsClosed && !IsPresenterChanging &&
+            _owner.RequestEmbeddedOwnerClose(this, expectedOwner);
+
     public void SetTopMost(bool value)
     {
-        if (_owner.AppWindow.Presenter is OverlappedPresenter presenter) presenter.IsAlwaysOnTop = value;
+        if (IsClosed || IsPresenterChanging || !_owner.IsCurrentEmbeddedHost(this)) return;
+        if (_owner.AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            try { presenter.IsAlwaysOnTop = value; }
+            finally
+            {
+                if (ReferenceEquals(presenter, _compactPresenter)) _compactTopMost = presenter.IsAlwaysOnTop;
+            }
+        }
     }
     public bool IsTopMost() => (_owner.AppWindow.Presenter as OverlappedPresenter)?.IsAlwaysOnTop == true;
     public void Close() => CloseRequested?.Invoke(this, EventArgs.Empty);
     public void EnterFullScreen() => ApplyPresentation(PlayerPresentationMode.FullScreen);
-    public void ExitFullScreen() => ApplyPresentation(_layout);
+    public void ExitFullScreen() => ApplyPresentation(PlayerPresentationModes.Normalize(_fullScreenReturn));
     public void EnterCompactOverlay() => ApplyPresentation(PlayerPresentationMode.CompactOverlay);
     public void ExitCompactOverlay() => ApplyPresentation(_layout);
 }

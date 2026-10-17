@@ -66,7 +66,7 @@ git clone https://github.com/Richasy/Bili.Copilot.git
 | 文件名       | 目录                                                     | 说明                                                                                                                                                                         |
 | ------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | libmpv-2.dll | src\Desktop\BiliCopilot.UI\Assets\libmpv\x64(或者 arm64) | 可以在 [mpv-winbuild](https://github.com/zhongfly/mpv-winbuild) 下载最新的 dev 构建（x64 对应 x86_x64，arm64 对应 aarch64），把 libmpv-2.dll 放入对应文件夹中，用以 mpv 播放 |
-| ffmpeg.exe   | src\Desktop\BiliCopilot.UI\Assets\ffmpeg                 | 可以在 [mpv-winbuild](https://github.com/zhongfly/mpv-winbuild) 下载最新 ffmpeg x64 构建，将 ffmpeg.exe 放入对应文件夹中，用于视频下载后的混流                               |
+| ffmpeg.exe   | src\Desktop\BiliCopilot.UI\Assets\ffmpeg                 | 可以在 [mpv-winbuild](https://github.com/zhongfly/mpv-winbuild) 下载最新 ffmpeg x64 构建，将 ffmpeg.exe 放入对应文件夹中                               |
 
 ## 使用
 
@@ -88,17 +88,6 @@ git clone https://github.com/Richasy/Bili.Copilot.git
 | MPV        | 解码速度快，播放稳定               | 内存占用相对较高           |
 | 外部播放器 | 自定义程度高，可以获得最佳播放体验 | 需要额外安装配置，门槛较高 |
 
-## 视频下载
-
-新版本的哔哩助理（V2）内置了 [BBDown](https://github.com/nilaoda/BBDown) 作为下载工具，也内置了 ffmpeg 作为混流工具，用户无需额外下载依赖，在视频播放下面点击下载按钮即可按需下载。
-
-> [!WARNING]
-> 目前 ffmpeg 仅内置了 x64 版本，如果你的设备是 Windows 10 ARM64，那么将无法使用内置的下载器。如果设备是 Windows 11，那么可以正常使用 X64 的 ffmpeg。
-
-### 调用外部下载器
-
-部分同学可能有自己配置好的 BBDown，那么可以在设置页面的下载设置中打开 `下载时调用外部BBDown`。你还可以选择在下载时仅复制下载命令，以便进行二次编辑。
-
 ## 交流讨论
 
 有兴趣一起交流的话，可以加 QQ 群，进群请注明正在使用哪款软件。
@@ -117,7 +106,6 @@ git clone https://github.com/Richasy/Bili.Copilot.git
 - [WinUI](https://github.com/microsoft/microsoft-ui-xaml)
 - [BiliBili](https://www.bilibili.com/)
 - [哔哩哔哩-API 收集整理](https://github.com/SocialSisterYi/bilibili-API-collect)
-- [BBDown](https://github.com/nilaoda/BBDown)
 - [BewlyBewly](https://github.com/BewlyBewly/BewlyBewly)
 - [寒霜弹幕使](https://github.com/cotaku/DanmakuFrostMaster)
 - [cnbluefire/WinUI3.Win2D](https://github.com/cnbluefire/WinUI3.Win2D)

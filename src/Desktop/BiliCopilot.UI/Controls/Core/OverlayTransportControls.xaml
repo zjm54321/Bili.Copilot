@@ -460,8 +460,8 @@
                     VerticalAlignment="Center"
                     Command="{x:Bind ViewModel.ToggleCompactOverlayCommand, Mode=OneWay}"
                     Style="{StaticResource BasicPlayerIconButtonStyle}"
-                    ToolTipService.ToolTip="{x:Bind GetCompactOverlayTip(ViewModel.Player.IsCompactOverlay), Mode=OneWay}">
-                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetCompactOverlaySymbol(ViewModel.Player.IsCompactOverlay), Mode=OneWay}" />
+                    ToolTipService.ToolTip="{x:Bind GetCompactOverlayTip(ViewModel.Presentation), Mode=OneWay}">
+                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetCompactOverlaySymbol(ViewModel.Presentation), Mode=OneWay}" />
                 </Button>
                 <Button
                     x:Name="FullScreenButton"
@@ -469,33 +469,8 @@
                     VerticalAlignment="Center"
                     Command="{x:Bind ViewModel.ToggleFullScreenCommand, Mode=OneWay}"
                     Style="{StaticResource BasicPlayerIconButtonStyle}"
-                    ToolTipService.ToolTip="{x:Bind GetFullScreenTip(ViewModel.Player.IsFullScreen), Mode=OneWay}">
-                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetFullScreenSymbol(ViewModel.Player.IsFullScreen), Mode=OneWay}" />
-                </Button>
-                <Button
-                    x:Name="OverflowButton"
-                    Margin="0,0,8,0"
-                    VerticalAlignment="Center"
-                    Style="{StaticResource BasicPlayerIconButtonStyle}"
-                    ToolTipService.ToolTip="{ext:Locale Name=MoreOptions}"
-                    Visibility="Collapsed">
-                    <ic:SymbolIcon FontSize="14" Symbol="MoreVertical" />
-                    <Button.Flyout>
-                        <MenuFlyout
-                            Opened="OnDisplayFlyoutOpened"
-                            ShouldConstrainToRootBounds="False">
-                            <MenuFlyoutItem Command="{x:Bind ViewModel.ToggleCompactOverlayCommand, Mode=OneWay}" Text="{x:Bind GetCompactOverlayTip(ViewModel.Player.IsCompactOverlay), Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetCompactOverlaySymbol(ViewModel.Player.IsCompactOverlay), Mode=OneWay}" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Command="{x:Bind ViewModel.ToggleFullScreenCommand, Mode=OneWay}" Text="{x:Bind GetFullScreenTip(ViewModel.Player.IsFullScreen), Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetFullScreenSymbol(ViewModel.Player.IsFullScreen), Mode=OneWay}" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                        </MenuFlyout>
-                    </Button.Flyout>
+                    ToolTipService.ToolTip="{x:Bind GetFullScreenTip(ViewModel.Presentation), Mode=OneWay}">
+                    <ic:SymbolIcon FontSize="14" Symbol="{x:Bind GetFullScreenSymbol(ViewModel.Presentation), Mode=OneWay}" />
                 </Button>
             </StackPanel>
         </Grid>
@@ -620,9 +595,7 @@
                         <Setter Target="DanmakuToggleButton.Visibility" Value="Collapsed" />
                         <Setter Target="DanmakuOptionButton.Visibility" Value="Collapsed" />
                         <Setter Target="LeftPresenter.Visibility" Value="Collapsed" />
-                        <Setter Target="CompactOverlayButton.Visibility" Value="Collapsed" />
-                        <Setter Target="FullScreenButton.Visibility" Value="Collapsed" />
-                        <Setter Target="OverflowButton.Visibility" Value="Visible" />
+                        <!--  窄宽度下小窗/全屏切换保持直接可见，不再收进“更多”菜单  -->
                         <Setter Target="LeftColumn.Width" Value="Auto" />
                         <Setter Target="RootGrid.Height" Value="120" />
                     </VisualState.Setters>

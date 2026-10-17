@@ -89,24 +89,6 @@ public sealed partial class SettingsPageViewModel
     private bool _noP2P;
 
     [ObservableProperty]
-    private string _defaultDownloadPath;
-
-    [ObservableProperty]
-    private bool _downloadWithDanmaku;
-
-    [ObservableProperty]
-    private bool _openFolderAfterDownload;
-
-    [ObservableProperty]
-    private bool _useExternalBBDown;
-
-    [ObservableProperty]
-    private bool _onlyCopyCommandWhenDownload;
-
-    [ObservableProperty]
-    private bool _withoutCredentialWhenGenDownloadCommand;
-
-    [ObservableProperty]
     private bool _isWebDavEnabled;
 
     [ObservableProperty]

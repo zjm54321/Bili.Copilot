@@ -4,6 +4,9 @@
     <TargetFramework>net9.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>BiliCopilot.UI</RootNamespace>
+    <FileVersion>2.2611.2.0</FileVersion>
+    <InformationalVersion>$(FileVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
@@ -22,8 +25,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Remove="Assets\basic-mpv.conf" />
-    <Content Remove="Assets\bbdown\arm64\BBDown.exe" />
-    <Content Remove="Assets\bbdown\x64\BBDown.exe" />
     <Content Remove="Assets\ffmpeg\arm64\ffmpeg.exe" />
     <Content Remove="Assets\ffmpeg\x64\ffmpeg.exe" />
     <Content Remove="Assets\libmpv\arm64\libmpv-2.dll" />
@@ -165,7 +166,6 @@
     <None Remove="Controls\Pgc\EntertainmentIndexSideControl.xaml" />
     <None Remove="Controls\Pinner.xaml" />
     <None Remove="Controls\Player\CoinButton.xaml" />
-    <None Remove="Controls\Player\DownloadButton.xaml" />
     <None Remove="Controls\Player\EmbeddedPlayerView.xaml" />
     <None Remove="Controls\Player\StoreIsland\IslandNextVideoButton.xaml" />
     <None Remove="Controls\Player\StoreIsland\IslandDanmakuBox.xaml" />
@@ -217,7 +217,6 @@
     <None Remove="Controls\Settings\AboutSettingControl.xaml" />
     <None Remove="Controls\Settings\CacheSettingControl.xaml" />
     <None Remove="Controls\Settings\CloseBehaviorSettingControl.xaml" />
-    <None Remove="Controls\Settings\DownloadSettingControl.xaml" />
     <None Remove="Controls\Settings\LayoutSettingSection.xaml" />
     <None Remove="Controls\Settings\LoggerSettingControl.xaml" />
     <None Remove="Controls\Settings\MpvExtraSettingControl.xaml" />
@@ -245,7 +244,6 @@
     <None Remove="Pages\AnimePage.xaml" />
     <None Remove="Pages\ArticlePartitionPage.xaml" />
     <None Remove="Pages\CinemaPage.xaml" />
-    <None Remove="Pages\DownloadPage.xaml" />
     <None Remove="Pages\GalleryPage.xaml" />
     <None Remove="Pages\LivePartitionPage.xaml" />
     <None Remove="Pages\MessagePage.xaml" />
@@ -417,11 +415,6 @@
   </ItemGroup>
   <ItemGroup>
     <Page Update="Forms\StartupWindow.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-  </ItemGroup>
-  <ItemGroup>
-    <Page Update="Pages\DownloadPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
@@ -980,16 +973,6 @@
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
   </ItemGroup>
-  <ItemGroup Condition="'$(Platform)' == 'x64'">
-    <None Update="Assets\BBDown\x64\BBDown.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-  <ItemGroup Condition="'$(Platform)' == 'ARM64'">
-    <None Update="Assets\BBDown\arm64\BBDown.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
   <ItemGroup>
   	<None Update="Assets\Anime4K\*">
   		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -1339,12 +1322,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Components\ShimmerLayout\ShimmerLayout.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Settings\DownloadSettingControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Update="Controls\Player\DownloadButton.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Controls\Message\ChatMessageHeader.xaml">

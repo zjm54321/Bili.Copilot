@@ -103,6 +103,7 @@ public sealed partial class PlayerWindow : IPlayerHost
 
     public Task SetPresentationAsync(PlayerPresentationMode mode)
     {
+        mode = PlayerPresentationModes.Normalize(mode);
         CheckReady();
         _isPresenterChanging = true;
         try
@@ -315,17 +316,17 @@ public sealed partial class PlayerWindow : IPlayerHost
             {
                 if (delaySec)
                 {
-                    overlay?.HeaderBar.HorizontalAlignment = HorizontalAlignment.Left;
+                    overlay.HeaderBar?.HorizontalAlignment = HorizontalAlignment.Left;
                     await Task.Delay(800);
                     if (IsClosed || IsDisposed || _isDisposing) return;
-                    overlay?.HeaderBar.HorizontalAlignment = HorizontalAlignment.Stretch;
+                    overlay.HeaderBar?.HorizontalAlignment = HorizontalAlignment.Stretch;
                     await Task.Delay(800);
                     if (IsClosed || IsDisposed || _isDisposing) return;
                 }
 
                 if (overlay?.HeaderBar?.ActualWidth > 0 && _rootWindow.IsVisible && !PInvoke.IsIconic(new(Handle)))
                 {
-                    overlay.HeaderBar.UpdatePadding();
+                    overlay.HeaderBar?.UpdatePadding();
                 }
             });
         }

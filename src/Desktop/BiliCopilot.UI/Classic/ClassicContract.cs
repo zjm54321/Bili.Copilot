@@ -10,6 +10,12 @@ namespace BiliCopilot.UI.Classic;
 public enum PlaybackExperience { New = 0, Classic = 1 }
 public enum ClassicBackendKind { Island = 0, Native = 1, External = 2, Web = 3 }
 public enum ClassicDisplayMode { Default = 0, FullScreen = 1, FullWindow = 2, CompactOverlay = 3, NewWindow = 4 }
+// Only the retired value is normalized; unknown values retain existing rejection semantics.
+internal static class ClassicDisplayModes
+{
+    internal static ClassicDisplayMode Normalize(ClassicDisplayMode mode)
+        => mode == ClassicDisplayMode.FullWindow ? ClassicDisplayMode.Default : mode;
+}
 public enum ClassicDecodePreference { Auto = 0, Software = 1, D3D11 = 2 }
 public enum ClassicPlaybackState { Idle, Loading, Playing, Paused, Ended, Failed, Closing, Closed }
 [Flags]

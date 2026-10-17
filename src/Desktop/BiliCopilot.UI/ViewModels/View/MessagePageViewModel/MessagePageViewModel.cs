@@ -44,131 +44,257 @@ public sealed partial class MessagePageViewModel : LayoutPageViewModelBase
     protected override string GetPageKey() => nameof(MessagePage);
 
     [RelayCommand]
-    private async Task InitializeAsync()
-    {
-        if (_account.AccountId is null) return;
-        if (Sections.Count > 0)
-        {
-            RestoreSelection();
-            SectionInitialized?.Invoke(this, EventArgs.Empty);
-            return;
-        }
+    private Task InitializeAsync() => StartInitialize(refresh: false);
 
-        var generation = _pageGeneration;
-        IsLoading = true;
-        Sections.Add(new NotifyMessageSectionDetailViewModel(NotifyMessageType.Reply, _service));
-        Sections.Add(new NotifyMessageSectionDetailViewModel(NotifyMessageType.At, _service));
-        Sections.Add(new NotifyMessageSectionDetailViewModel(NotifyMessageType.Like, _service));
-        Sections.Add(new SystemMessageSectionDetailViewModel(_notifications, _account, _systemLogger));
-        OnPropertyChanged(nameof(SystemSection));
-        await LoadChatSessionsAsync();
-        if (generation != _pageGeneration) return;
-        IsLoading = false;
-        RestoreSelection();
-        SectionInitialized?.Invoke(this, EventArgs.Empty);
+    private Task StartInitialize(bool refresh)
+    {
+        // Join work published by this UI owner, not a foreign prerequisite.
+#pragma warning disable VSTHRD003
+        if (_initializeOwner is { Task.IsCompleted: false } pending && IsCurrent(pending, _initializeOwner)
+            && (!refresh || pending.Refresh)) return pending.Task;
+#pragma warning restore VSTHRD003
+        if ((!refresh && _initialized) || _account.AccountId is null) return Task.CompletedTask;
+        var previous = _drain;
+        if (refresh)
+        {
+            previous = Task.WhenAll(_drain, _initializeOwner?.Task ?? Task.CompletedTask,
+                _chatOwner?.Task ?? Task.CompletedTask, _selectionOwner?.Task ?? Task.CompletedTask);
+            _pageGeneration++;
+            _initialized = _chatInitialized = false;
+            var drains = new List<Task> { previous };
+            foreach (var notify in Sections.OfType<NotifyMessageSectionDetailViewModel>()) drains.Add(notify.InvalidateData());
+            foreach (var chat in Sections.OfType<ChatMessageSectionDetailViewModel>()) drains.Add(chat.InvalidateData());
+            previous = Task.WhenAll(drains);
+        }
+        var owner = new MessageRequestOwner(_pageGeneration, _account.AccountGeneration, _account.AccountId, previous, refresh);
+        _initializeOwner = owner; // Before IsLoading or collection notifications can reenter.
+        var refreshedSystem = refresh ? CurrentSection as SystemMessageSectionDetailViewModel : null;
+        // Let the existing system owner invalidate display/ack immediately, not after session I/O.
+        var systemRefresh = refreshedSystem?.RefreshCommand.ExecuteAsync(default);
+        _ = CompleteInitializeAsync(owner, refreshedSystem, systemRefresh);
+        return owner.Task;
+    }
+
+    private async Task CompleteInitializeAsync(MessageRequestOwner owner,
+        SystemMessageSectionDetailViewModel? refreshedSystem = null, Task? systemRefresh = null)
+    {
+        var success = false;
+        try
+        {
+            // This slot owns only its captured predecessors, never a replacement that joins it.
+#pragma warning disable VSTHRD003
+            await owner.Previous;
+#pragma warning restore VSTHRD003
+            if (!IsCurrent(owner, _initializeOwner)) return;
+            IsLoading = true;
+            if (!IsCurrent(owner, _initializeOwner)) return;
+            foreach (var type in new[] { NotifyMessageType.Reply, NotifyMessageType.At, NotifyMessageType.Like })
+            {
+                if (!IsCurrent(owner, _initializeOwner)) return;
+                if (!Sections.OfType<NotifyMessageSectionDetailViewModel>().Any(section => section.Type == type))
+                    Sections.Add(new NotifyMessageSectionDetailViewModel(type, _service, _account));
+            }
+            if (!IsCurrent(owner, _initializeOwner)) return;
+            if (SystemSection is null)
+            {
+                Sections.Add(new SystemMessageSectionDetailViewModel(_notifications, _account, _systemLogger));
+                if (!IsCurrent(owner, _initializeOwner)) return;
+                OnPropertyChanged(nameof(SystemSection));
+            }
+
+            if (!IsCurrent(owner, _initializeOwner)) return;
+            if (!_chatInitialized) await StartChatSessions(owner.Refresh);
+            if (!IsCurrent(owner, _initializeOwner) || !_chatInitialized) return;
+            if (owner.Refresh)
+            {
+                var selected = GetSavedSection();
+                var sectionRefresh = ReferenceEquals(selected, refreshedSystem) && systemRefresh is not null
+                    ? systemRefresh : selected.RefreshCommand.ExecuteAsync(default);
+#pragma warning disable VSTHRD003
+                await sectionRefresh;
+#pragma warning restore VSTHRD003
+                if (!IsCurrent(owner, _initializeOwner)) return;
+                if (sectionRefresh is Task<bool> result)
+                {
+#pragma warning disable VSTHRD003
+                    var refreshed = await result;
+#pragma warning restore VSTHRD003
+                    if (!IsCurrent(owner, _initializeOwner) || !refreshed) return;
+                }
+            }
+            await SelectSectionAsync(GetSavedSection());
+            if (!IsCurrent(owner, _initializeOwner)) return;
+            while (_selectionOwner is { Task.IsCompleted: false } selectedOwner && IsCurrent(selectedOwner, _selectionOwner))
+            {
+#pragma warning disable VSTHRD003
+                await selectedOwner.Task;
+#pragma warning restore VSTHRD003
+                if (!IsCurrent(owner, _initializeOwner)) return;
+            }
+            // A failed section request remains retryable on a later visible visit.
+            success = CurrentSection switch
+            {
+                NotifyMessageSectionDetailViewModel notify => notify.IsInitialized,
+                ChatMessageSectionDetailViewModel chat => chat.IsInitialized,
+                _ => CurrentSection is not null,
+            };
+            _initialized = success;
+            if (success) SectionInitialized?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrent(owner, _initializeOwner)) _logger.LogError("消息初始化失败 ({ErrorType})", ex.GetType().Name);
+        }
+        finally
+        {
+            if (IsCurrent(owner, _initializeOwner)) IsLoading = false;
+            owner.Complete(success);
+        }
     }
 
     [RelayCommand]
-    private async Task RefreshAsync()
-    {
-        ResetSections();
-        await InitializeAsync();
-    }
+    private Task RefreshAsync() => StartInitialize(refresh: true);
 
     [RelayCommand]
-    private async Task SelectSectionAsync(IMessageSectionDetailViewModel vm)
+    private Task SelectSectionAsync(IMessageSectionDetailViewModel vm)
     {
-        if (vm is null || vm == CurrentSection || !Sections.Contains(vm))
-        {
-            return;
-        }
+#pragma warning disable VSTHRD003
+        if (_resetting && _initializeOwner is { } resetOwner) return resetOwner.Task;
+        if (vm is null || !Sections.Contains(vm) || _account.AccountId is null) return Task.CompletedTask;
+        if (ReferenceEquals(vm, CurrentSection) && _selectionOwner is { Task.IsCompleted: false } pending
+            && IsCurrent(pending, _selectionOwner)) return pending.Task;
+#pragma warning restore VSTHRD003
+        var owner = NewOwner(Task.CompletedTask);
+        _selectionOwner = owner;
+        _ = CompleteSelectionAsync(vm, owner, _activationEpoch);
+        return owner.Task;
+    }
 
-        var sectionSettingValue = string.Empty;
-        if (vm is NotifyMessageSectionDetailViewModel nfVM)
+    private async Task CompleteSelectionAsync(IMessageSectionDetailViewModel vm, MessageRequestOwner owner, long activationEpoch)
+    {
+        bool Current() => IsCurrent(owner, _selectionOwner) && Sections.Contains(vm);
+        var success = false;
+        try
         {
-            sectionSettingValue = $"nf_{nfVM.Type}";
-        }
-        else if (vm is ChatMessageSectionDetailViewModel chatVM)
-        {
-            sectionSettingValue = $"chat_{chatVM.Data.User.Id}";
-        }
-        else if (vm is SystemMessageSectionDetailViewModel)
-        {
-            sectionSettingValue = "system";
-        }
+            if (!Current()) return;
+            var sectionSettingValue = vm switch
+            {
+                NotifyMessageSectionDetailViewModel notify => $"nf_{notify.Type}",
+                ChatMessageSectionDetailViewModel chat => $"chat_{chat.Data.User.Id}",
+                SystemMessageSectionDetailViewModel => "system",
+                _ => string.Empty,
+            };
 
-        SettingsToolkit.WriteLocalSetting(Models.Constants.SettingNames.LastSelectedMessageSection, sectionSettingValue);
-        (CurrentSection as SystemMessageSectionDetailViewModel)?.SetActive(false);
-        CurrentSection = vm;
-        (vm as SystemMessageSectionDetailViewModel)?.SetActive(_isActive);
-        var generation = _pageGeneration;
-        await vm.InitializeCommand.ExecuteAsync(default);
-        if (generation == _pageGeneration && ReferenceEquals(CurrentSection, vm)) await UpdateUnreadCountAsync();
+            SettingsToolkit.WriteLocalSetting(Models.Constants.SettingNames.LastSelectedMessageSection, sectionSettingValue);
+            if (!Current()) return;
+            if (!ReferenceEquals(CurrentSection, vm)) SetSectionActive(CurrentSection, false);
+            if (!Current()) return;
+            CurrentSection = vm;
+            if (!Current() || !ReferenceEquals(CurrentSection, vm)) return;
+            SetSectionActive(vm, _isActive);
+            if (!Current()) return;
+            await vm.InitializeCommand.ExecuteAsync(default);
+            if (!Current() || !ReferenceEquals(CurrentSection, vm)) return;
+            success = true;
+            if (_isActive && activationEpoch == _activationEpoch) await UpdateUnreadCountAsync();
+        }
+        catch (Exception ex)
+        {
+            if (Current()) _logger.LogError("消息分区初始化失败 ({ErrorType})", ex.GetType().Name);
+        }
+        finally
+        {
+            owner.Complete(success);
+        }
     }
 
     [RelayCommand]
     private async Task UpdateUnreadCountAsync()
     {
-        var generation = _pageGeneration;
+        var owner = NewOwner(Task.CompletedTask);
+        var epoch = _activationEpoch;
         var snapshot = await _account.UpdateUnreadSnapshotAsync();
-        if (generation == _pageGeneration && snapshot is not null) ApplyUnread(snapshot);
+        if (owner.IsCurrent(owner, _pageGeneration, _account.AccountGeneration, _account.AccountId)
+            && _isActive && epoch == _activationEpoch && snapshot is not null) ApplyUnread(snapshot);
     }
 
     [RelayCommand]
-    private async Task LoadChatSessionsAsync()
-    {
-        if (IsChatSessionLoading || _preventLoadMore)
-        {
-            return;
-        }
+    private Task LoadChatSessionsAsync() => StartChatSessions(refresh: false);
 
-        var generation = _pageGeneration;
+    private Task StartChatSessions(bool refresh)
+    {
+#pragma warning disable VSTHRD003
+        if (_resetting && _initializeOwner is { } resetOwner) return resetOwner.Task;
+        if (_chatOwner is { Task.IsCompleted: false } pending && IsCurrent(pending, _chatOwner)) return pending.Task;
+#pragma warning restore VSTHRD003
+        if ((!refresh && _preventLoadMore) || _account.AccountId is null) return Task.CompletedTask;
+        var owner = new MessageRequestOwner(_pageGeneration, _account.AccountGeneration, _account.AccountId,
+            _chatOwner?.Task ?? Task.CompletedTask, refresh);
+        var offset = refresh ? null : _chatSessionOffset;
+        _chatOwner = owner;
+        _ = CompleteChatSessionsAsync(owner, offset);
+        return owner.Task;
+    }
+
+    private async Task CompleteChatSessionsAsync(MessageRequestOwner owner, long? requestedOffset)
+    {
+        var success = false;
         try
         {
+#pragma warning disable VSTHRD003
+            await owner.Previous;
+#pragma warning restore VSTHRD003
+            if (!IsCurrent(owner, _chatOwner)) return;
             IsChatSessionLoading = true;
-            var (sessions, offset, hasMore) = await _service.GetChatSessionsAsync(_chatSessionOffset);
-            if (generation != _pageGeneration) return;
+            if (!IsCurrent(owner, _chatOwner)) return;
+            var (sessions, offset, hasMore) = await _service.GetChatSessionsAsync(requestedOffset);
+            if (!IsCurrent(owner, _chatOwner)) return;
             _preventLoadMore = !hasMore;
             _chatSessionOffset = offset;
+            if (owner.Refresh)
+            {
+                foreach (var chat in Sections.OfType<ChatMessageSectionDetailViewModel>().ToArray())
+                {
+                    if (!IsCurrent(owner, _chatOwner)) return;
+                    await chat.Retire();
+                    if (!IsCurrent(owner, _chatOwner)) return;
+                    Sections.Remove(chat);
+                }
+            }
             if (sessions is not null)
             {
                 foreach (var item in sessions)
                 {
-                    Sections.Add(new ChatMessageSectionDetailViewModel(item));
+                    if (!IsCurrent(owner, _chatOwner)) return;
+                    Sections.Add(new ChatMessageSectionDetailViewModel(item, _account));
                 }
 
+                if (!IsCurrent(owner, _chatOwner)) return;
                 ChatSessionsUpdated?.Invoke(this, EventArgs.Empty);
             }
+            success = IsCurrent(owner, _chatOwner);
+            if (success) _chatInitialized = true;
         }
         catch (Exception ex)
         {
-            if (generation != _pageGeneration) return;
-            _preventLoadMore = true;
+            if (!IsCurrent(owner, _chatOwner)) return;
             _logger.LogError("加载聊天会话时失败 ({ErrorType})", ex.GetType().Name);
             this.Get<AppViewModel>().ShowTipCommand.Execute((ResourceToolkit.GetLocalizedString(StringNames.FailedToLoadChatSessions), InfoType.Error));
         }
         finally
         {
-            if (generation == _pageGeneration) IsChatSessionLoading = false;
+            if (IsCurrent(owner, _chatOwner)) IsChatSessionLoading = false;
+            owner.Complete(success);
         }
     }
 
-    private void RestoreSelection()
+    private IMessageSectionDetailViewModel GetSavedSection()
     {
-        if (Sections.Count == 0) return;
+        if (CurrentSection is not null && Sections.Contains(CurrentSection)) return CurrentSection;
         var lastSelectedSection = SettingsToolkit.ReadLocalSetting(Models.Constants.SettingNames.LastSelectedMessageSection, string.Empty);
-        UpdateUnreadCountCommand.Execute(default);
-        if (string.IsNullOrEmpty(lastSelectedSection))
-        {
-            SelectSectionCommand.Execute(Sections.First());
-            return;
-        }
-
-        var isSelected = false;
         if (lastSelectedSection == "system" && SystemSection is not null)
         {
-            isSelected = true;
-            SelectSectionCommand.Execute(SystemSection);
+            return SystemSection;
         }
         else if (lastSelectedSection.StartsWith("nf"))
         {
@@ -178,8 +304,7 @@ public sealed partial class MessagePageViewModel : LayoutPageViewModelBase
                 var section = Sections.OfType<NotifyMessageSectionDetailViewModel>().FirstOrDefault(p => p.Type == type);
                 if (section is not null)
                 {
-                    isSelected = true;
-                    SelectSectionCommand.Execute(section);
+                    return section;
                 }
             }
         }
@@ -189,43 +314,87 @@ public sealed partial class MessagePageViewModel : LayoutPageViewModelBase
             var section = Sections.OfType<ChatMessageSectionDetailViewModel>().FirstOrDefault(p => p.Data.User.Id == id);
             if (section is not null)
             {
-                isSelected = true;
-                SelectSectionCommand.Execute(section);
+                return section;
             }
         }
 
-        if (!isSelected && CurrentSection is null)
-        {
-            SelectSectionCommand.Execute(Sections.First());
-        }
+        return Sections.First();
     }
 
     /// <summary>UI must call on page Loaded/Unloaded (and equivalent navigation visibility).</summary>
     public void SetActive(bool active)
     {
+        if (_isActive == active) return;
         _isActive = active;
+        _activationEpoch++;
         OnPropertyChanged(nameof(IsActive));
-        if (CurrentSection is SystemMessageSectionDetailViewModel system)
+        if (_isActive != active) return;
+        SetSectionActive(CurrentSection, active);
+        if (active && _isActive)
         {
-            system.SetActive(active);
-            if (active) system.InitializeCommand.Execute(default);
+            _ = InitializeAsync();
+            if (_initialized && CurrentSection is SystemMessageSectionDetailViewModel system) system.InitializeCommand.Execute(default);
         }
     }
+
+    private static void SetSectionActive(IMessageSectionDetailViewModel? section, bool active)
+    {
+        if (section is SystemMessageSectionDetailViewModel system) system.SetActive(active);
+        else if (section is NotifyMessageSectionDetailViewModel notify) notify.SetActive(active);
+        else if (section is ChatMessageSectionDetailViewModel chat) chat.SetActive(active);
+    }
+
+    private MessageRequestOwner NewOwner(Task previous) => new(_pageGeneration, _account.AccountGeneration, _account.AccountId, previous);
+    private bool IsCurrent(MessageRequestOwner owner, MessageRequestOwner? slot)
+        => owner.IsCurrent(slot, _pageGeneration, _account.AccountGeneration, _account.AccountId);
 
     private void ResetSections()
     {
         _pageGeneration++;
-        foreach (var system in Sections.OfType<SystemMessageSectionDetailViewModel>().ToArray()) system.Dispose();
-        CurrentSection = null;
-        Sections.Clear();
+        _initialized = _chatInitialized = false;
+        var drains = new List<Task> { _drain };
+        if (_initializeOwner is not null) drains.Add(_initializeOwner.Task);
+        if (_chatOwner is not null) drains.Add(_chatOwner.Task);
+        if (_selectionOwner is not null) drains.Add(_selectionOwner.Task);
+        foreach (var notify in Sections.OfType<NotifyMessageSectionDetailViewModel>()) drains.Add(notify.Retire());
+        foreach (var chat in Sections.OfType<ChatMessageSectionDetailViewModel>()) drains.Add(chat.Retire());
+        _drain = Task.WhenAll(drains);
+        var owner = NewOwner(_drain);
+        _initializeOwner = owner; // Account/reset notifications must join this not-yet-started owner.
+        _resetting = true;
+        _chatOwner = _selectionOwner = null;
         _chatSessionOffset = default;
         _preventLoadMore = false;
-        IsChatSessionLoading = false;
-        IsLoading = false;
-        OnPropertyChanged(nameof(SystemSection));
+        try
+        {
+            bool Current() => ReferenceEquals(owner, _initializeOwner);
+            foreach (var system in Sections.OfType<SystemMessageSectionDetailViewModel>().ToArray())
+            {
+                system.Dispose();
+                if (!Current()) return;
+            }
+            CurrentSection = null;
+            if (!Current()) return;
+            Sections.Clear();
+            if (!Current()) return;
+            IsChatSessionLoading = false;
+            if (!Current()) return;
+            IsLoading = false;
+            if (!Current()) return;
+            OnPropertyChanged(nameof(SystemSection));
+        }
+        finally
+        {
+            _resetting = false;
+            if (_isActive && IsCurrent(owner, _initializeOwner)) _ = CompleteInitializeAsync(owner);
+            else owner.Complete(false);
+        }
     }
 
-    private void OnAccountChanged(object? sender, EventArgs e) => ResetSections();
+    private void OnAccountChanged(object? sender, EventArgs e)
+    {
+        ResetSections();
+    }
 
     private void OnAccountPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -234,8 +403,12 @@ public sealed partial class MessagePageViewModel : LayoutPageViewModelBase
 
     private void ApplyUnread(UnreadMessageSnapshot unread)
     {
-        foreach (var item in Sections.OfType<NotifyMessageSectionDetailViewModel>())
+        var owner = NewOwner(Task.CompletedTask);
+        bool Current() => owner.IsCurrent(owner, _pageGeneration, _account.AccountGeneration, _account.AccountId)
+            && ReferenceEquals(unread, _account.UnreadSnapshot);
+        foreach (var item in Sections.OfType<NotifyMessageSectionDetailViewModel>().ToArray())
         {
+            if (!Current()) return;
             item.UnreadCount = item.Type switch
             {
                 NotifyMessageType.Like => unread.LikeCount,
@@ -245,6 +418,6 @@ public sealed partial class MessagePageViewModel : LayoutPageViewModelBase
             };
         }
 
-        SystemSection?.UpdateUnreadSnapshot();
+        if (Current()) SystemSection?.UpdateUnreadSnapshot();
     }
 }

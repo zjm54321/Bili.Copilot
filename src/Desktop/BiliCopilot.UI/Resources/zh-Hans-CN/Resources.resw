@@ -342,9 +342,6 @@
   <data name="ChooseCoinNumber" xml:space="preserve">
     <value>打算投几个币？</value>
   </data>
-  <data name="ChooseDownloadFolder" xml:space="preserve">
-    <value>选择下载文件夹</value>
-  </data>
   <data name="ChooseFavorite" xml:space="preserve">
     <value>选择收藏夹</value>
   </data>
@@ -606,12 +603,6 @@
   <data name="Download" xml:space="preserve">
     <value>下载</value>
   </data>
-  <data name="DownloadVideo" xml:space="preserve">
-    <value>下载视频</value>
-  </data>
-  <data name="DownloadVideoTip" xml:space="preserve">
-    <value>由 BBDown 驱动</value>
-  </data>
   <data name="DynamicCount" xml:space="preserve">
     <value>动态数</value>
   </data>
@@ -636,9 +627,6 @@
   <data name="EnterFullScreen" xml:space="preserve">
     <value>进入全屏模式</value>
   </data>
-  <data name="EnterFullWindow" xml:space="preserve">
-    <value>进入全窗口模式</value>
-  </data>
   <data name="EnterToEffect" xml:space="preserve">
     <value>按下回车以生效</value>
   </data>
@@ -662,9 +650,6 @@
   </data>
   <data name="ExitFullScreen" xml:space="preserve">
     <value>退出全屏模式</value>
-  </data>
-  <data name="ExitFullWindow" xml:space="preserve">
-    <value>退出全窗口模式</value>
   </data>
   <data name="ExitSearch" xml:space="preserve">
     <value>退出搜索</value>
@@ -809,9 +794,6 @@
   </data>
   <data name="FullTraditionalChineseTitle" xml:space="preserve">
     <value>全盘繁体</value>
-  </data>
-  <data name="FullWindowMode" xml:space="preserve">
-    <value>全窗口模式</value>
   </data>
   <data name="FunctionIntroduce" xml:space="preserve">
     <value>功能说明</value>
@@ -1242,9 +1224,6 @@
   <data name="NoSpecificData" xml:space="preserve">
     <value>未找到指定的数据</value>
   </data>
-  <data name="NoSpecifiedDownloadPath" xml:space="preserve">
-    <value>没有指定的下载文件夹</value>
-  </data>
   <data name="NoStroke" xml:space="preserve">
     <value>无描边</value>
   </data>
@@ -1311,17 +1290,11 @@
   <data name="OpenConfig" xml:space="preserve">
     <value>打开配置</value>
   </data>
-  <data name="OpenDownloadPage" xml:space="preserve">
-    <value>前往下载</value>
-  </data>
   <data name="OpenFileAfterScreenshot" xml:space="preserve">
     <value>截图后打开图片</value>
   </data>
   <data name="OpenFolder" xml:space="preserve">
     <value>打开文件夹</value>
-  </data>
-  <data name="OpenFolderWhenDownloaded" xml:space="preserve">
-    <value>下载完成后打开文件夹</value>
   </data>
   <data name="OpenInBrowser" xml:space="preserve">
     <value>在浏览器中打开</value>
@@ -1941,9 +1914,6 @@
   <data name="Standard" xml:space="preserve">
     <value>标准</value>
   </data>
-  <data name="StartDownload" xml:space="preserve">
-    <value>开始下载</value>
-  </data>
   <data name="StartMethod" xml:space="preserve">
     <value>启动方式</value>
   </data>
@@ -2301,65 +2271,6 @@
   <data name="MessageWithdrawn" xml:space="preserve">
     <value>TA撤回了一条消息</value>
   </data>
-  <data name="BatchDownload" xml:space="preserve">
-    <value>批量下载</value>
-  </data>
-  <data name="DownloadCover" xml:space="preserve">
-    <value>下载封面</value>
-  </data>
-  <data name="DownloadDanmaku" xml:space="preserve">
-    <value>下载弹幕</value>
-  </data>
-  <data name="Extra" xml:space="preserve">
-    <value>杂项</value>
-  </data>
-  <data name="DownloadSetting" xml:space="preserve">
-    <value>下载设置</value>
-  </data>
-  <data name="DownloadSettingDescription" xml:space="preserve">
-    <value>控制视频下载的默认行为</value>
-  </data>
-  <data name="DefaultDownloadFolder" xml:space="preserve">
-    <value>默认下载文件夹</value>
-  </data>
-  <data name="FolderNotExist" xml:space="preserve">
-    <value>文件夹不存在，请重新指定文件夹</value>
-  </data>
-  <data name="DownloadWithDanmaku" xml:space="preserve">
-    <value>下载视频同时下载弹幕</value>
-  </data>
-  <data name="DownloadAllParts" xml:space="preserve">
-    <value>下载所有分P</value>
-  </data>
-  <data name="SelectPartsDownload" xml:space="preserve">
-    <value>指定分P下载</value>
-  </data>
-  <data name="DownloadSelectPartTip" xml:space="preserve">
-    <value>选择指定分集或范围，示例：
-- 下载第2集，输入 2
-- 下载第1集和第4集，输入 1,4 （半角逗号分隔）
-- 下载第1集到第4集，输入 1-4
-- 下载全部分集，输入 ALL
-- 下载最后一集，输入 LAST</value>
-  </data>
-  <data name="CopyCommandWhenDownload" xml:space="preserve">
-    <value>下载时仅复制命令</value>
-  </data>
-  <data name="CopyCommandWhenDownloadDescription" xml:space="preserve">
-    <value>尝试下载对应内容时仅复制生成的命令而不实际下载</value>
-  </data>
-  <data name="GenCommandWithoutCredential" xml:space="preserve">
-    <value>生成命令时不包含身份验证</value>
-  </data>
-  <data name="GenCommandWithoutCredentialDescription" xml:space="preserve">
-    <value>在生成命令时去除 Cookie, 访问令牌等身份信息</value>
-  </data>
-  <data name="UseExternalBBDown" xml:space="preserve">
-    <value>下载时调用外部BBDown</value>
-  </data>
-  <data name="UseExternalBBDownDescription" xml:space="preserve">
-    <value>尝试调用你自己配置的 BBDown 进行下载</value>
-  </data>
   <data name="FailedToPlay" xml:space="preserve">
     <value>播放失败</value>
   </data>
@@ -2512,9 +2423,6 @@
   </data>
   <data name="OpenUpdate" xml:space="preserve">
     <value>查看更新</value>
-  </data>
-  <data name="DownloadSubtitle" xml:space="preserve">
-    <value>下载字幕</value>
   </data>
   <data name="NewWindow" xml:space="preserve">
     <value>新窗口</value>
@@ -2699,6 +2607,9 @@
   <data name="TopWindow" xml:space="preserve">
     <value>置顶窗口</value>
   </data>
+  <data name="CancelTopWindow" xml:space="preserve">
+    <value>取消置顶</value>
+  </data>
   <data name="SubtitleSetting" xml:space="preserve">
     <value>字幕设置</value>
   </data>
@@ -2764,9 +2675,6 @@
   </data>
   <data name="DanmakuEmpty" xml:space="preserve">
     <value>无弹幕</value>
-  </data>
-  <data name="DownloadAudio" xml:space="preserve">
-    <value>下载音频</value>
   </data>
   <data name="ScreenshotPostBehavior" xml:space="preserve">
     <value>截图后行为</value>
@@ -2995,5 +2903,11 @@
   </data>
   <data name="MarkAsReadTip" xml:space="preserve">
     <value>将当前第一条及更早的系统通知标记为已读</value>
+  </data>
+  <data name="ShowSidePanel" xml:space="preserve">
+    <value>显示侧栏</value>
+  </data>
+  <data name="HideSidePanel" xml:space="preserve">
+    <value>隐藏侧栏</value>
   </data>
 </root>

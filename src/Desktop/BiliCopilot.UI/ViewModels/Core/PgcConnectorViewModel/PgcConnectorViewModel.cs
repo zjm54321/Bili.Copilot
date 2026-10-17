@@ -21,7 +21,6 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
     {
         Parent = parent;
         _comments = this.Get<CommentMainViewModel>();
-        Downloader = this.Get<DownloadViewModel>();
     }
 
     public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver, CancellationToken cancellationToken = default)
@@ -76,17 +75,6 @@ public sealed partial class PgcConnectorViewModel : ViewModelBase, IPlayerConnec
         {
             throw new OperationCanceledException("The media request was superseded.", cancellationToken);
         }
-    }
-
-    public void InitializeDownloader(List<PlayerFormatInformation> formats)
-    {
-        Downloader.Clear();
-        Downloader.InitializeMetas(
-            GetEpisodeUrl(),
-            GetSeasonUrl(),
-            formats.AsReadOnly(),
-            _view.Episodes?.Count > 1 ? _view.Episodes.AsReadOnly() : default,
-            _view.Episodes.IndexOf(_episode));
     }
 
     public async Task PlayNextAsync()

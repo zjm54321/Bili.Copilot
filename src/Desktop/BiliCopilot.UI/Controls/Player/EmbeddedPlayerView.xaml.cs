@@ -2,6 +2,8 @@
 
 using BiliCopilot.UI.Controls.Core;
 using BiliCopilot.UI.Hosting;
+using BiliCopilot.UI.Models.Constants;
+using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
@@ -473,8 +475,10 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
                 if (_headers.ContainsKey(button) || !ReferenceEquals(button.Tag, connector) || !ReferenceEquals(FindHeaderHost(button), host)) continue;
                 var flyout = (MenuFlyout)button.Flyout;
                 var context = new HeaderContext(button, flyout, host, owner, connector, epoch, owner.MediaGeneration);
+                // A windowed (unconstrained) flyout is its own popup window and must not hide the video; only a
+                // root-constrained flyout, which would draw under the native child window, still takes the lease.
                 var registration = new HeaderPopupState.Registration(flyout, button, owner, connector, epoch, owner.MediaGeneration,
-                    () => IsCurrentHeader(context), flyout.Hide);
+                    () => IsCurrentHeader(context), flyout.Hide, requiresOcclusion: flyout.ShouldConstrainToRootBounds);
                 context.Registration = registration;
                 if (!_headerPopups.Register(registration)) continue;
                 _headers.Add(button, context);
@@ -508,8 +512,6 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
                         ICommand? command = item.Tag switch
                         {
                             "OpenInNewWindow" => owner.OpenInNewWindowCommand,
-                            "OpenWithMpv" => owner.OpenWithMpvCommand,
-                            "OpenWithMpvNet" => owner.OpenWithMpvNetCommand,
                             _ => null,
                         };
                         if (command is null) continue;
@@ -634,6 +636,10 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
     private static void OnIsNavColumnManualHideChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         => ((EmbeddedPlayerView)d).UpdateSidePanel();
 
+    /// <summary>侧栏折叠按钮提示：与按钮实际切换的手动折叠偏好一致.</summary>
+    private static string GetSidePanelToggleTip(bool isManualHide)
+        => ResourceToolkit.GetLocalizedString(isManualHide ? StringNames.ShowSidePanel : StringNames.HideSidePanel);
+
     // View-private event/lease state. No UI tree, player flow or native owner is created here.
     internal sealed class HeaderPopupState(Func<Action, bool> schedule, Action<Exception> reportError)
     {
@@ -645,12 +651,14 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
         private bool _queued;
 
         internal sealed class Registration(object flyout, object button, object owner, object connector,
-            long epoch, long generation, Func<bool> isCurrent, Action hide)
+            long epoch, long generation, Func<bool> isCurrent, Action hide, bool requiresOcclusion = true)
         {
             internal readonly object Flyout = flyout, Button = button, Owner = owner, Connector = connector;
             internal readonly long Epoch = epoch, Generation = generation;
             internal readonly Func<bool> IsCurrent = isCurrent;
             internal readonly Action Hide = hide;
+            /// <summary>Immutable: false for windowed popups, which keep ticket/owner rules but never call the factory.</summary>
+            internal readonly bool RequiresOcclusion = requiresOcclusion;
             internal bool Registered;
             internal Ticket? OpenTicket;
             internal bool CanUse => Registered && IsCurrent();
@@ -759,7 +767,8 @@ public sealed partial class EmbeddedPlayerView : PlayerControlBase
                     var ticket = _current;
                     var factory = _factory;
                     if (ticket is not null && !ticket.Registration.CanUse) Detach(ticket)?.Close();
-                    else if (ticket is not null && !ticket.Retired && ticket.Lease is null && factory is not null)
+                    else if (ticket is not null && !ticket.Retired && ticket.Registration.RequiresOcclusion
+                        && ticket.Lease is null && factory is not null)
                     {
                         try
                         {

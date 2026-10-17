@@ -11,6 +11,8 @@ namespace BiliCopilot.UI.ViewModels.Core;
 public sealed partial class PlayerViewModel
 {
     private PlayerPresentationMode _returnPresentation = PlayerPresentationMode.Normal;
+    private PlayerPresentationMode _fullScreenReturnPresentation = PlayerPresentationMode.Normal;
+    private long _presentationRequestVersion;
     private (IPlayerHost Host, PlayerPresentationMode Mode, bool FullScreen, bool Embedded)? _publishedHostPresentation;
     private (IPlayerHost Host, PlayerPresentationMode Mode, bool FullScreen, bool Embedded)? _publishingHostPresentation;
     private long _publishingHostPresentationVersion;
@@ -22,7 +24,10 @@ public sealed partial class PlayerViewModel
 
     private async Task SetPresentationCoreAsync(PlayerPresentationMode mode)
     {
-        if (Window is null) return;
+        mode = PlayerPresentationModes.Normalize(mode);
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (Window is not { } capturedHost || capturedHost.IsClosed) return;
+        var requestVersion = ++_presentationRequestVersion;
         var diagnostic = new MainPlayerHost.PresentationDiagnostic(unchecked(++_presentationDiagnosticSequence),
             RuntimeHelpers.GetHashCode(this), Client is null ? 0 : RuntimeHelpers.GetHashCode(Client),
             Player is null ? 0 : RuntimeHelpers.GetHashCode(Player), RuntimeHelpers.GetHashCode(Window));
@@ -32,9 +37,6 @@ public sealed partial class PlayerViewModel
         LogPresentationDiagnostic(diagnostic, from, mode, "Start", 0);
         try
         {
-            if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay &&
-                Presentation is not (PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay))
-                _returnPresentation = Presentation;
             var phase = Stopwatch.GetTimestamp();
             try
             {
@@ -44,16 +46,26 @@ public sealed partial class PlayerViewModel
                 await input;
             }
             finally { diagnostic.InputWallMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
-            if (IsPlaybackClosing) { outcome = "Closing"; return; }
+            if (IsPlaybackClosing || capturedHost.IsClosed) { outcome = "Closing"; return; }
+            if (requestVersion != _presentationRequestVersion || !ReferenceEquals(Window, capturedHost))
+            { outcome = "Superseded"; return; }
+            var current = PlayerPresentationModes.Normalize(capturedHost.Presentation);
+            if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay &&
+                current is not (PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay))
+                _returnPresentation = current;
+            if (mode == PlayerPresentationMode.FullScreen && current != PlayerPresentationMode.FullScreen)
+                _fullScreenReturnPresentation = current;
             phase = Stopwatch.GetTimestamp();
             try
             {
                 Task host;
-                try { host = Window is MainPlayerHost main ? main.SetPresentationAsync(mode, diagnostic) : Window.SetPresentationAsync(mode); }
+                try { host = capturedHost is MainPlayerHost main ? main.SetPresentationAsync(mode, diagnostic) : capturedHost.SetPresentationAsync(mode); }
                 finally { diagnostic.HostSyncMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
                 await host;
             }
             finally { diagnostic.HostWallMs = Stopwatch.GetElapsedTime(phase).TotalMilliseconds; }
+            if (IsPlaybackClosing || capturedHost.IsClosed || requestVersion != _presentationRequestVersion ||
+                !ReferenceEquals(Window, capturedHost)) { outcome = "Superseded"; return; }
             // Host is authoritative. Keep both actual compatibility writes and their failure semantics.
             phase = Stopwatch.GetTimestamp();
             try
@@ -100,6 +112,7 @@ public sealed partial class PlayerViewModel
         _publishedHostPresentation = null;
         try
         {
+            IsTopMost = host.IsTopMost();
             OnPropertyChanged(nameof(Presentation));
             OnPropertyChanged(nameof(IsFullScreen));
             OnPropertyChanged(nameof(IsEmbedded));

@@ -94,17 +94,6 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
         MTCBehavior = SettingsToolkit.ReadLocalSetting(SettingNames.MTCBehavior, MTCBehavior.Automatic);
         BottomProgressVisible = SettingsToolkit.ReadLocalSetting(SettingNames.IsBottomProgressBarVisible, true);
-        DefaultDownloadPath = SettingsToolkit.ReadLocalSetting(SettingNames.DownloadFolder, string.Empty);
-        UseExternalBBDown = SettingsToolkit.ReadLocalSetting(SettingNames.UseExternalBBDown, false);
-        OnlyCopyCommandWhenDownload = SettingsToolkit.ReadLocalSetting(SettingNames.OnlyCopyCommandWhenDownload, false);
-        WithoutCredentialWhenGenDownloadCommand = SettingsToolkit.ReadLocalSetting(SettingNames.WithoutCredentialWhenGenDownloadCommand, false);
-        if (string.IsNullOrEmpty(DefaultDownloadPath))
-        {
-            DefaultDownloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Bili Downloads");
-        }
-
-        OpenFolderAfterDownload = SettingsToolkit.ReadLocalSetting(SettingNames.OpenFolderAfterDownload, true);
-        DownloadWithDanmaku = SettingsToolkit.ReadLocalSetting(SettingNames.DownloadWithDanmaku, false);
         UseWebPlayerWhenLive = SettingsToolkit.ReadLocalSetting(SettingNames.UseWebPlayerWhenLive, false);
         ShowSearchRecommend = SettingsToolkit.ReadLocalSetting(SettingNames.ShowSearchRecommend, false);
 
@@ -293,27 +282,6 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task ChooseDownloadFolderAsync()
-    {
-        var folder = await this.Get<IFileToolkit>().PickFolderAsync(this.Get<AppViewModel>().ActivatedWindow);
-        if (folder != null)
-        {
-            DefaultDownloadPath = folder.Path;
-        }
-    }
-
-    [RelayCommand]
-    private async Task OpenDownloadFolderAsync()
-    {
-        if (!Directory.Exists(DefaultDownloadPath))
-        {
-            Directory.CreateDirectory(DefaultDownloadPath);
-        }
-
-        await Launcher.LaunchFolderPathAsync(DefaultDownloadPath);
-    }
-
-    [RelayCommand]
     private async Task PickScreenshotFolderAsync()
     {
         var folder = await this.Get<IFileToolkit>().PickFolderAsync(this.Get<AppViewModel>().ActivatedWindow);
@@ -437,24 +405,6 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     partial void OnNoP2PChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.PlayWithoutP2P, value);
-
-    partial void OnDefaultDownloadPathChanged(string value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.DownloadFolder, value);
-
-    partial void OnDownloadWithDanmakuChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.DownloadWithDanmaku, value);
-
-    partial void OnOpenFolderAfterDownloadChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.OpenFolderAfterDownload, value);
-
-    partial void OnUseExternalBBDownChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.UseExternalBBDown, value);
-
-    partial void OnOnlyCopyCommandWhenDownloadChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.OnlyCopyCommandWhenDownload, value);
-
-    partial void OnWithoutCredentialWhenGenDownloadCommandChanged(bool value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.WithoutCredentialWhenGenDownloadCommand, value);
 
     partial void OnPlayNextWithoutTipChanged(bool value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.PlayNextWithoutTip, value);

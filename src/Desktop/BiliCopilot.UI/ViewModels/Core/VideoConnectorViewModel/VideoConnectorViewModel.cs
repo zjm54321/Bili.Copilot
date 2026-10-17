@@ -24,7 +24,6 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
     {
         Parent = parent;
         _comments = this.Get<CommentMainViewModel>();
-        Downloader = this.Get<DownloadViewModel>();
     }
 
     public async Task InitializeAsync(MediaSnapshot snapshot, IMpvMediaSourceResolver sourceResolver, CancellationToken cancellationToken = default)
@@ -77,16 +76,6 @@ public sealed partial class VideoConnectorViewModel : ViewModelBase, IPlayerConn
         {
             throw new OperationCanceledException("The media request was superseded.", cancellationToken);
         }
-    }
-
-    public void InitializeDownloader(List<PlayerFormatInformation> formats)
-    {
-        Downloader.Clear();
-        Downloader.InitializeMetas(
-            GetWebLink(),
-            formats.AsReadOnly(),
-            _view.Parts?.Count > 1 ? _view.Parts.AsReadOnly() : default,
-            _view.Parts.IndexOf(_part) + 1);
     }
 
     public async Task PlayNextAsync()

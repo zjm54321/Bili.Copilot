@@ -94,7 +94,6 @@ internal static class GlobalDependencies
             .AddSingleton<UserSpacePageViewModel>()
             .AddSingleton<NotificationViewModel>()
             .AddTransient<UserMomentDetailViewModel>()
-            .AddTransient<DownloadViewModel>()
             .AddTransient<VideoMediaSourceResolver>()
             .AddTransient<VideoMediaHistoryResolver>()
             .AddTransient<PgcMediaSourceResolver>()

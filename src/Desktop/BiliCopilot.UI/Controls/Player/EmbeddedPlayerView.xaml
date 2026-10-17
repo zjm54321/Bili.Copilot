@@ -62,10 +62,12 @@
                         Loaded="OnHeaderButtonLoaded"
                         Style="{StaticResource IconButtonStyle}"
                         Tag="{x:Bind}"
+                        ToolTipService.ToolTip="{ext:Locale Name=Share}"
                         Unloaded="OnHeaderButtonUnloaded">
                         <ic:SymbolIcon FontSize="14" Symbol="Share" />
                         <Button.Flyout>
-                            <MenuFlyout Placement="Bottom">
+                            <!--  不受 XAML 根边界约束的独立弹出窗口；注册时据此不申请视频渲染遮挡（原生层叠需真机验证）  -->
+                            <MenuFlyout Placement="Bottom" ShouldConstrainToRootBounds="False">
                                 <MenuFlyoutItem
                                     MinWidth="200"
                                     Command="{x:Bind AddToViewLaterCommand, Mode=OneWay}"
@@ -89,8 +91,6 @@
                                 <MenuFlyoutSeparator Style="{StaticResource MenuFlyoutHeaderSeparatorStyle}" Tag="{ext:Locale Name=OpenWith}" />
                                 <MenuFlyoutItem Tag="OpenInNewWindow" Text="{ext:Locale Name=OpenInNewWindow}" />
                                 <MenuFlyoutItem Command="{x:Bind OpenInBrowserCommand, Mode=OneWay}" Text="{ext:Locale Name=OpenInBrowser}" />
-                                <MenuFlyoutItem Tag="OpenWithMpv" Text="{ext:Locale Name=OpenWithMpv}" />
-                                <MenuFlyoutItem Tag="OpenWithMpvNet" Text="{ext:Locale Name=OpenWithMpvNet}" />
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
@@ -122,10 +122,12 @@
                         Loaded="OnHeaderButtonLoaded"
                         Style="{StaticResource IconButtonStyle}"
                         Tag="{x:Bind}"
+                        ToolTipService.ToolTip="{ext:Locale Name=Share}"
                         Unloaded="OnHeaderButtonUnloaded">
                         <ic:SymbolIcon FontSize="14" Symbol="Share" />
                         <Button.Flyout>
-                            <MenuFlyout Placement="Bottom">
+                            <!--  不受 XAML 根边界约束的独立弹出窗口；注册时据此不申请视频渲染遮挡（原生层叠需真机验证）  -->
+                            <MenuFlyout Placement="Bottom" ShouldConstrainToRootBounds="False">
                                 <MenuFlyoutItem
                                     MinWidth="200"
                                     Command="{x:Bind PinCommand, Mode=OneWay}"
@@ -214,7 +216,8 @@
                 Margin="4,0,0,0"
                 VerticalAlignment="Center"
                 IsHide="{x:Bind IsNavColumnManualHide, Mode=TwoWay}"
-                IsInvertDirection="True" />
+                IsInvertDirection="True"
+                ToolTipService.ToolTip="{x:Bind GetSidePanelToggleTip(IsNavColumnManualHide), Mode=OneWay}" />
         </Grid>
 
         <Border

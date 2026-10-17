@@ -17,11 +17,17 @@ public sealed class ClassicInputBridge : IDisposable
     private readonly KeyEventHandler _keyUp;
     private Microsoft.UI.Xaml.Input.Pointer? _captured;
     private bool _disposed;
+    private XamlRoot? _inputRoot;
+    private readonly ClassicPlaybackSession? _session;
+    private long _sessionGeneration;
 
     public ClassicInputBridge(ClassicPlayerWindow window, ClassicPlayerInputController input,
         ClassicPlayerContent view, Action<Exception> report)
     {
         _window = window; _input = input; _view = view; _report = report;
+        _session = window.Session;
+        _sessionGeneration = _session?.Generation ?? 0;
+        input.TapAdmission = TapAllowed;
         _keyDown = OnKeyDown; _keyUp = OnKeyUp;
         view.Root.AddHandler(UIElement.KeyDownEvent, _keyDown, true);
         view.Root.AddHandler(UIElement.KeyUpEvent, _keyUp, true);
@@ -40,6 +46,7 @@ public sealed class ClassicInputBridge : IDisposable
         input.ToggleControlsRequested += OnToggleControls;
         input.ContextMenuRequested += OnContextMenu;
         input.PreviewChanged += OnPreview;
+        if (view.Root.IsLoaded) OnLoaded(view.Root, new RoutedEventArgs());
     }
     private bool Allowed(object? source)
     {
@@ -53,6 +60,32 @@ public sealed class ClassicInputBridge : IDisposable
     private static bool Down(int key) => (PInvoke.GetAsyncKeyState(key) & 0x8000) != 0;
     private static bool Modified => Down(0x10) || Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C);
     private bool Blocked => _disposed || _window.IsClosing || _window.Session?.IsClosing != false || (_view.IsInputBlocked?.Invoke() ?? false);
+    private bool TapAllowed() => !Blocked && ReferenceEquals(_session, _window.Session) && _view.Root.IsLoaded && _view.InputSurface.IsLoaded
+        && _view.Root.Visibility == Visibility.Visible && _view.InputSurface.Visibility == Visibility.Visible
+        && PInvoke.GetForegroundWindow().Value == WinRT.Interop.WindowNative.GetWindowHandle(_window)
+        && Allowed(FocusManager.GetFocusedElement(_view.Root.XamlRoot));
+    private async void OnRootPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!Allowed(e.OriginalSource) || Blocked)
+        { try { await _input.CancelAsync(); } catch (Exception ex) { _report(ex); } }
+    }
+    private async void OnSurfaceSizeChanged(object sender, SizeChangedEventArgs e)
+    { try { await _input.CancelAsync(); } catch (Exception ex) { _report(ex); } }
+    private async void OnInputRootChanged(XamlRoot sender, XamlRootChangedEventArgs e)
+    { try { await _input.CancelAsync(); } catch (Exception ex) { _report(ex); } }
+    private void OnAppWindowChanged(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    {
+        if (args.DidPresenterChange || args.DidSizeChange) ObserveInput(_input.CancelAsync());
+    }
+    private void OnSessionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (_session is null) return;
+        if (_sessionGeneration != _session.Generation || _session.IsBusy || _session.IsClosing)
+        {
+            _sessionGeneration = _session.Generation;
+            ObserveInput(_input.CancelAsync());
+        }
+    }
     private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         try
@@ -100,11 +133,14 @@ public sealed class ClassicInputBridge : IDisposable
     {
         try
         {
-            if (e.Handled || Blocked || !Allowed(e.OriginalSource) || e.IsGenerated) return;
+            if (e.Handled || Blocked || !Allowed(e.OriginalSource) || e.IsGenerated) { await _input.CancelAsync(); return; }
             var type = e.Pointer.PointerDeviceType;
-            if (type is not (PointerDeviceType.Mouse or PointerDeviceType.Touch)) return;
+            if (type is not (PointerDeviceType.Mouse or PointerDeviceType.Touch)) { await _input.CancelAsync(); return; }
             var point = e.GetCurrentPoint(_view.InputSurface);
-            if (type == PointerDeviceType.Mouse && (!point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed || Modified)) return;
+            if (type == PointerDeviceType.Mouse && ((!point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed)
+                || Modified || point.Properties.IsMiddleButtonPressed || point.Properties.IsXButton1Pressed
+                || point.Properties.IsXButton2Pressed || (point.Properties.IsLeftButtonPressed && point.Properties.IsRightButtonPressed)))
+            { await _input.CancelAsync(); return; }
             if (_captured is not null)
             {
                 e.Handled = true;
@@ -115,8 +151,15 @@ public sealed class ClassicInputBridge : IDisposable
             _captured = e.Pointer;
             _view.SetInteractionActive?.Invoke(true);
             e.Handled = true;
+            var scale = _view.Root.XamlRoot.RasterizationScale;
+            var dpi = (uint)Math.Max(1, Math.Round(96 * scale));
+            var rootPoint = _view.InputSurface.TransformToVisual(null).TransformPoint(point.Position);
+            _input.DoubleClickMilliseconds = PInvoke.GetDoubleClickTime();
+            _input.DoubleClickWidth = PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CXDOUBLECLK, dpi);
+            _input.DoubleClickHeight = PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CYDOUBLECLK, dpi);
             var accepted = await _input.PointerPressedAsync(e.Pointer.PointerId, point.Position.X, point.Position.Y,
-                type == PointerDeviceType.Touch, point.Properties.IsPrimary, point.Properties.IsRightButtonPressed, true, false, Modified);
+                type == PointerDeviceType.Touch, point.Properties.IsPrimary, point.Properties.IsRightButtonPressed, true, false, Modified,
+                scale, _view.InputSurface.ActualWidth, _view.InputSurface.ActualHeight, rootPoint.X, rootPoint.Y);
             if (!accepted) ReleaseCapture();
         }
         catch (Exception ex) { ReleaseCapture(); _report(ex); }
@@ -149,18 +192,25 @@ public sealed class ClassicInputBridge : IDisposable
         // Hover only reveals chrome: no capture, gesture mutation, focus transfer or Handled change.
         _view.ShowControlsForInput?.Invoke();
     }
-    private async void OnReleased(object sender, PointerRoutedEventArgs e)
+    private void OnReleased(object sender, PointerRoutedEventArgs e)
     {
         if (_captured?.PointerId != e.Pointer.PointerId) return;
         try
         {
             if (_captured?.PointerId != e.Pointer.PointerId) return;
             e.Handled = true;
+            if (Blocked || e.IsGenerated || (e.Pointer.PointerDeviceType == PointerDeviceType.Mouse && Modified))
+            { ObserveInput(_input.CancelAsync()); return; }
             var point = e.GetCurrentPoint(_view.InputSurface);
-            await _input.PointerReleasedAsync(e.Pointer.PointerId, point.Position.X, point.Position.Y, _view.InputSurface.ActualWidth);
+            // Snapshot scalars and release capture now; asynchronous command observation retains no routed event.
+            ObserveInput(_input.PointerReleasedAsync(e.Pointer.PointerId, point.Position.X, point.Position.Y, _view.InputSurface.ActualWidth));
         }
         catch (Exception ex) { _report(ex); }
         finally { ReleaseCapture(); }
+    }
+    private async void ObserveInput(Task task)
+    {
+        try { await task; } catch (Exception ex) { _report(ex); }
     }
     private async void OnWheel(object sender, PointerRoutedEventArgs e)
     {
@@ -193,6 +243,12 @@ public sealed class ClassicInputBridge : IDisposable
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _view.InputSurface.PointerEntered -= OnPointerEntered;
+        _view.Root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPressed));
+        _view.InputSurface.SizeChanged -= OnSurfaceSizeChanged;
+        if (_inputRoot is not null) _inputRoot.Changed -= OnInputRootChanged;
+        _inputRoot = null;
+        _window.AppWindow.Changed -= OnAppWindowChanged;
+        if (_session is not null) _session.PropertyChanged -= OnSessionChanged;
         try { await _input.CancelAsync(); } catch (Exception ex) { _report(ex); }
     }
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -200,6 +256,20 @@ public sealed class ClassicInputBridge : IDisposable
         if (_disposed) return;
         _view.InputSurface.PointerEntered -= OnPointerEntered;
         _view.InputSurface.PointerEntered += OnPointerEntered;
+        _view.Root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPressed));
+        _view.Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPressed), true);
+        _view.InputSurface.SizeChanged -= OnSurfaceSizeChanged;
+        _view.InputSurface.SizeChanged += OnSurfaceSizeChanged;
+        if (_inputRoot is not null) _inputRoot.Changed -= OnInputRootChanged;
+        _inputRoot = _view.Root.XamlRoot;
+        if (_inputRoot is not null) _inputRoot.Changed += OnInputRootChanged;
+        _window.AppWindow.Changed -= OnAppWindowChanged;
+        _window.AppWindow.Changed += OnAppWindowChanged;
+        if (_session is not null)
+        {
+            _session.PropertyChanged -= OnSessionChanged;
+            _session.PropertyChanged += OnSessionChanged;
+        }
     }
     private void OnFocusRequested(object? sender, EventArgs e)
     {
@@ -238,6 +308,13 @@ public sealed class ClassicInputBridge : IDisposable
         _input.ToggleControlsRequested -= OnToggleControls;
         _input.ContextMenuRequested -= OnContextMenu;
         _input.PreviewChanged -= OnPreview;
+        _input.TapAdmission = () => false;
+        if (_inputRoot is not null) _inputRoot.Changed -= OnInputRootChanged;
+        _window.AppWindow.Changed -= OnAppWindowChanged;
+        if (_session is not null) _session.PropertyChanged -= OnSessionChanged;
+        _view.Root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPressed));
+        _view.InputSurface.SizeChanged -= OnSurfaceSizeChanged;
+        ObserveInput(_input.CancelAsync());
         ReleaseCapture();
     }
 }

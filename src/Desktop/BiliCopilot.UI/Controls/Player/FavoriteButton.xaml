@@ -40,12 +40,14 @@
                 Style="{StaticResource CaptionTextBlockStyle}"
                 Text="{x:Bind Tip, Mode=OneWay}" />
         </StackPanel>
+        <!--  独立弹出窗口，可显示在原生视频之上；收藏命令只在打开时捕获的连接器仍有效时执行（见 PlayerActionTip）  -->
         <TeachingTip
             x:Name="FavoriteTip"
             ActionButtonClick="OnConfirmButtonClick"
             ActionButtonContent="{ext:Locale Name=Confirm}"
             IsLightDismissEnabled="True"
             PreferredPlacement="Right"
+            ShouldConstrainToRootBounds="False"
             Subtitle="{ext:Locale Name=FavoriteTip}"
             Target="{x:Bind Btn}">
             <ScrollViewer

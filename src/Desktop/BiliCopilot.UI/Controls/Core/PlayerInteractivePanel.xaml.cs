@@ -22,8 +22,11 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private uint? _pointerId;
     private double _startPosition;
     private double _startVolume;
-    private bool _pendingTouchTap;
-    private bool _isSecondTouchTap;
+    private readonly PlayerTapAggregationState _taps = new();
+    private PlayerTapContext _contactContext;
+    private long _inputEpoch;
+    private XamlRoot? _inputRoot;
+    private UIElement? _inputRootContent;
     private bool _isTouch;
     private bool _isRightButton;
     private bool _isHolding;
@@ -32,7 +35,7 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     {
         InitializeComponent();
         _tapTimer = DispatcherQueue.CreateTimer();
-        _tapTimer.Interval = TimeSpan.FromMilliseconds(200);
+        _tapTimer.IsRepeating = false;
         _tapTimer.Tick += OnTapTimerTick;
         _holdTimer = DispatcherQueue.CreateTimer();
         _holdTimer.Interval = TimeSpan.FromMilliseconds(500);
@@ -97,17 +100,20 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     {
         if (!CanControlPlayback() || !IsSurfaceSource(e.OriginalSource) || e.IsGenerated)
         {
+            CleanupInteractionState();
             return;
         }
 
         var device = e.Pointer.PointerDeviceType;
         if (device is not (PointerDeviceType.Touch or PointerDeviceType.Mouse))
         {
+            CleanupInteractionState();
             return;
         }
 
         if (device == PointerDeviceType.Mouse && !AppToolkit.NotModifierKeyPressed())
         {
+            CleanupInteractionState();
             return;
         }
 
@@ -121,8 +127,11 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
         }
 
         if (device == PointerDeviceType.Mouse
-            && !point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed)
+            && ((!point.Properties.IsLeftButtonPressed && !point.Properties.IsRightButtonPressed)
+                || point.Properties.IsMiddleButtonPressed || point.Properties.IsXButton1Pressed
+                || point.Properties.IsXButton2Pressed || (point.Properties.IsLeftButtonPressed && point.Properties.IsRightButtonPressed)))
         {
+            CleanupInteractionState();
             return;
         }
 
@@ -130,9 +139,19 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
         ViewModel.FocusPlayerInput();
         _isTouch = device == PointerDeviceType.Touch;
         _isRightButton = !_isTouch && point.Properties.IsRightButtonPressed;
-        _isSecondTouchTap = _isTouch && _pendingTouchTap;
-        _pendingTouchTap = false;
         _tapTimer.Stop();
+        _contactContext = TapContext();
+        if (_isRightButton || ViewModel.IsHoldingSpeedChanging) _taps.Cancel();
+        else
+        {
+            var scale = _contactContext.Scale;
+            var position = TransformToVisual(null).TransformPoint(point.Position);
+            var dpi = (uint)Math.Max(1, Math.Round(96 * scale));
+            ExecuteTap(_taps.Press(_contactContext, position.X * scale, position.Y * scale, TapNow,
+                PInvoke.GetDoubleClickTime(),
+                PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CXDOUBLECLK, dpi),
+                PInvoke.GetSystemMetricsForDpi(Windows.Win32.UI.WindowsAndMessaging.SYSTEM_METRICS_INDEX.SM_CYDOUBLECLK, dpi)));
+        }
         _gesture.Begin(point.Position.X, point.Position.Y, _isTouch);
         _pointerId = e.Pointer.PointerId;
         _startPosition = ViewModel.Player.Position;
@@ -158,7 +177,7 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
             return;
         }
 
-        if (!CanControlPlayback())
+        if (!ContactCurrent())
         {
             CleanupInteractionState();
             return;
@@ -175,7 +194,7 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
             return;
         }
 
-        if (!CanControlPlayback())
+        if (!ContactCurrent() || e.IsGenerated || (! _isTouch && !AppToolkit.NotModifierKeyPressed()))
         {
             CleanupInteractionState();
             return;
@@ -205,21 +224,20 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
                     Position = e.GetCurrentPoint(this).Position,
                 });
             }
-            else if (!_isTouch || _isSecondTouchTap)
-            {
-                ViewModel.PlayPauseCommand.Execute(default);
-            }
             else
             {
-                _pendingTouchTap = true;
-                _tapTimer.Start();
+                ExecuteTap(_taps.Release(_contactContext, TapNow));
+                if (_taps.Pending)
+                {
+                    _tapTimer.Interval = TimeSpan.FromMilliseconds(_taps.Remaining(TapNow));
+                    _tapTimer.Start();
+                }
             }
         }
 
         ViewModel.IsPreviewProgressChanging = false;
         // Clear ownership before ReleasePointerCapture raises CaptureLost.
         _pointerId = null;
-        _isSecondTouchTap = false;
         _isRightButton = false;
         _gesture.Reset();
         ReleasePointerCapture(e.Pointer);
@@ -248,6 +266,12 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     protected override void OnControlLoaded()
     {
         SubscribeViewModel(ViewModel);
+        SizeChanged += OnSurfaceSizeChanged;
+        _inputRoot = XamlRoot;
+        _inputRootContent = XamlRoot?.Content;
+        if (_inputRoot is not null) _inputRoot.Changed += OnInputRootChanged;
+        _inputRootContent?.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
+        _inputRootContent?.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
         _tempControlTimer.Start();
     }
 
@@ -255,6 +279,12 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     {
         CleanupInteractionState();
         _tempControlTimer.Stop();
+        SizeChanged -= OnSurfaceSizeChanged;
+        if (_inputRoot is not null) _inputRoot.Changed -= OnInputRootChanged;
+        _inputRootContent?.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed));
+        _inputRootContent?.RemoveHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown));
+        _inputRoot = null;
+        _inputRootContent = null;
         SubscribeViewModel(null);
     }
 
@@ -266,6 +296,18 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
 
     internal void CancelPendingInput()
         => CleanupInteractionState();
+
+    private void OnInputRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => CleanupInteractionState();
+    private void OnSurfaceSizeChanged(object sender, SizeChangedEventArgs args) => CleanupInteractionState();
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (!IsSurfaceSource(args.OriginalSource)) CleanupInteractionState();
+    }
+    private void OnRootKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        _taps.Cancel();
+        _tapTimer.Stop();
+    }
 
     private void SubscribeViewModel(PlayerViewModel? viewModel)
     {
@@ -283,9 +325,18 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ViewModel.IsHoldingSpeedChanging) && ViewModel.IsHoldingSpeedChanging)
+        {
+            _taps.Cancel();
+            _tapTimer.Stop();
+        }
         if ((e.PropertyName == nameof(ViewModel.IsWindowDeactivated) && ViewModel.IsWindowDeactivated)
             || (e.PropertyName == nameof(ViewModel.IsConnecting) && ViewModel.IsConnecting)
-            || e.PropertyName is nameof(ViewModel.Player) or nameof(ViewModel.Connector) or nameof(ViewModel.SelectedSource))
+            || (e.PropertyName == nameof(ViewModel.IsPopupVisible) && ViewModel.IsPopupVisible)
+            || (e.PropertyName == nameof(ViewModel.IsExtraPanelVisible) && ViewModel.IsExtraPanelVisible)
+            || (e.PropertyName == nameof(ViewModel.IsSubtitleSettingsVisible) && ViewModel.IsSubtitleSettingsVisible)
+            || e.PropertyName is nameof(ViewModel.MediaGeneration) or nameof(ViewModel.Presentation)
+                or nameof(ViewModel.Player) or nameof(ViewModel.Connector) or nameof(ViewModel.SelectedSource))
         {
             CleanupInteractionState();
         }
@@ -318,12 +369,13 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private void OnHoldTimerTick(object sender, object e)
     {
         _holdTimer.Stop();
-        if (!_pointerId.HasValue || !CanControlPlayback() || !_gesture.TryHold())
+        if (!_pointerId.HasValue || !ContactCurrent() || !_gesture.TryHold())
         {
             return;
         }
 
-        _isSecondTouchTap = false;
+        _taps.Cancel();
+        _tapTimer.Stop();
         if (!ViewModel.Player.IsPlaying)
         {
             return;
@@ -337,12 +389,11 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private void OnTapTimerTick(object? sender, object? e)
     {
         _tapTimer.Stop();
-        var toggleControls = _pendingTouchTap && !_pointerId.HasValue && CanControlPlayback();
-        _pendingTouchTap = false;
-        if (toggleControls)
+        ExecuteTap(_taps.Expire(TapNow));
+        if (_taps.Pending)
         {
-            ViewModel.IsTouchControlsVisible = !ViewModel.IsControlsVisible;
-            ViewModel.IsControlsVisible = !ViewModel.IsControlsVisible;
+            _tapTimer.Interval = TimeSpan.FromMilliseconds(_taps.Remaining(TapNow));
+            _tapTimer.Start();
         }
     }
 
@@ -352,7 +403,8 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
         if (_gesture.Phase != PlayerSurfaceGesture.Pressed)
         {
             _holdTimer.Stop();
-            _isSecondTouchTap = false;
+            _taps.Cancel();
+            _tapTimer.Stop();
         }
 
         if (_gesture.Phase == PlayerSurfaceGesture.Horizontal)
@@ -412,7 +464,45 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
     private bool CanControlPlayback()
         => ViewModel?.Client?.IsDisposed == false && ViewModel.Player?.IsPlaybackInitialized == true
             && !ViewModel.IsPlaybackClosing && !ViewModel.IsConnecting && !ViewModel.IsWindowDeactivated
+            && ViewModel.Window is { IsPresenterChanging: false, IsClosed: false, IsDisposed: false }
             && !ViewModel.IsPopupVisible && !ViewModel.IsExtraPanelVisible && !ViewModel.IsSubtitleSettingsVisible;
+
+    private static double TapNow => System.Diagnostics.Stopwatch.GetTimestamp() * 1000d / System.Diagnostics.Stopwatch.Frequency;
+    private PlayerTapContext TapContext() => new(ViewModel, ViewModel.MediaGeneration, _inputEpoch,
+        _isTouch, XamlRoot?.RasterizationScale ?? 1, ActualWidth, ActualHeight);
+    private bool ContactCurrent() => CanControlPlayback() && _contactContext == TapContext();
+    private bool TapCurrent(PlayerTapContext context)
+    {
+        if (!IsLoaded || !CanControlPlayback() || !ReferenceEquals(context.Owner, ViewModel)
+            || context != new PlayerTapContext(ViewModel, ViewModel.MediaGeneration, _inputEpoch,
+                context.Touch, XamlRoot?.RasterizationScale ?? 1, ActualWidth, ActualHeight)
+            || ViewModel.IsHoldingSpeedChanging || ViewModel.Window is not { IsPresenterChanging: false, IsClosed: false, IsDisposed: false } host
+            || PInvoke.GetForegroundWindow().Value != host.OwnerHwnd || Visibility != Visibility.Visible) return false;
+        var focus = FocusManager.GetFocusedElement(XamlRoot);
+        var ancestorFocused = false;
+        for (DependencyObject? node = this; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is UIElement element && element.Visibility != Visibility.Visible) return false;
+            ancestorFocused |= ReferenceEquals(node, focus);
+        }
+        return ancestorFocused || focus is null || IsSurfaceSource(focus);
+    }
+    private async void ExecuteTap(PlayerTapAction action)
+    {
+        if (action.Intent == PlayerTapIntent.None || !TapCurrent(action.Context)) return;
+        var owner = (PlayerViewModel)action.Context.Owner;
+        if (action.Intent == PlayerTapIntent.Single && action.Context.Touch)
+        {
+            owner.IsTouchControlsVisible = !owner.IsControlsVisible;
+            owner.IsControlsVisible = !owner.IsControlsVisible;
+            return;
+        }
+        var command = action.Intent == PlayerTapIntent.Double && !action.Context.Touch
+            ? owner.ToggleFullScreenCommand : owner.PlayPauseCommand;
+        if (!command.CanExecute(null) || !TapCurrent(action.Context)) return;
+        try { await command.ExecuteAsync(null); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Player tap failed: {ex.Message}"); }
+    }
 
     private bool CanSeek()
         => CanControlPlayback() && double.IsFinite(ViewModel.Player.Duration) && ViewModel.Player.Duration > 0;
@@ -459,8 +549,8 @@ public sealed partial class PlayerInteractivePanel : PlayerControlBase
             owner.IsPreviewProgressChanging = false;
         }
 
-        _pendingTouchTap = false;
-        _isSecondTouchTap = false;
+        _inputEpoch++;
+        _taps.Cancel();
         _pointerId = null;
         _isRightButton = false;
         _isTouch = false;

@@ -12,7 +12,7 @@
   <Identity
     Name="Richasy.BiliCopilot.Dev"
     Publisher="CN=Richasy"
-    Version="2.2511.3.0" />
+    Version="2.2611.2.0" />
 
   <mp:PhoneIdentity PhoneProductId="db73c7b4-f2cf-4fdc-96e5-a386308a42e9" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -59,7 +59,7 @@
         <!--Register COM CLSID-->
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:ExeServer Executable="BiliCopilot.UI\BiliCopilot.UI.exe" DisplayName="哔哩助理" Arguments="----AppNotificationActivated:">
+            <com:ExeServer Executable="BiliCopilot.UI.exe" DisplayName="哔哩助理" Arguments="----AppNotificationActivated:">
               <com:Class Id="E3D99E22-57A2-41B9-BB2D-E1547E68DEBA" />
             </com:ExeServer>
           </com:ComServer>

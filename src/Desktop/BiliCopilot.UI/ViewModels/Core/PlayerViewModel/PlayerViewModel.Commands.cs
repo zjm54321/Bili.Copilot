@@ -31,9 +31,12 @@ public sealed partial class PlayerViewModel
     [RelayCommand]
     private void ToggleTopMost()
     {
-        if (IsPlaybackClosing) return;
-        IsTopMost = !IsTopMost;
-        Window?.SetTopMost(IsTopMost);
+        if (IsPlaybackClosing || Window is not { } host || host.IsClosed || host.IsPresenterChanging) return;
+        try { host.SetTopMost(!host.IsTopMost()); }
+        finally
+        {
+            if (ReferenceEquals(Window, host) && !host.IsClosed) IsTopMost = host.IsTopMost();
+        }
     }
 
     [RelayCommand]
@@ -123,7 +126,7 @@ public sealed partial class PlayerViewModel
 
         if (Presentation != PlayerPresentationMode.Normal)
             await SetPresentationAsync(Presentation is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay
-                ? _returnPresentation : PlayerPresentationMode.Normal);
+                ? PlayerPresentationModes.Normalize(_returnPresentation) : PlayerPresentationMode.Normal);
     }
 
     [RelayCommand]
@@ -214,7 +217,8 @@ public sealed partial class PlayerViewModel
     private async Task ToggleFullScreenAsync()
     {
         IsExtraPanelVisible = false;
-        await SetPresentationAsync(IsFullScreen ? _returnPresentation : PlayerPresentationMode.FullScreen);
+        await SetPresentationAsync(IsFullScreen
+            ? PlayerPresentationModes.Normalize(_fullScreenReturnPresentation) : PlayerPresentationMode.FullScreen);
     }
 
     [RelayCommand]
@@ -222,7 +226,7 @@ public sealed partial class PlayerViewModel
     {
         IsExtraPanelVisible = false;
         await SetPresentationAsync(Presentation == PlayerPresentationMode.CompactOverlay
-            ? _returnPresentation : PlayerPresentationMode.CompactOverlay);
+            ? PlayerPresentationModes.Normalize(_returnPresentation) : PlayerPresentationMode.CompactOverlay);
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]

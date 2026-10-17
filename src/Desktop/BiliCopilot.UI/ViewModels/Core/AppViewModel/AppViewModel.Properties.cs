@@ -32,11 +32,6 @@ public sealed partial class AppViewModel : ViewModelBase
     public List<Window> Windows { get; } = new();
 
     /// <summary>
-    /// BBDown 路径.
-    /// </summary>
-    public string BBDownPath { get; private set; }
-
-    /// <summary>
     /// FFmpeg 路径.
     /// </summary>
     public string FFmpegPath { get; private set; }

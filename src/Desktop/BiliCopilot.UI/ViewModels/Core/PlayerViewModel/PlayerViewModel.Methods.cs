@@ -813,7 +813,6 @@ public sealed partial class PlayerViewModel
 
                 var c = ((VideoConnectorViewModel)Connector);
                 DanmakuSend.ResetData(c._view.Information.Identifier.Id, c._part.Identifier.Id);
-                c.InitializeDownloader(sources);
             }
             else if (_sourceResolver is PgcMediaSourceResolver pgcResolver)
             {
@@ -844,7 +843,6 @@ public sealed partial class PlayerViewModel
                 var aid = c._episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Aid).ToString();
                 var cid = c._episode.GetExtensionIfNotNull<long>(EpisodeExtensionDataId.Cid).ToString();
                 DanmakuSend.ResetData(aid.ToString(), cid.ToString());
-                c.InitializeDownloader(sources);
             }
         }
         catch (Exception ex)

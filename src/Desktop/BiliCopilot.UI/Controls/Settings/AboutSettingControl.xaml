@@ -11,30 +11,16 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <base:SettingsExpander
-        x:Name="AboutCard"
-        Description="{x:Bind ViewModel.Copyright, Mode=OneWay}"
-        Header="{ext:Locale Name=AppName}">
-        <base:SettingsExpander.HeaderIcon>
+    <!--  关于：仅显示应用名称与版本号  -->
+    <base:SettingsCard x:Name="AboutCard" Header="{ext:Locale Name=AppName}">
+        <base:SettingsCard.HeaderIcon>
             <BitmapIcon ShowAsMonochrome="False" UriSource="ms-appx:///Assets/StoreLogo.png" />
-        </base:SettingsExpander.HeaderIcon>
-        <StackPanel Spacing="4">
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.PackageVersion, Mode=OneWay}" />
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                Text="二次开发：2026" />
-        </StackPanel>
-        <base:SettingsExpander.Items>
-            <base:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Left">
-                <StackPanel x:Name="LinkContainer" Margin="-12,0,0,0">
-                    <HyperlinkButton Content="{ext:Locale Name=BiliHomePage}" NavigateUri="https://space.bilibili.com/5992670" />
-                    <HyperlinkButton Content="{ext:Locale Name=ProjectHomePage}" NavigateUri="https://github.com/Richasy/Bili.Copilot" />
-                </StackPanel>
-            </base:SettingsCard>
-        </base:SettingsExpander.Items>
-    </base:SettingsExpander>
+        </base:SettingsCard.HeaderIcon>
+        <TextBlock
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            IsTextSelectionEnabled="True">
+            <Run Text="{ext:Locale Name=Version}" />
+            <Run Text="{x:Bind ViewModel.PackageVersion, Mode=OneWay}" />
+        </TextBlock>
+    </base:SettingsCard>
 </local:SettingsPageControlBase>

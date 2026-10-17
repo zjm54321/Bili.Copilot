@@ -114,11 +114,6 @@ public sealed partial class VideoConnectorViewModel
     public partial List<IPlayerSectionDetailViewModel>? Sections { get; set; }
 
     /// <summary>
-    /// 下载视图模型.
-    /// </summary>
-    public DownloadViewModel Downloader { get; }
-
-    /// <summary>
     /// 播放视图模型.
     /// </summary>
     public PlayerViewModel Parent { get; set; }

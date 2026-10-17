@@ -144,10 +144,9 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <!--
-                            Title/Subtitle are intentionally NOT cleared here: the single persistent
-                            title bar also carries the FullWindow/CompactOverlay secondary title in the
-                            narrow CompactOverlay window. Narrow title suppression is applied in code
-                            for the Normal presentation only.
+                            Title/Subtitle are applied in code (RootLayout.ApplyTitleBarChrome).
+                            FullScreen/CompactOverlay collapse this whole title row; the player overlay
+                            draws its own visual-only header there.
                         -->
                         <Setter Target="SearchBox.Margin" Value="40,0,20,0" />
                         <Setter Target="SearchBox.MinWidth" Value="100" />

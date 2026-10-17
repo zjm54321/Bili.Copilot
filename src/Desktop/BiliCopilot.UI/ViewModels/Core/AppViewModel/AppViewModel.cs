@@ -57,9 +57,6 @@ public sealed partial class AppViewModel : ViewModelBase
     {
         var architecture = RuntimeInformation.ProcessArchitecture;
         var identifier = architecture == Architecture.Arm64 ? "arm64" : "x64";
-        var bbdownFile = await StorageFile.GetFileFromApplicationUriAsync(new Uri($"ms-appx:///Assets/BBDown/{identifier}/BBDown.exe")).AsTask();
-        BBDownPath = bbdownFile.Path;
-
         var ffmpegFile = await StorageFile.GetFileFromApplicationUriAsync(new Uri($"ms-appx:///Assets/ffmpeg/{identifier}/ffmpeg.exe")).AsTask();
         FFmpegPath = ffmpegFile.Path;
 

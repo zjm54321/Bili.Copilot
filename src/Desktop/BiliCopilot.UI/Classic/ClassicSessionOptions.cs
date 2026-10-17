@@ -30,7 +30,7 @@ public sealed record ClassicSessionOptions(
         return new(
             ReadExperience(settings),
             settings.ReadLocalSetting("ClassicPlayerBackend", ClassicBackendKind.Island),
-            settings.ReadLocalSetting("ClassicPlayerDisplayMode", ClassicDisplayMode.Default),
+            ClassicDisplayModes.Normalize(settings.ReadLocalSetting("ClassicPlayerDisplayMode", ClassicDisplayMode.Default)),
             settings.ReadLocalSetting("ClassicPlayerDecodePreference", ClassicDecodePreference.Auto),
             settings.ReadLocalSetting("ClassicExternalPlayerPath", string.Empty) ?? string.Empty,
             settings.ReadLocalSetting("ClassicUseWebPlayerWhenLive", false),

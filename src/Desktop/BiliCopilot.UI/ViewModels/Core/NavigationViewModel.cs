@@ -307,7 +307,6 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     {
         var list = new List<AppNavigationItemViewModel>
         {
-            // GetItem<DownloadPage>(StringNames.Download, FluentIcons.Common.Symbol.CloudArrowDown),
             GetItem<MessagePage>(StringNames.Message, FluentIcons.Common.Symbol.Chat),
             GetItem<SettingsPage>(StringNames.Settings, FluentIcons.Common.Symbol.Settings),
         };

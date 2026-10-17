@@ -44,7 +44,6 @@
                 <settings:PlayerBehaviorSettingControl />
                 <settings:MpvExtraSettingControl />
                 <settings:ScreenshotSettingControl />
-                <settings:DownloadSettingControl />
                 <TextBlock
                     Margin="0,8,0,4"
                     HorizontalAlignment="Left"
@@ -61,24 +60,7 @@
                     Margin="0,16,0,8"
                     HorizontalAlignment="Left"
                     Text="{ext:Locale Name=AboutThisApp}" />
-                <settings:AboutSettingControl />
-                <StackPanel
-                    Margin="0,12,0,0"
-                    Orientation="Horizontal"
-                    Spacing="4">
-                    <HyperlinkButton
-                        Padding="8,4"
-                        Content="{ext:Locale Name=SendFeedback}"
-                        NavigateUri="https://github.com/Richasy/Bili.Copilot/issues/new/choose" />
-                    <StackPanel
-                        Width="1"
-                        Height="16"
-                        Background="{ThemeResource ControlStrokeColorDefaultBrush}" />
-                    <HyperlinkButton
-                        Padding="8,4"
-                        Content="{ext:Locale Name=ReadDocument}"
-                        NavigateUri="https://bili.richasy.net" />
-                </StackPanel>
+                <settings:AboutSettingControl Margin="0,0,0,16" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

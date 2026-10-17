@@ -22,6 +22,14 @@ public sealed partial class MessagePageViewModel
     private readonly ILogger<SystemMessageSectionDetailViewModel> _systemLogger;
     private long _pageGeneration;
     private bool _isActive;
+    private long _activationEpoch;
+    private bool _initialized;
+    private bool _chatInitialized;
+    private bool _resetting;
+    private MessageRequestOwner? _initializeOwner;
+    private MessageRequestOwner? _chatOwner;
+    private MessageRequestOwner? _selectionOwner;
+    private Task _drain = Task.CompletedTask;
 
     public AccountViewModel Account => _account;
     public SystemMessageSectionDetailViewModel? SystemSection => Sections.OfType<SystemMessageSectionDetailViewModel>().FirstOrDefault();

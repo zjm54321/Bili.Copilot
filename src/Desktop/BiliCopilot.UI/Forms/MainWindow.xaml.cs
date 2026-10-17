@@ -28,6 +28,22 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
     internal bool IsEmbeddedPlayerRenderingSuspended => _playerOcclusion.IsSuspended;
     internal bool SuppressPlayerBoundsPersistence { get; set; }
 
+    internal bool IsCurrentEmbeddedHost(MainPlayerHost host, PlayerViewModel? expectedOwner = null)
+    {
+        var app = this.Get<AppViewModel>();
+        return !_closingEmbedded && !app.IsClosed && app.EmbeddedPlayer is { } player &&
+            !player.IsPlaybackClosing && ReferenceEquals(player.Window, host) &&
+            (expectedOwner is null || ReferenceEquals(player, expectedOwner));
+    }
+
+    internal bool RequestEmbeddedOwnerClose(MainPlayerHost host, PlayerViewModel expectedOwner)
+    {
+        if (!IsCurrentEmbeddedHost(host, expectedOwner)) return false;
+        // Preserve the existing programmatic-close/embedded drain and retry path.
+        Close();
+        return true;
+    }
+
     internal void UpdatePlayerBoundsSuppression(MainPlayerHost requester, bool suppressed)
     {
         if (this.Get<AppViewModel>().EmbeddedPlayer?.Window is MainPlayerHost current && !ReferenceEquals(current, requester)) return;
@@ -83,25 +99,32 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
     {
         // Read the layout actually applied by Root, not a possibly stale event payload.
         var mode = RootLayout.TitleBarPresentation;
+        if (mode is PlayerPresentationMode.FullScreen or PlayerPresentationMode.CompactOverlay)
+        {
+            SetTitleBar(null);
+            return;
+        }
         SetTitleBar(RootLayout.GetActiveTitleBar());
-        if (mode == PlayerPresentationMode.FullScreen) return;
 
         // The bar instance is persistent; a mode change still requires a height update.
-        AppWindow.TitleBar.PreferredHeightOption = mode is PlayerPresentationMode.FullWindow or PlayerPresentationMode.CompactOverlay
-            ? TitleBarHeightOption.Standard
-            : TitleBarHeightOption.Tall;
+        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
     }
 
     /// <inheritdoc/>
     public async Task ShowTipAsync(string text, InfoType type = InfoType.Error)
     {
+        var player = this.Get<AppViewModel>().EmbeddedPlayer;
+        if (player?.Window is MainPlayerHost host && host.TryShowTip(player, text, type)) return;
         using var rendering = SuspendEmbeddedPlayerRendering();
         var popup = new TipPopup() { Text = text };
         TipContainer.Visibility = Visibility.Visible;
         TipContainer.Children.Add(popup);
-        await popup.ShowAsync(type);
-        TipContainer.Children.Remove(popup);
-        TipContainer.Visibility = Visibility.Collapsed;
+        try { await popup.ShowAsync(type); }
+        finally
+        {
+            TipContainer.Children.Remove(popup);
+            if (TipContainer.Children.Count == 0) TipContainer.Visibility = Visibility.Collapsed;
+        }
     }
 
     private static PointInt32 GetSavedWindowPosition()

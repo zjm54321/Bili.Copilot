@@ -18,9 +18,6 @@
     <None Update="App.xaml">
       <SubType>Designer</SubType>
     </None>
-    <Page Update="Controls\Settings\ScrollSettingControl.xaml">
-      <SubType>Designer</SubType>
-    </Page>
     <Page Update="Controls\Danmaku\DanmakuSendDialog.xaml">
       <SubType>Designer</SubType>
     </Page>
@@ -87,22 +84,7 @@
     <Page Update="Controls\Settings\NavigationSettingControl.xaml">
       <SubType>Designer</SubType>
     </Page>
-    <Page Update="Controls\AI\CustomPromptDialog.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\Settings\PromptTemplateSettingControl.xaml">
-      <SubType>Designer</SubType>
-    </Page>
     <Page Update="Controls\Settings\SearchRecommendSettingSection.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\Player\VideoAISection.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\Settings\AIResponseSettingControl.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\AI\AIPanel.xaml">
       <SubType>Designer</SubType>
     </Page>
     <Page Update="Controls\Player\PgcInfoSection.xaml">
@@ -127,24 +109,6 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Update="Controls\Pinner.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\AI\AIFooter.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\AI\AIBody.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\AI\AIOverlayPanel.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\AI\AIHeader.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\Markdown\MarkdownTextBlock.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Controls\Components\ChatModelCardControl\ChatModelCardControl.xaml">
       <SubType>Designer</SubType>
     </Page>
     <Page Update="Styles\TrayResources.xaml">

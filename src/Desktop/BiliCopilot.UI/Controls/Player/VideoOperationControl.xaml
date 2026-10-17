@@ -46,7 +46,6 @@
                 </DataTemplate>
             </ComboBox.ItemTemplate>
         </ComboBox>-->
-        <local:DownloadButton ViewModel="{x:Bind ViewModel.Downloader, Mode=OneWay}" />
         <StackPanel Spacing="4">
             <TextBlock
                 HorizontalAlignment="Left"

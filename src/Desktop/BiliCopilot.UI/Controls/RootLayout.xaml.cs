@@ -37,8 +37,6 @@ public sealed partial class RootLayout : RootLayoutBase
     private readonly IconElement? _primaryIconElement;
     private readonly DispatcherQueue _dispatcher;
     private PlayerViewModel? _embeddedViewModel;
-    private PlayerViewModel? _titleOwner;
-    private PropertyChangedEventHandler? _titleChanged;
     private PropertyChangedEventHandler? _navigationChanged;
     private PropertyChangedEventHandler? _accountChanged;
     private EventHandler? _accountBoundaryChanged;
@@ -46,11 +44,9 @@ public sealed partial class RootLayout : RootLayoutBase
     private readonly HashSet<AppNavigationViewItem> _loadedNavigationItems = new();
     private readonly Dictionary<AppNavigationViewItem, NavigationItemState> _navigationItems = new();
     private long _scopeEpoch;
-    private long _titleEpoch;
     private bool _stateLoaded;
     private bool _navigationInitialized;
     private bool _isNarrow;
-    private bool _isSecondaryChrome;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RootLayout"/> class.
@@ -86,11 +82,11 @@ public sealed partial class RootLayout : RootLayoutBase
     public AppTitleBar GetMainTitleBar() => MainTitleBar;
 
     /// <summary>
-    /// 获取当前可拖动的活动标题栏；全屏无原生标题栏时为 <see langword="null"/>.
+    /// 获取当前可拖动的活动标题栏；全屏与小窗由播放层自带的纯视觉标题区承载，此时为 <see langword="null"/>.
     /// </summary>
-    /// <returns>同一持久 <see cref="AppTitleBar"/>（Normal/FullWindow/CompactOverlay），或全屏时的 <see langword="null"/>.</returns>
+    /// <returns>常规呈现下的唯一持久 <see cref="AppTitleBar"/>，或全屏/小窗时的 <see langword="null"/>.</returns>
     public AppTitleBar? GetActiveTitleBar()
-        => TitleBarPresentation == PlayerPresentationMode.FullScreen ? null : MainTitleBar;
+        => IsPlayerChromeMode(TitleBarPresentation) ? null : MainTitleBar;
 
     public void TryFocusSearchBox()
         => SearchBox.Focus(FocusState.Programmatic);
@@ -106,7 +102,6 @@ public sealed partial class RootLayout : RootLayoutBase
 
         // Attach also resumes an explicitly released/temporarily unloaded view for the same VM.
         _embeddedViewModel = viewModel;
-        ObserveEmbeddedTitle(viewModel);
         var slot = EmbeddedPlayerHost.Attach(viewModel);
 
         EmbeddedPlayerHost.Visibility = Visibility.Visible;
@@ -148,7 +143,6 @@ public sealed partial class RootLayout : RootLayoutBase
         }
 
         _embeddedViewModel = null;
-        ObserveEmbeddedTitle(null);
         EmbeddedPlayerHost.Release();
         EmbeddedPlayerHost.Visibility = Visibility.Collapsed;
         NavigationContentHost.Visibility = Visibility.Visible;
@@ -184,7 +178,7 @@ public sealed partial class RootLayout : RootLayoutBase
             if (ReferenceEquals(source, navigation) && args.PropertyName is nameof(NavigationViewModel.IsOverlayOpen) or nameof(NavigationViewModel.IsTopNavBarShown))
                 QueueScopeUpdate(scope, () =>
                 {
-                    if (ReferenceEquals(navigation, ViewModel) && !_isSecondaryChrome) ApplyTitleBarChrome(PlayerPresentationMode.Normal);
+                    if (ReferenceEquals(navigation, ViewModel)) ApplyTitleBarChrome();
                 });
         };
         _accountChanged = (source, args) =>
@@ -198,11 +192,10 @@ public sealed partial class RootLayout : RootLayoutBase
         navigation.PropertyChanged += _navigationChanged;
         _account.PropertyChanged += _accountChanged;
         _account.AccountChanged += _accountBoundaryChanged;
-        ObserveEmbeddedTitle(_embeddedViewModel);
         foreach (var item in _loadedNavigationItems.ToArray())
             if (item.IsLoaded) TrackNavigationItem(item);
         _isNarrow = LayoutGrid.ActualWidth > 0 && LayoutGrid.ActualWidth < _narrowMinWidth;
-        ApplyTitleBarChrome(TitleBarPresentation);
+        ApplyTitleBarChrome();
         QueueScopeUpdate(scope, UpdateMessageBadges);
     }
 
@@ -217,7 +210,6 @@ public sealed partial class RootLayout : RootLayoutBase
         _navigationOwner = null;
         _navigationChanged = _accountChanged = null;
         _accountBoundaryChanged = null;
-        ObserveEmbeddedTitle(null);
         foreach (var item in _navigationItems.Keys.ToArray()) UntrackNavigationItem(item);
     }
 
@@ -229,33 +221,15 @@ public sealed partial class RootLayout : RootLayoutBase
             if (IsCurrentScope(scope)) update();
         });
 
-    private void ObserveEmbeddedTitle(PlayerViewModel? owner)
-    {
-        if (!_stateLoaded) owner = null;
-        if (ReferenceEquals(_titleOwner, owner)) return;
-        if (_titleOwner is not null) _titleOwner.PropertyChanged -= _titleChanged;
-        _titleOwner = owner;
-        _titleChanged = null;
-        var titleEpoch = ++_titleEpoch;
-        if (owner is null) return;
-        var scope = _scopeEpoch;
-        _titleChanged = (sender, args) =>
-        {
-            if (!ReferenceEquals(sender, owner) || args.PropertyName != nameof(PlayerViewModel.Title)) return;
-            QueueScopeUpdate(scope, () =>
-            {
-                if (titleEpoch == _titleEpoch && ReferenceEquals(owner, _titleOwner)
-                    && ReferenceEquals(owner, _embeddedViewModel) && _isSecondaryChrome)
-                    MainTitleBar.Title = owner.Title ?? string.Empty;
-            });
-        };
-        owner.PropertyChanged += _titleChanged;
-    }
+    /// <summary>
+    /// 全屏与小窗：隐藏主标题栏整行，播放层铺满客户区并使用自身的纯视觉标题区.
+    /// 旧的全窗口（FullWindow）已不再面向用户，按常规呈现处理；枚举值保留给旧数据归一化.
+    /// </summary>
+    private static bool IsPlayerChromeMode(PlayerPresentationMode mode)
+        => mode is PlayerPresentationMode.CompactOverlay or PlayerPresentationMode.FullScreen;
 
     private static PlayerPresentationMode NormalizeTitleBarMode(PlayerPresentationMode mode)
-        => mode is PlayerPresentationMode.FullWindow or PlayerPresentationMode.CompactOverlay or PlayerPresentationMode.FullScreen
-            ? mode
-            : PlayerPresentationMode.Normal;
+        => IsPlayerChromeMode(mode) ? mode : PlayerPresentationMode.Normal;
 
     private static double TryGetNarrowMinWidth()
     {
@@ -276,64 +250,44 @@ public sealed partial class RootLayout : RootLayoutBase
     private void ApplyPresentation(PlayerPresentationMode mode)
     {
         var titleBarMode = NormalizeTitleBarMode(mode);
-        ApplyShellLayout(mode);
-        ApplyTitleBarChrome(titleBarMode);
+        ApplyShellLayout(titleBarMode);
+        ApplyTitleBarChrome();
         TitleBarPresentation = titleBarMode;
         ActiveTitleBarChanged?.Invoke(this, titleBarMode);
     }
 
     private void ApplyShellLayout(PlayerPresentationMode mode)
     {
-        var hideTitleBar = mode == PlayerPresentationMode.FullScreen;
-        var coversNavigation = mode is PlayerPresentationMode.FullWindow
-            or PlayerPresentationMode.FullScreen
-            or PlayerPresentationMode.CompactOverlay;
-
-        MainTitleBar.Visibility = hideTitleBar ? Visibility.Collapsed : Visibility.Visible;
-        LayoutGrid.RowDefinitions[0].Height = hideTitleBar ? new GridLength(0) : GridLength.Auto;
-        NavView.IsPaneVisible = !coversNavigation;
+        // 全屏/小窗：标题行高度归零且折叠，视频槽填满整个客户区（不留 32px 标题条）.
+        var playerChrome = IsPlayerChromeMode(mode);
+        MainTitleBar.Visibility = playerChrome ? Visibility.Collapsed : Visibility.Visible;
+        LayoutGrid.RowDefinitions[0].Height = playerChrome ? new GridLength(0) : GridLength.Auto;
+        NavView.IsPaneVisible = !playerChrome;
     }
 
     /// <summary>
-    /// 在唯一持久 <see cref="AppTitleBar"/> 上切换 Store 主/次外观，避免第二实例重复写原生 Passthrough.
+    /// 唯一持久 <see cref="AppTitleBar"/> 只保留 Store 主外观（图标/顶部导航/搜索/账户）；
+    /// 全屏/小窗时该行整体折叠，不再切换为次标题栏，避免与播放层标题区同时写入原生标题栏区域.
     /// </summary>
-    private void ApplyTitleBarChrome(PlayerPresentationMode titleBarMode)
+    private void ApplyTitleBarChrome()
     {
-        var secondary = titleBarMode is PlayerPresentationMode.FullWindow or PlayerPresentationMode.CompactOverlay;
-        _isSecondaryChrome = secondary;
-        if (secondary)
+        if (_primaryIconElement is { } icon)
         {
-            // Store 次标题栏外观：仅返回/标题/分隔线，无导航/搜索/账户内容.
-            MainTitleBar.ClearValue(AppTitleBar.IconElementProperty);
-            HeaderHost.Visibility = Visibility.Collapsed;
-            SearchBox.Visibility = Visibility.Collapsed;
-            FooterHost.Visibility = Visibility.Collapsed;
-            MainTitleBar.IsBackButtonVisible = true;
-            MainTitleBar.IsBackEnabled = true;
-            MainTitleBar.BorderThickness = new Thickness(0, 0, 0, 1);
-            MainTitleBar.Title = _embeddedViewModel?.Title ?? string.Empty;
-            MainTitleBar.Subtitle = string.Empty;
+            MainTitleBar.IconElement = icon;
         }
         else
         {
-            // Store 主标题栏外观：图标/顶部导航/搜索/账户.
-            if (_primaryIconElement is { } icon)
-            {
-                MainTitleBar.IconElement = icon;
-            }
-            else
-            {
-                MainTitleBar.ClearValue(AppTitleBar.IconElementProperty);
-            }
-            HeaderHost.Visibility = ViewModel.IsTopNavBarShown ? Visibility.Visible : Visibility.Collapsed;
-            SearchBox.Visibility = Visibility.Visible;
-            FooterHost.Visibility = Visibility.Visible;
-            MainTitleBar.IsBackButtonVisible = ViewModel.IsOverlayOpen || _embeddedViewModel is not null;
-            MainTitleBar.IsBackEnabled = true;
-            MainTitleBar.BorderThickness = new Thickness(0);
-            MainTitleBar.Title = _isNarrow ? string.Empty : _primaryTitle;
-            MainTitleBar.Subtitle = string.Empty;
+            MainTitleBar.ClearValue(AppTitleBar.IconElementProperty);
         }
+
+        HeaderHost.Visibility = ViewModel.IsTopNavBarShown ? Visibility.Visible : Visibility.Collapsed;
+        SearchBox.Visibility = Visibility.Visible;
+        FooterHost.Visibility = Visibility.Visible;
+        MainTitleBar.IsBackButtonVisible = ViewModel.IsOverlayOpen || _embeddedViewModel is not null;
+        MainTitleBar.IsBackEnabled = true;
+        MainTitleBar.BorderThickness = new Thickness(0);
+        MainTitleBar.Title = _isNarrow ? string.Empty : _primaryTitle;
+        MainTitleBar.Subtitle = string.Empty;
     }
 
     private void OnLayoutGridSizeChanged(object sender, SizeChangedEventArgs e)
@@ -346,10 +300,7 @@ public sealed partial class RootLayout : RootLayoutBase
         }
 
         _isNarrow = narrow;
-        if (!_isSecondaryChrome)
-        {
-            MainTitleBar.Title = _isNarrow ? string.Empty : _primaryTitle;
-        }
+        MainTitleBar.Title = _isNarrow ? string.Empty : _primaryTitle;
     }
 
     /// <summary>Keep the shared unread-dot source for every non-message navigation item.</summary>
@@ -472,7 +423,8 @@ public sealed partial class RootLayout : RootLayoutBase
     {
         if (!_stateLoaded || !IsLoaded) return;
         var owner = _embeddedViewModel;
-        if (owner is not null && TitleBarPresentation is PlayerPresentationMode.FullWindow or PlayerPresentationMode.CompactOverlay)
+        // 主标题栏只在常规呈现下可见；若旧状态仍停在非常规呈现，返回只恢复默认呈现，不关闭播放.
+        if (owner is not null && owner.Presentation != PlayerPresentationMode.Normal)
         {
             var command = owner.BackToDefaultModeCommand;
             if (!command.CanExecute(default)) return;

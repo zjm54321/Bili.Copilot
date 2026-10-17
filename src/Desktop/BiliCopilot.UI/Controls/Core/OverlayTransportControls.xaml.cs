@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Bili Copilot. All rights reserved.
 
+using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Toolkits;
 using BiliCopilot.UI.Controls.Player.StoreIsland;
 using BiliCopilot.UI.ViewModels.Core;
@@ -96,6 +97,9 @@ public sealed partial class OverlayTransportControls : PlayerControlBase
     }
 
     public bool IsInteracting { get; private set; }
+
+    /// <summary>呈现切换时用于连续位移动画的播放/暂停按钮（仅视觉，不改变命令或输入状态）.</summary>
+    internal FrameworkElement PlayPauseTarget => PlayPauseButton;
     public event EventHandler<bool>? InteractionStateChanged;
 
     private static void OnIsActiveChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
@@ -296,11 +300,12 @@ public sealed partial class OverlayTransportControls : PlayerControlBase
     private FluentIcons.Common.Symbol GetPlayPauseSymbol(MpvPlayerState state)
         => state == MpvPlayerState.Playing ? FluentIcons.Common.Symbol.Pause : FluentIcons.Common.Symbol.Play;
 
-    private FluentIcons.Common.Symbol GetCompactOverlaySymbol(bool isCompactOverlay)
-        => isCompactOverlay ? FluentIcons.Common.Symbol.ContractDownLeft : FluentIcons.Common.Symbol.ContractUpRight;
+    // 小窗/全屏按钮状态以 VM 呈现模式为准，不读取播放器内核异步更新的全屏/小窗标记.
+    private FluentIcons.Common.Symbol GetCompactOverlaySymbol(PlayerPresentationMode presentation)
+        => presentation == PlayerPresentationMode.CompactOverlay ? FluentIcons.Common.Symbol.ContractDownLeft : FluentIcons.Common.Symbol.ContractUpRight;
 
-    private FluentIcons.Common.Symbol GetFullScreenSymbol(bool isFullScreen)
-        => isFullScreen ? FluentIcons.Common.Symbol.FullScreenMinimize : FluentIcons.Common.Symbol.FullScreenMaximize;
+    private FluentIcons.Common.Symbol GetFullScreenSymbol(PlayerPresentationMode presentation)
+        => presentation == PlayerPresentationMode.FullScreen ? FluentIcons.Common.Symbol.FullScreenMinimize : FluentIcons.Common.Symbol.FullScreenMaximize;
 
     private bool IsPlayPauseEnabled(MpvPlayerState state)
         => state is MpvPlayerState.Playing or MpvPlayerState.Paused or MpvPlayerState.End;
@@ -317,11 +322,11 @@ public sealed partial class OverlayTransportControls : PlayerControlBase
     private string GetSpeedText(double speed)
         => $"{ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.PlaybackRate)}: {Math.Round(speed, 2)}x";
 
-    private string GetCompactOverlayTip(bool isCompactOverlay)
-        => isCompactOverlay ? ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.ExitCompactOverlay) : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.EnterCompactOverlay);
+    private string GetCompactOverlayTip(PlayerPresentationMode presentation)
+        => presentation == PlayerPresentationMode.CompactOverlay ? ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.ExitCompactOverlay) : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.EnterCompactOverlay);
 
-    private string GetFullScreenTip(bool isFullScreen)
-        => isFullScreen ? ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.ExitFullScreen) : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.EnterFullScreen);
+    private string GetFullScreenTip(PlayerPresentationMode presentation)
+        => presentation == PlayerPresentationMode.FullScreen ? ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.ExitFullScreen) : ResourceToolkit.GetLocalizedString(Models.Constants.StringNames.EnterFullScreen);
 
     private void OnViewModelProgressChanged(object? sender, double e)
     {

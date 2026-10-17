@@ -60,14 +60,15 @@ public sealed partial class SettingsPageViewModel
 
         PlaybackExperienceCollection = [.. Enum.GetValues<PlaybackExperience>()];
         ClassicBackendCollection = [.. Enum.GetValues<ClassicBackendKind>()];
-        ClassicDisplayModeCollection = [.. Enum.GetValues<ClassicDisplayMode>()];
+        ClassicDisplayModeCollection = [.. Enum.GetValues<ClassicDisplayMode>().Where(mode => mode != ClassicDisplayMode.FullWindow)];
         ClassicDecodeCollection = [.. Enum.GetValues<ClassicDecodePreference>()];
 
         // 读取使用与 ClassicSessionOptions.Capture 相同的字符串键，不迁移旧键。
         var settings = this.Get<ISettingsToolkit>();
         PlayerExperience = ClassicSessionOptions.ReadExperience(settings);
         ClassicPlayerBackend = settings.ReadLocalSetting("ClassicPlayerBackend", ClassicBackendKind.Island);
-        ClassicPlayerDisplayMode = settings.ReadLocalSetting("ClassicPlayerDisplayMode", ClassicDisplayMode.Default);
+        var displayMode = settings.ReadLocalSetting("ClassicPlayerDisplayMode", ClassicDisplayMode.Default);
+        ClassicPlayerDisplayMode = displayMode == ClassicDisplayMode.FullWindow ? ClassicDisplayMode.Default : displayMode;
         ClassicPlayerDecodePreference = settings.ReadLocalSetting("ClassicPlayerDecodePreference", ClassicDecodePreference.Auto);
         ClassicExternalPlayerPath = settings.ReadLocalSetting("ClassicExternalPlayerPath", string.Empty) ?? string.Empty;
         ClassicUseWebPlayerWhenLive = settings.ReadLocalSetting("ClassicUseWebPlayerWhenLive", false);

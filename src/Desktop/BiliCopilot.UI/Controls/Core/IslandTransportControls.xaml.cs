@@ -1,6 +1,5 @@
 // Copyright (c) Bili Copilot. All rights reserved.
 
-using BiliCopilot.UI.Hosting;
 using BiliCopilot.UI.Controls.Player.StoreIsland;
 using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -130,6 +129,9 @@ public sealed partial class IslandTransportControls : PlayerControlBase
     /// 获取当前是否正在进行需阻止自动隐藏/快捷键的交互（拖动、延迟调度中或浮出已打开）.
     /// </summary>
     public bool IsInteracting => _isInteracting;
+
+    /// <summary>呈现切换时用于连续位移动画的播放/暂停按钮（仅视觉，不改变命令或输入状态）.</summary>
+    internal FrameworkElement PlayPauseTarget => PlayPauseButton;
 
     /// <summary>
     /// 交互状态发生变化. 参数为新值，与 <see cref="IsInteracting"/> 一致.
@@ -261,17 +263,6 @@ public sealed partial class IslandTransportControls : PlayerControlBase
 
     private static bool IsNotBuffering(MpvPlayerState state, bool isLoading)
         => !IsBuffering(state, isLoading);
-
-    private static bool IsFullWindow(PlayerPresentationMode mode)
-        => mode == PlayerPresentationMode.FullWindow;
-
-    private object GetFullWindowToolTip(PlayerPresentationMode mode)
-        => ((Converters.FullWindowConverter)Resources["FullWindowConverter"])
-            .Convert(IsFullWindow(mode), typeof(object), null!, string.Empty);
-
-    private FluentIcons.Common.Symbol GetFullWindowSymbol(PlayerPresentationMode mode)
-        => (FluentIcons.Common.Symbol)((Converters.FullWindowConverter)Resources["FullWindowConverter"])
-            .Convert(IsFullWindow(mode), typeof(FluentIcons.Common.Symbol), null!, string.Empty);
 
     private void SubscribeViewModel(PlayerViewModel? viewModel)
     {
@@ -561,27 +552,6 @@ public sealed partial class IslandTransportControls : PlayerControlBase
         OneHalfSpeedButton.IsChecked = Math.Abs(speed - 1.5) < 0.01;
         DoubleSpeedButton.IsChecked = Math.Abs(speed - 2) < 0.01;
         TripleSpeedButton.IsChecked = Math.Abs(speed - 3) < 0.01;
-    }
-
-    private async void OnToggleFullWindowClick(object sender, RoutedEventArgs e)
-    {
-        if (IsInputBlocked)
-        {
-            return;
-        }
-
-        try
-        {
-            // 当前 VM 无专用全窗口命令，经唯一呈现入口切换；宿主已支持 FullWindow 布局.
-            var target = ViewModel.Presentation == PlayerPresentationMode.FullWindow
-                ? PlayerPresentationMode.Normal
-                : PlayerPresentationMode.FullWindow;
-            await ViewModel.SetPresentationAsync(target);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Island transport presentation failed: {ex.Message}");
-        }
     }
 
     private void OnTransportFlyoutOpening(object sender, object e)

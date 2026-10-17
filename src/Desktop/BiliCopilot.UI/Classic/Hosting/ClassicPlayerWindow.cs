@@ -86,14 +86,12 @@ public sealed class ClassicPlayerWindow : Window, ITipWindow
     }
     public Task SetDisplayModeAsync(ClassicDisplayMode mode)
     {
+        mode = ClassicDisplayModes.Normalize(mode);
         if (_view is null || _closeTask is not null) throw new InvalidOperationException("Classic host is not available.");
-        if (mode == ClassicDisplayMode.FullWindow && _view.SetFullWindow is null)
-            throw new NotSupportedException("当前 Classic 前端尚未提供全窗口布局。");
         switch (mode)
         {
             case ClassicDisplayMode.Default:
             case ClassicDisplayMode.NewWindow: // This host is already an independently registered new window.
-            case ClassicDisplayMode.FullWindow:
                 AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
                 break;
             case ClassicDisplayMode.FullScreen:
@@ -104,7 +102,7 @@ public sealed class ClassicPlayerWindow : Window, ITipWindow
                 break;
             default: throw new NotSupportedException("未知的 Classic 显示模式。");
         }
-        _fullWindow = mode == ClassicDisplayMode.FullWindow;
+        _fullWindow = false;
         _view.SetFullWindow?.Invoke(_fullWindow);
         DisplayMode = mode;
         return Task.CompletedTask;

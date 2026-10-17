@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Richasy.BiliKernel.Bili.User;
 using System.Collections.ObjectModel;
+using BiliCopilot.UI.ViewModels.View;
 
 namespace BiliCopilot.UI.ViewModels.Components;
 
@@ -17,6 +18,15 @@ public sealed partial class ChatMessageSectionDetailViewModel
     private readonly ILogger<ChatMessageSectionDetailViewModel> _logger;
 
     private bool _preventLoadMore;
+    private readonly AccountViewModel _account;
+    private MessageRequestOwner? _operation;
+    private MessageRequestOwner? _sendOwner;
+    private long _generation;
+    private bool _retired;
+    private bool _needsRefresh;
+    private bool _active;
+    private long _activationEpoch;
+    internal bool IsInitialized { get; private set; }
 
     [ObservableProperty]
     private string _lastMessage;
@@ -43,7 +53,7 @@ public sealed partial class ChatMessageSectionDetailViewModel
     /// 消息列表.
     /// </summary>
     [ObservableProperty]
-    private ObservableCollection<ChatMessageItemViewModel> _messages;
+    private ObservableCollection<ChatMessageItemViewModel> _messages = new();
 
     /// <summary>
     /// 请求滚动到底部.

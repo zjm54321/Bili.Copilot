@@ -3,7 +3,6 @@
 using BiliCopilot.UI.ViewModels.View;
 using BiliCopilot.UI.ViewModels.Core;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using Richasy.WinUIKernel.Share.Base;
 using System.ComponentModel;
 
@@ -16,9 +15,7 @@ public sealed partial class MessagePage : MessagePageBase
 {
     private bool _activeRequest;
     private bool _loaded;
-    private bool _navigated;
     private bool _observing;
-    private bool _initializePending;
     private readonly NavigationViewModel _navigation;
     private readonly MessageVisibilityObserver _visibility;
 
@@ -34,25 +31,8 @@ public sealed partial class MessagePage : MessagePageBase
         Unloaded += OnUnloaded;
     }
 
-    /// <inheritdoc/>
-    protected override void OnNavigatedTo(NavigationEventArgs e)
-    {
-        base.OnNavigatedTo(e);
-        _navigated = true;
-        UpdateActive();
-    }
-
-    /// <inheritdoc/>
-    protected override void OnNavigatedFrom(NavigationEventArgs e)
-    {
-        _navigated = false;
-        UpdateActive();
-        base.OnNavigatedFrom(e);
-    }
-
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (!_loaded) _initializePending = true;
         _loaded = true;
         Bindings.Update();
         UpdateActive();
@@ -70,10 +50,10 @@ public sealed partial class MessagePage : MessagePageBase
         if (ReferenceEquals(sender, _navigation) && e.PropertyName == nameof(NavigationViewModel.IsOverlayOpen)) UpdateActive();
     }
 
-    // Loaded and navigation are independent facts, not competing requests to set true.
+    // MainFrame caches pages in a Grid; it does not call Frame navigation callbacks.
     private void UpdateActive()
     {
-        var observe = _loaded && _navigated;
+        var observe = _loaded;
         if (observe != _observing)
         {
             _observing = observe;
@@ -89,7 +69,7 @@ public sealed partial class MessagePage : MessagePageBase
             }
         }
 
-        var active = MessageVisibilityObserver.ShouldActivate(_loaded, _navigated,
+        var active = MessageVisibilityObserver.ShouldActivate(_loaded, true,
             observe && MessageVisibilityObserver.IsTreeVisible(this), _navigation.IsOverlayOpen);
         if (_activeRequest != active)
         {
@@ -97,11 +77,6 @@ public sealed partial class MessagePage : MessagePageBase
             ViewModel.SetActive(active);
         }
 
-        if (active && _initializePending)
-        {
-            _initializePending = false;
-            ViewModel.InitializeCommand.Execute(default);
-        }
     }
 }
 
