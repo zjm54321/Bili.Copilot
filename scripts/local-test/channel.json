@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "packageName": "BiliCopilot.LocalTest",
+  "publisher": "CN=BiliCopilot Local Release",
+  "expectedPackageFamilyName": "BiliCopilot.LocalTest_p8tmrechhd89c",
+  "applicationId": "App",
+  "instanceKey": "BiliCopilot.LocalTest",
+  "displayLabel": "哔哩助理（测试）",
+  "toastActivatorClsid": "E0BD9275-CB75-5DAE-AD37-B9C8464F9DAF",
+  "toastGuidAlgorithm": "uuid5(NAMESPACE_URL, name)",
+  "toastGuidName": "https://github.com/zjm54321/Bili.Copilot/channels/LocalTest/toast-activator",
+  "defaultVersion": "2.2611.2.0",
+  "architecture": "x64",
+  "executable": "BiliCopilot.UI.exe",
+  "activationArguments": "----AppNotificationActivated:",
+  "windowsAppSdkVersion": "1.8.251106002",
+  "windowsSdkBuildToolsVersion": "10.0.26100.6901"
+}

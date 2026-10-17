@@ -1,0 +1,24 @@
+{
+  "status": "DeferredSyntheticFixtures_NotObservedInstalledState",
+  "uuid": {
+    "namespace": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+    "name": "https://github.com/zjm54321/Bili.Copilot/channels/LocalTest/toast-activator",
+    "expected": "E0BD9275-CB75-5DAE-AD37-B9C8464F9DAF",
+    "mustDifferFrom": ["E3D99E22-57A2-41B9-BB2D-E1547E68DEBA", "64DB9FDB-EF36-44D3-8DA6-04658D814915"]
+  },
+  "instanceKeys": [
+    { "packageName": "BiliCopilot.LocalTest", "expected": "BiliCopilot.LocalTest" },
+    { "packageName": "BiliCopilot.LocalRelease", "expected": "Richasy.BiliCopilot" },
+    { "packageName": "Richasy.BiliCopilot.Dev", "expected": "Richasy.BiliCopilot" },
+    { "packageName": "Unknown.Package", "expected": "Richasy.BiliCopilot" }
+  ],
+  "syntheticUpgrades": [
+    { "installed": null, "target": "2.2611.2.0", "preflight": "Absent", "explicitInstall": "OrdinaryAddOnly" },
+    { "installed": "2.2611.2.0", "target": "2.2611.3.0", "preflight": "Upgrade", "explicitInstall": "OrdinaryAddOnly" },
+    { "installed": "2.2611.2.0", "target": "2.2611.2.0", "preflight": "SameVersionNoWrite", "explicitInstall": "LocalTest/VersionUnchanged" },
+    { "installed": "2.2611.3.0", "target": "2.2611.2.0", "preflight": "LocalTest/Downgrade", "explicitInstall": "Blocked" }
+  ],
+  "invalidVersions": ["2.2611.2", "2.2611.2.0+hash", "02.2611.2.0", "2.65536.2.0", "-2.2611.2.0", "2.2611.1.0"],
+  "refusedInstallerNames": ["BiliCopilot.LocalRelease", "Richasy.BiliCopilot.Dev"],
+  "expectedPfnPendingOsValidation": "BiliCopilot.LocalTest_p8tmrechhd89c"
+}
