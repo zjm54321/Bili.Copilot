@@ -1,12 +1,7 @@
-using System;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using System.Threading;
-using System.Threading.Tasks;
 using BiliCopilot.UI.SponsorBlock.Models;
 using BiliCopilot.UI.SponsorBlock.Rules;
 

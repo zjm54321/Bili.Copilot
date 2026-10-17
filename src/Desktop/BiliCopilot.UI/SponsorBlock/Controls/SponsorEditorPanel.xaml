@@ -1,0 +1,585 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorEditorPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:BiliCopilot.UI.SponsorBlock.ViewModels"
+    MinWidth="280"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <local:SponsorResources />
+            </ResourceDictionary.MergedDictionaries>
+
+            <DataTemplate x:Key="DraftTemplate" x:DataType="vm:SponsorDraftItem">
+                <Grid
+                    Padding="10,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    ColumnSpacing="10"
+                    CornerRadius="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{x:Bind local:SponsorXaml.Brush(CategoryColor), Mode=OneWay}" Style="{StaticResource SponsorRailStyle}" />
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Style="{StaticResource SponsorTitleStyle}" Text="{x:Bind Title, Mode=OneWay}" />
+                            <Border Style="{StaticResource SponsorChipStyle}">
+                                <TextBlock Style="{StaticResource SponsorChipTextStyle}" Text="{x:Bind ActionText, Mode=OneWay}" />
+                            </Border>
+                            <Border Style="{StaticResource SponsorChipStyle}">
+                                <TextBlock Style="{StaticResource SponsorChipTextStyle}" Text="{x:Bind StateText, Mode=OneWay}" />
+                            </Border>
+                            <ic:SymbolIcon
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="该分类已锁定"
+                                FontSize="12"
+                                Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                Symbol="LockClosed"
+                                ToolTipService.ToolTip="该分类在这个视频上已锁定，提交可能被拒绝"
+                                Visibility="{x:Bind local:SponsorXaml.Show(IsLockedCategory), Mode=OneWay}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind RangeText, Mode=OneWay}" />
+                        <TextBlock
+                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="预览已准备"
+                            Visibility="{x:Bind local:SponsorXaml.Show(IsPreviewing), Mode=OneWay}" />
+
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            Visibility="{x:Bind local:SponsorXaml.Hide(IsEditing), Mode=OneWay}">
+                            <Button
+                                Command="{x:Bind BeginEditCommand}"
+                                Content="编辑"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                Visibility="{x:Bind local:SponsorXaml.Show(IsEditable), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind PreviewCommand}"
+                                Content="准备预览"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="暂停自动跳过并标出这段时间（只在本机准备，不会跳转）"
+                                Visibility="{x:Bind local:SponsorXaml.Show(CanPreview), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind PlayPreviewCommand}"
+                                Content="播放预览"
+                                IsEnabled="{x:Bind CanPlayPreview, Mode=OneWay}"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="{x:Bind PlayPreviewHint, Mode=OneWay}"
+                                Visibility="{x:Bind local:SponsorXaml.Show(IsPreviewing), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind DeleteCommand}"
+                                Content="删除"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="删除后可用“撤销”恢复"
+                                Visibility="{x:Bind local:SponsorXaml.Show(CanDelete), Mode=OneWay}" />
+                        </StackPanel>
+
+                        <!--  编辑表单  -->
+                        <StackPanel Spacing="8" Visibility="{x:Bind local:SponsorXaml.Show(IsEditing), Mode=OneWay}">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    HorizontalAlignment="Stretch"
+                                    Header="分类"
+                                    ItemsSource="{x:Bind EditCategoryLabels}"
+                                    SelectedIndex="{x:Bind EditCategoryIndex, Mode=TwoWay}" />
+                                <ComboBox
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Stretch"
+                                    Header="操作"
+                                    ItemsSource="{x:Bind EditActionLabels, Mode=OneWay}"
+                                    SelectedIndex="{x:Bind EditActionIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <NumberBox
+                                    Header="开始（秒）"
+                                    LargeChange="1"
+                                    Minimum="0"
+                                    SmallChange="0.1"
+                                    SpinButtonPlacementMode="Compact"
+                                    Visibility="{x:Bind local:SponsorXaml.Show(IsEditStartVisible), Mode=OneWay}"
+                                    Value="{x:Bind EditStart, Mode=TwoWay}" />
+                                <NumberBox
+                                    Grid.Column="1"
+                                    Header="结束（秒）"
+                                    LargeChange="1"
+                                    Minimum="0"
+                                    SmallChange="0.1"
+                                    SpinButtonPlacementMode="Compact"
+                                    Visibility="{x:Bind local:SponsorXaml.Show(IsEditEndVisible), Mode=OneWay}"
+                                    Value="{x:Bind EditEnd, Mode=TwoWay}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button
+                                    Command="{x:Bind SaveEditCommand}"
+                                    Content="保存修改"
+                                    Style="{StaticResource SponsorCompactAccentButtonStyle}" />
+                                <Button
+                                    Command="{x:Bind CancelEditCommand}"
+                                    Content="取消"
+                                    Style="{StaticResource SponsorCompactButtonStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!--  结果未知/被拒绝：显式重新允许提交（不会自动重发）  -->
+                        <StackPanel Spacing="4" Visibility="{x:Bind local:SponsorXaml.Show(CanRetry), Mode=OneWay}">
+                            <CheckBox
+                                Content="我了解这可能造成重复提交"
+                                IsChecked="{x:Bind IsRiskAcknowledged, Mode=TwoWay}"
+                                Visibility="{x:Bind local:SponsorXaml.Show(NeedsRiskAcknowledgement), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind RetryCommand}"
+                                Content="重新允许提交"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="HistoryTemplate" x:DataType="vm:SponsorHistoryItem">
+                <StackPanel Padding="0,4">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind OperationText}" />
+                    <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind StatusText}" />
+                    <TextBlock
+                        Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind PersistedText}"
+                        Visibility="{x:Bind local:SponsorXaml.Show(HasPersistWarning)}" />
+                </StackPanel>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer
+        Padding="12,4,12,12"
+        HorizontalScrollMode="Disabled"
+        VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind ViewModel.StatusText, Mode=OneWay, FallbackValue='播放视频后可以标注片段'}" />
+
+            <InfoBar
+                IsClosable="True"
+                IsOpen="{x:Bind ViewModel.HasFeedback, Mode=OneWay, FallbackValue=False}"
+                Message="{x:Bind ViewModel.FeedbackText, Mode=OneWay}"
+                Severity="Informational">
+                <InfoBar.ActionButton>
+                    <HyperlinkButton Command="{x:Bind ViewModel.DismissFeedbackCommand, Mode=OneWay}" Content="知道了" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.HasDraftSaveError, Mode=OneWay, FallbackValue=False}"
+                Message="{x:Bind ViewModel.DraftSaveText, Mode=OneWay}"
+                Severity="Warning">
+                <InfoBar.ActionButton>
+                    <Button Command="{x:Bind ViewModel.SaveDraftsCommand, Mode=OneWay}" Content="重试保存" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <!--  写操作确认  -->
+            <Border
+                BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                Style="{StaticResource SponsorCardStyle}"
+                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsWriteConfirmVisible), Mode=OneWay, FallbackValue=Collapsed}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.WriteConfirmTitle, Mode=OneWay}" />
+                    <TextBlock Text="{x:Bind ViewModel.WriteConfirmText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            Command="{x:Bind ViewModel.ConfirmWriteCommand, Mode=OneWay}"
+                            Content="{x:Bind ViewModel.WriteConfirmButtonText, Mode=OneWay}"
+                            Style="{StaticResource SponsorCompactAccentButtonStyle}" />
+                        <Button
+                            Command="{x:Bind ViewModel.CancelWriteCommand, Mode=OneWay}"
+                            Content="取消"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!--  播放器中的预览：保留的结束令牌在关闭/断开/草稿变化后仍可显式结束；不自动重试  -->
+            <Border
+                BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                Style="{StaticResource SponsorCardStyle}"
+                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasPreviewPlayback), Mode=OneWay, FallbackValue=Collapsed}">
+                <StackPanel Spacing="8">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ic:SymbolIcon
+                            VerticalAlignment="Center"
+                            FontSize="16"
+                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                            Symbol="Play"
+                            Visibility="{x:Bind local:SponsorXaml.Hide(ViewModel.IsPreviewPlaybackUncertain), Mode=OneWay}" />
+                        <ic:SymbolIcon
+                            VerticalAlignment="Center"
+                            FontSize="16"
+                            Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                            Symbol="Warning"
+                            Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsPreviewPlaybackUncertain), Mode=OneWay, FallbackValue=Collapsed}" />
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource BodyStrongTextBlockStyle}"
+                            Text="{x:Bind ViewModel.PreviewPlaybackTitle, Mode=OneWay}"
+                            TextWrapping="WrapWholeWords" />
+                        <ProgressRing
+                            Grid.Column="2"
+                            Width="16"
+                            Height="16"
+                            IsActive="{x:Bind ViewModel.IsPreviewCleanupBusy, Mode=OneWay, FallbackValue=False}" />
+                    </Grid>
+                    <TextBlock
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind ViewModel.PreviewPlaybackDetail, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button
+                            Command="{x:Bind ViewModel.EndPreviewPlaybackCommand, Mode=OneWay}"
+                            Content="结束预览并返回"
+                            IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanEndPreviewPlayback, ViewModel.IsPreviewCleanupBusy), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                            ToolTipService.ToolTip="回到预览前的位置（播放器仍可返回时）" />
+                        <Button
+                            Command="{x:Bind ViewModel.KeepCurrentPreviewCommand, Mode=OneWay}"
+                            Content="停在这里"
+                            IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanKeepCurrentPreview, ViewModel.IsPreviewCleanupBusy), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactButtonStyle}"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.KeepCurrentPreviewHint, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!--  播放器处理状态与上次回应（回应不等于画面已到位）  -->
+            <StackPanel Spacing="2">
+                <TextBlock
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.EditorActivityText, Mode=OneWay}"
+                    TextWrapping="WrapWholeWords"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasEditorActivity), Mode=OneWay, FallbackValue=Collapsed}" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.LastEditorReplyText, Mode=OneWay}"
+                    TextWrapping="WrapWholeWords"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasLastEditorReply), Mode=OneWay, FallbackValue=Collapsed}" />
+            </StackPanel>
+
+            <!--  标记  -->
+            <Border Style="{StaticResource SponsorCardStyle}" IsHitTestVisible="{x:Bind ViewModel.IsActive, Mode=OneWay, FallbackValue=False}" Opacity="{x:Bind local:SponsorXaml.DimUnless(ViewModel.IsActive), Mode=OneWay, FallbackValue=0.62}">
+                <StackPanel Spacing="10">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="标记片段" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            HorizontalAlignment="Stretch"
+                            Header="分类"
+                            IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsCapturing), Mode=OneWay, FallbackValue=False}"
+                            ItemsSource="{x:Bind ViewModel.CaptureCategoryLabels, Mode=OneWay}"
+                            SelectedIndex="{x:Bind ViewModel.CaptureCategoryIndex, Mode=TwoWay}" />
+                        <ComboBox
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Header="操作"
+                            IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsCapturing), Mode=OneWay, FallbackValue=False}"
+                            ItemsSource="{x:Bind ViewModel.CaptureActionLabels, Mode=OneWay}"
+                            SelectedIndex="{x:Bind ViewModel.CaptureActionIndex, Mode=TwoWay}" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button
+                            Command="{x:Bind ViewModel.StartCaptureCommand, Mode=OneWay}"
+                            Content="标记开始"
+                            IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsCapturing), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                            ToolTipService.ToolTip="以播放器当前的实际位置作为开始" />
+                        <Button
+                            Command="{x:Bind ViewModel.FinishCaptureCommand, Mode=OneWay}"
+                            Content="标记结束"
+                            IsEnabled="{x:Bind ViewModel.IsCapturing, Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                            ToolTipService.ToolTip="以播放器当前的实际位置作为结束" />
+                        <Button
+                            Command="{x:Bind ViewModel.CancelCaptureCommand, Mode=OneWay}"
+                            Content="取消标记"
+                            IsEnabled="{x:Bind ViewModel.IsCapturing, Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind ViewModel.CaptureHint, Mode=OneWay}" />
+
+                    <Border
+                        Height="1"
+                        Margin="0,2"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button
+                            Command="{x:Bind ViewModel.MarkPointCommand, Mode=OneWay}"
+                            Content="标记精彩时刻"
+                            Style="{StaticResource SponsorCompactButtonStyle}"
+                            ToolTipService.ToolTip="在当前实际位置添加一个精彩时刻" />
+                        <Button
+                            Command="{x:Bind ViewModel.UndoCommand, Mode=OneWay}"
+                            Content="撤销上一步"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="整片标签分类"
+                            ItemsSource="{x:Bind ViewModel.FullCategoryLabels, Mode=OneWay}"
+                            SelectedIndex="{x:Bind ViewModel.FullCategoryIndex, Mode=TwoWay}" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind ViewModel.MarkFullCommand, Mode=OneWay}"
+                            Content="添加整片标签"
+                            Style="{StaticResource SponsorCompactButtonStyle}"
+                            ToolTipService.ToolTip="整片标签只是标记，不会跳过整个视频" />
+                    </Grid>
+
+                    <!--  逐帧：只在播放器实际报告可用时启用；不模拟按键、不按帧率估算  -->
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button
+                                AutomationProperties.Name="上一帧"
+                                Command="{x:Bind ViewModel.FrameBackwardCommand, Mode=OneWay}"
+                                Content="上一帧"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanFrameStep, ViewModel.IsBusy), Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                            <Button
+                                AutomationProperties.Name="下一帧"
+                                Command="{x:Bind ViewModel.FrameForwardCommand, Mode=OneWay}"
+                                Content="下一帧"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanFrameStep, ViewModel.IsBusy), Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </StackPanel>
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.FrameUnavailableText, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!--  预览  -->
+            <Border Style="{StaticResource SponsorSubtleCardStyle}" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasPreview), Mode=OneWay, FallbackValue=Collapsed}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button
+                            Command="{x:Bind ViewModel.PlayPreparedPreviewCommand, Mode=OneWay}"
+                            Content="播放预览"
+                            IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanPlayPreparedPreview, ViewModel.IsBusy), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                            ToolTipService.ToolTip="在播放器中播放这段区间；结束时可选择返回或停在原处" />
+                        <Button
+                            Command="{x:Bind ViewModel.EndPreviewCommand, Mode=OneWay}"
+                            Content="结束标注"
+                            Style="{StaticResource SponsorCompactButtonStyle}"
+                            ToolTipService.ToolTip="清除预览，恢复自动跳过；草稿不会被删除" />
+                    </StackPanel>
+                    <TextBlock
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind ViewModel.PreviewPlaybackUnavailableText, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.PreviewPlaybackUnavailableText), Mode=OneWay, FallbackValue=Collapsed}" />
+                </StackPanel>
+            </Border>
+
+            <!--  草稿  -->
+            <StackPanel Spacing="6">
+                <TextBlock Style="{StaticResource SponsorSectionHeaderStyle}" Text="草稿" />
+                <TextBlock
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="还没有草稿"
+                    Visibility="{x:Bind local:SponsorXaml.Hide(ViewModel.HasDrafts), Mode=OneWay, FallbackValue=Visible}" />
+                <ItemsRepeater ItemTemplate="{StaticResource DraftTemplate}" ItemsSource="{x:Bind ViewModel.Drafts, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="6" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+                <TextBlock
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.OtherDraftsText, Mode=OneWay}"
+                    Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.OtherDraftsText), Mode=OneWay, FallbackValue=Collapsed}" />
+            </StackPanel>
+
+            <!--  提交  -->
+            <Border Style="{StaticResource SponsorCardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="提交到空降助手" />
+                    <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind ViewModel.IdentityText, Mode=OneWay}" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Command="{x:Bind ViewModel.ReadLockedCommand, Mode=OneWay}"
+                            Content="查看锁定分类"
+                            IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsLockedBusy), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.LockedText, Mode=OneWay}" />
+                    </Grid>
+                    <Button
+                        HorizontalAlignment="Stretch"
+                        Command="{x:Bind ViewModel.RequestSubmitCommand, Mode=OneWay}"
+                        Content="{x:Bind ViewModel.SubmitText, Mode=OneWay, FallbackValue='提交'}"
+                        IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanSubmit, ViewModel.IsBusy), Mode=OneWay, FallbackValue=False}"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <TextBlock
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind ViewModel.SubmitHint, Mode=OneWay}"
+                        Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.SubmitHint), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <TextBlock
+                        Text="{x:Bind ViewModel.LastSubmitText, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasLastSubmit), Mode=OneWay, FallbackValue=Collapsed}" />
+                </StackPanel>
+            </Border>
+
+            <Expander
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                Header="最近的提交和投票">
+                <StackPanel>
+                    <TextBlock
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="本次运行还没有远程操作"
+                        Visibility="{x:Bind local:SponsorXaml.Hide(ViewModel.HasHistory), Mode=OneWay, FallbackValue=Visible}" />
+                    <ItemsRepeater ItemTemplate="{StaticResource HistoryTemplate}" ItemsSource="{x:Bind ViewModel.History, Mode=OneWay}" />
+                </StackPanel>
+            </Expander>
+
+            <Expander
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                Header="更多贡献选项">
+                <StackPanel Spacing="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="公开用户名" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox
+                                AutomationProperties.Name="公开用户名"
+                                IsEnabled="{x:Bind ViewModel.CanSetUsername, Mode=OneWay, FallbackValue=False}"
+                                MaxLength="64"
+                                PlaceholderText="输入用户名"
+                                Text="{x:Bind ViewModel.UsernameInput, Mode=TwoWay}" />
+                            <Button
+                                Grid.Column="1"
+                                Command="{x:Bind ViewModel.RequestSetUsernameCommand, Mode=OneWay}"
+                                Content="设置"
+                                IsEnabled="{x:Bind ViewModel.CanSetUsername, Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind ViewModel.UsernameNote, Mode=OneWay}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="YouTube 搬运关联" />
+                        <TextBlock Text="{x:Bind ViewModel.PortStatusText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.PortDetailText, Mode=OneWay}"
+                            Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.PortDetailText), Mode=OneWay, FallbackValue=Collapsed}" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.PortSegmentsText, Mode=OneWay}"
+                            Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.PortSegmentsText), Mode=OneWay, FallbackValue=Collapsed}" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.MappingText, Mode=OneWay}"
+                            Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.MappingText), Mode=OneWay, FallbackValue=Collapsed}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button
+                                Command="{x:Bind ViewModel.ReadPortCommand, Mode=OneWay}"
+                                Content="查询关联"
+                                IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsPortBusy), Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsPortBusy, Mode=OneWay, FallbackValue=False}" />
+                        </StackPanel>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox
+                                AutomationProperties.Name="YouTube 视频 ID"
+                                IsEnabled="{x:Bind ViewModel.CanMutatePort, Mode=OneWay, FallbackValue=False}"
+                                MaxLength="11"
+                                PlaceholderText="11 位 YouTube 视频 ID"
+                                Text="{x:Bind ViewModel.YoutubeIdInput, Mode=TwoWay}" />
+                            <Button
+                                Grid.Column="1"
+                                Command="{x:Bind ViewModel.RequestBindPortCommand, Mode=OneWay}"
+                                Content="关联"
+                                IsEnabled="{x:Bind ViewModel.CanMutatePort, Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </Grid>
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasPort), Mode=OneWay, FallbackValue=Collapsed}">
+                            <Button
+                                Command="{x:Bind ViewModel.RequestVotePortUpCommand, Mode=OneWay}"
+                                Content="关联正确"
+                                IsEnabled="{x:Bind ViewModel.CanMutatePort, Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ViewModel.RequestVotePortDownCommand, Mode=OneWay}"
+                                Content="关联有误"
+                                IsEnabled="{x:Bind ViewModel.CanMutatePort, Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ViewModel.RequestUpdatePortCommand, Mode=OneWay}"
+                                Content="更新搬运片段"
+                                IsEnabled="{x:Bind ViewModel.CanMutatePort, Mode=OneWay, FallbackValue=False}"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind ViewModel.PortNote, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

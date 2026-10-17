@@ -273,11 +273,9 @@ public sealed partial class VideoDanmakuPanel : DanmakuControlBase
                 return;
             }
 
-            if (ViewModel.GetCachedDanmakus().Count > 0)
-            {
-                _danmakuMaster?.SetDanmakuList(BilibiliDanmakuParser.GetDanmakuList(ViewModel.GetCachedDanmakus(), true));
-                _danmakuRenderer?.SetDanmakuList(BilibiliDanmakuParser.GetDanmakuList(ViewModel.GetCachedDanmakus(), true));
-            }
+            var danmakus = ViewModel.GetCachedDanmakus();
+            _danmakuMaster?.SetDanmakuList(BilibiliDanmakuParser.GetDanmakuList(danmakus, true));
+            _danmakuRenderer?.SetDanmakuList(BilibiliDanmakuParser.GetDanmakuList(danmakus, true));
 
             UpdateDanmakuTime(_lastProgress);
             ResetDanmakuStyle();

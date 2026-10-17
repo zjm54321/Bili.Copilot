@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorContentNotice"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    HorizontalAlignment="{x:Bind local:SponsorContentNotice.RootHorizontal(IsCoverLayout, State.IsBodyHidden), Mode=OneWay, FallbackValue=Stretch}"
+    VerticalAlignment="{x:Bind local:SponsorContentNotice.RootVertical(IsCoverLayout, State.IsBodyHidden), Mode=OneWay, FallbackValue=Top}"
+    IsTabStop="False"
+    Visibility="{x:Bind local:SponsorXaml.Show(State.HasNotice), Mode=OneWay, FallbackValue=Collapsed}"
+    mc:Ignorable="d">
+
+    <!--
+        动态卡片 / 评论上的推广标记。每张卡片一个实例，所以不合并 SponsorResources，只用系统主题资源。
+        三种外观互斥：
+        · 行内条（默认）：标签 + 折叠说明 + “显示内容 / 显示回复”。
+        · 封面角标（IsCoverLayout，未折叠）：贴在视频封面左上角的小标签。
+        · 封面占位（IsCoverLayout，已折叠）：占满封面区域，居中给出“显示内容”，不留空白洞。
+        所有按钮都是普通 Button，点击不会穿透到卡片本身的点按行为。
+    -->
+    <Grid>
+        <!--  行内条  -->
+        <Border
+            Padding="10,6,6,6"
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="6"
+            Visibility="{x:Bind local:SponsorXaml.Hide(IsCoverLayout), Mode=OneWay}">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ic:SymbolIcon
+                    VerticalAlignment="Center"
+                    FontSize="14"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Symbol="Tag" />
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Spacing="1">
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        MaxLines="1"
+                        Text="{x:Bind local:SponsorContentNotice.InlineTitle(State.HasLabel, State.LabelText, State.IsBodyHidden, State.AreRepliesHidden), Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis"
+                        ToolTipService.ToolTip="{x:Bind State.DetailText, Mode=OneWay}" />
+                </StackPanel>
+                <StackPanel
+                    Grid.Column="2"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        MinHeight="28"
+                        Padding="10,2,10,4"
+                        AutomationProperties.Name="{x:Bind State.BodyToggleText, Mode=OneWay}"
+                        Command="{x:Bind State.ToggleBodyCommand, Mode=OneWay}"
+                        Content="{x:Bind State.BodyToggleText, Mode=OneWay}"
+                        FontSize="12"
+                        Visibility="{x:Bind local:SponsorXaml.Show(State.HasBodyToggle), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <Button
+                        MinHeight="28"
+                        Padding="10,2,10,4"
+                        AutomationProperties.Name="显示回复"
+                        Command="{x:Bind State.RevealRepliesCommand, Mode=OneWay}"
+                        Content="显示回复"
+                        FontSize="12"
+                        Visibility="{x:Bind local:SponsorXaml.Show(State.AreRepliesHidden), Mode=OneWay, FallbackValue=Collapsed}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!--  封面角标（未折叠，只标记）  -->
+        <Border
+            Margin="6"
+            Padding="6,2,6,3"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            CornerRadius="4"
+            ToolTipService.ToolTip="{x:Bind State.DetailText, Mode=OneWay}"
+            Visibility="{x:Bind local:SponsorXaml.ShowBoth(IsCoverLayout, State.IsBodyVisible), Mode=OneWay, FallbackValue=Collapsed}">
+            <Border.Background>
+                <SolidColorBrush Opacity="0.6" Color="Black" />
+            </Border.Background>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <ic:SymbolIcon
+                    VerticalAlignment="Center"
+                    FontSize="11"
+                    Foreground="White"
+                    Symbol="Tag" />
+                <TextBlock
+                    FontSize="11"
+                    Foreground="White"
+                    Text="{x:Bind State.LabelText, Mode=OneWay}" />
+            </StackPanel>
+        </Border>
+
+        <!--  封面占位（已折叠）  -->
+        <Border
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource ControlCornerRadius}"
+            Visibility="{x:Bind local:SponsorXaml.ShowBoth(IsCoverLayout, State.IsBodyHidden), Mode=OneWay, FallbackValue=Collapsed}">
+            <StackPanel
+                Margin="12"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="8">
+                <ic:SymbolIcon
+                    HorizontalAlignment="Center"
+                    FontSize="20"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Symbol="Tag" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind local:SponsorContentNotice.FoldedTitle(State.LabelText), Mode=OneWay}"
+                    TextAlignment="Center"
+                    TextWrapping="WrapWholeWords"
+                    ToolTipService.ToolTip="{x:Bind State.DetailText, Mode=OneWay}" />
+                <Button
+                    HorizontalAlignment="Center"
+                    AutomationProperties.Name="显示内容"
+                    Command="{x:Bind State.ToggleBodyCommand, Mode=OneWay}"
+                    Content="显示内容"
+                    FontSize="12"
+                    Visibility="{x:Bind local:SponsorXaml.Show(State.HasBodyToggle), Mode=OneWay, FallbackValue=Collapsed}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -8,6 +8,7 @@
     xmlns:local="using:BiliCopilot.UI.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:settings="using:BiliCopilot.UI.Controls.Settings"
+    xmlns:sponsor="using:BiliCopilot.UI.SponsorBlock.Controls"
     mc:Ignorable="d">
 
     <Grid>
@@ -39,13 +40,24 @@
                 <TextBlock
                     Margin="0,8,0,4"
                     HorizontalAlignment="Left"
-                    Text="{ext:Locale Name=Player}" />
+                    Text="播放器设置" />
                 <settings:PlayerControlSettingControl />
                 <settings:PlayerBehaviorSettingControl />
                 <settings:MpvExtraSettingControl />
                 <settings:ScreenshotSettingControl />
+                <!--
+                    空降助手设置分组：只在宿主通过 BindSponsorSettings 提供已绑定的视图模型后显示，
+                    未接入时整体折叠，不留空白占位，也不在此创建第二个协调器.
+                -->
                 <TextBlock
-                    Margin="0,8,0,4"
+                    x:Name="SponsorGroupHeader"
+                    Margin="0,16,0,8"
+                    HorizontalAlignment="Left"
+                    Text="空降助手"
+                    Visibility="Collapsed" />
+                <sponsor:SponsorSettingsSection x:Name="SponsorSettings" Visibility="Collapsed" />
+                <TextBlock
+                    Margin="0,16,0,8"
                     HorizontalAlignment="Left"
                     Text="{ext:Locale Name=Generic}" />
                 <settings:ThemeSettingControl />

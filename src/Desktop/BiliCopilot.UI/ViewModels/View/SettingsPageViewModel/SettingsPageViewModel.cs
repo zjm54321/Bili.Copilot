@@ -81,7 +81,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         var cacheDir = SettingsToolkit.ReadLocalSetting(SettingNames.CacheDir, string.Empty);
         HasCustomCacheDir = !string.IsNullOrEmpty(cacheDir);
         CacheDirDescription = string.IsNullOrEmpty(cacheDir) ? "--demuxer-cache-dir" : cacheDir;
-        TempPlaybackRate = SettingsToolkit.ReadLocalSetting(SettingNames.TempPlaybackRate, 3.0);
+        TempPlaybackRate = PlayerViewModel.ReadTemporaryAccelerationFactor();
         try
         {
             PreferDecode = SettingsToolkit.ReadLocalSetting(SettingNames.PreferDecode, PreferDecodeType.Auto);
@@ -471,7 +471,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         => SettingsToolkit.WriteLocalSetting(SettingNames.CacheOnDisk, value);
 
     partial void OnTempPlaybackRateChanged(double value)
-        => SettingsToolkit.WriteLocalSetting(SettingNames.TempPlaybackRate, value);
+        => PlayerViewModel.WriteTemporaryAccelerationFactor(value);
 
     partial void OnD3D11AdapterNameChanged(string value)
         => SettingsToolkit.WriteLocalSetting(SettingNames.D3D11AdapterName, value);

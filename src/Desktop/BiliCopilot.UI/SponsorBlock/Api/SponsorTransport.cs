@@ -1,11 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
 using BiliCopilot.UI.SponsorBlock.Models;
 
 namespace BiliCopilot.UI.SponsorBlock.Api;
@@ -29,6 +21,9 @@ internal sealed class SponsorTransport : IDisposable
     private readonly Dictionary<string, CacheEntry> cache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<WireResponse>> inflight = new(StringComparer.Ordinal);
     private bool disposed;
+    private int physicalUsers;
+    private bool cleanupStarted;
+    private System.Runtime.ExceptionServices.ExceptionDispatchInfo? shutdownFailure;
 
     internal SponsorTransport(HttpMessageHandler handler, TimeProvider clock, TimeSpan timeout)
     {
@@ -51,8 +46,18 @@ internal sealed class SponsorTransport : IDisposable
             if (!inflight.TryGetValue(key, out task!))
             {
                 if (inflight.Count >= 32) return new(ReadStatus.Busy);
-                // Task.Run prevents synchronous handler completion racing insertion under the owner lock.
-                task = Task.Run(() => LoadAsync(key, path, labels, schema));
+                // Reserve before scheduling: a cancelled waiter does not end the physical read.
+                ++physicalUsers;
+                try
+                {
+                    // Task.Run prevents synchronous handler completion racing insertion under the owner lock.
+                    task = Task.Run(() => LoadAsync(key, path, labels, schema));
+                }
+                catch
+                {
+                    --physicalUsers; // Scheduling failed while admission is still locked open.
+                    throw;
+                }
                 inflight.Add(key, task);
             }
         }
@@ -66,7 +71,7 @@ internal sealed class SponsorTransport : IDisposable
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(SponsorClient.Service, path));
-            result = await ExchangeAsync(request, lifetime.Token).ConfigureAwait(false);
+            result = await ExchangeCoreAsync(request, lifetime.Token).ConfigureAwait(false);
             if (result.Status == ReadStatus.Success && (result.Bytes is null || !schema(result.Bytes)))
                 result = new(ReadStatus.SchemaFailure, HttpStatus: result.HttpStatus);
             lock (gate)
@@ -87,7 +92,11 @@ internal sealed class SponsorTransport : IDisposable
             }
             return result;
         }
-        finally { lock (gate) inflight.Remove(key); }
+        finally
+        {
+            try { lock (gate) inflight.Remove(key); }
+            finally { ReleasePhysicalUser(); }
+        }
     }
 
     private void Prune()
@@ -99,8 +108,27 @@ internal sealed class SponsorTransport : IDisposable
     internal async Task<WireResponse> ExchangeAsync(HttpRequestMessage request, CancellationToken cancellationToken,
         Action? onDispatch = null, bool readBody = true)
     {
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
-        bounded.CancelAfter(timeout);
+        lock (gate)
+        {
+            if (disposed) return new(ReadStatus.Cancelled);
+            ++physicalUsers; // Direct exchanges/writes are not represented by inflight.
+        }
+        try { return await ExchangeCoreAsync(request, cancellationToken, onDispatch, readBody).ConfigureAwait(false); }
+        finally { ReleasePhysicalUser(); }
+    }
+
+    // The caller already owns a physical user, including before the first lifetime/semaphore access.
+    private async Task<WireResponse> ExchangeCoreAsync(HttpRequestMessage request, CancellationToken cancellationToken,
+        Action? onDispatch = null, bool readBody = true)
+    {
+        using var bounded = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource();
+        // Explicit forwarding registrations let us join cancellation execution, not just unlink it.
+        // The deadline forwards too, so its timer cannot leave bounded callbacks running after drain.
+        await using var callerRegistration = cancellationToken.Register(() => CancelRequest(bounded));
+        await using var lifetimeRegistration = lifetime.Token.Register(() => CancelRequest(bounded));
+        await using var deadlineRegistration = deadline.Token.Register(() => CancelRequest(bounded));
+        deadline.CancelAfter(timeout);
         var admitted = false;
         int? observedStatus = null;
         try
@@ -124,7 +152,7 @@ internal sealed class SponsorTransport : IDisposable
                 var length = await stream.ReadAsync(buffer, bounded.Token).ConfigureAwait(false);
                 if (length == 0) break;
                 if (bytes.Length + length > ResponseByteLimit) return new(ReadStatus.SchemaFailure, HttpStatus: code);
-                bytes.Write(buffer, 0, length);
+                await bytes.WriteAsync(buffer, 0, length).ConfigureAwait(false);
             }
             return new(ReadStatus.Success, bytes.ToArray(), code);
         }
@@ -142,14 +170,60 @@ internal sealed class SponsorTransport : IDisposable
 
     public void Dispose()
     {
+        bool cancel;
         lock (gate)
         {
-            if (disposed) return;
-            disposed = true;
-            cache.Clear();
-            lifetime.Cancel();
+            cancel = !disposed;
+            if (cancel)
+            {
+                disposed = true;
+                cache.Clear();
+                ++physicalUsers; // Cancellation execution is an owner, even with no requests left.
+            }
         }
-        http.Dispose();
-        // The CTS/semaphore remain owned by bounded draining requests; don't race their finally blocks.
+        if (cancel)
+        {
+            // Keep the existing synchronous contract, but never execute callbacks under gate.
+            try { lifetime.Cancel(); }
+            catch (Exception error) { RecordShutdownFailure(error); }
+            finally { ReleasePhysicalUser(); }
+        }
+        // Later disposal calls observe the same retained terminal failure; they never retry cleanup.
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure;
+        lock (gate) failure = shutdownFailure;
+        failure?.Throw();
+    }
+
+    private void CancelRequest(CancellationTokenSource requestCancellation)
+    {
+        // An admitted registration may execute after admission closes. Reserve also for the
+        // DisposeAsync self-unregistration case, where callback execution has not returned yet.
+        lock (gate) ++physicalUsers;
+        try { requestCancellation.Cancel(); }
+        catch (Exception error) { RecordShutdownFailure(error); }
+        finally { ReleasePhysicalUser(); }
+    }
+
+    private void ReleasePhysicalUser()
+    {
+        lock (gate)
+        {
+            if (--physicalUsers != 0 || !disposed || cleanupStarted) return;
+            cleanupStarted = true;
+        }
+        // Exactly one terminal attempt, after all registration drains and semaphore releases.
+        // Never replace a request/ack outcome with a cleanup exception or spawn a cleanup Task.
+        try { http.Dispose(); }
+        catch (Exception error) { RecordShutdownFailure(error); }
+        try { lifetime.Dispose(); }
+        catch (Exception error) { RecordShutdownFailure(error); }
+        try { requestBudget.Dispose(); }
+        catch (Exception error) { RecordShutdownFailure(error); }
+    }
+
+    private void RecordShutdownFailure(Exception error)
+    {
+        // Retain the first failure, without logging handler data or growing an exception history.
+        lock (gate) shutdownFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
     }
 }

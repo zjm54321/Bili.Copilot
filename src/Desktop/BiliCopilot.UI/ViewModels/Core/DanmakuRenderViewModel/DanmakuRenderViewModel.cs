@@ -17,13 +17,17 @@ public sealed partial class DanmakuRenderViewModel : ViewModelBase
 
     public void Initialize(IList<DanmakuInformation> danmakus)
     {
+        var wasProjected = HasSponsorCategoryProjection;
         _cachedDanmakus = danmakus;
+        CaptureSponsorDanmakuData();
+        RefreshSponsorCategories(redraw: false);
         ResetData();
-        Redraw();
+        if (wasProjected || HasSponsorCategoryProjection) RedrawSponsorCategories();
+        else Redraw();
     }
 
     public IList<DanmakuInformation> GetCachedDanmakus()
-        => _cachedDanmakus is null ? [] : _cachedDanmakus;
+        => GetSponsorCategoryDanmakus();
 
     /// <summary>
     /// 重置数据.
@@ -82,6 +86,7 @@ public sealed partial class DanmakuRenderViewModel : ViewModelBase
     public void ClearDanmaku()
     {
         _cachedDanmakus = default;
+        ClearSponsorDanmakuData();
         RequestClearDanmaku?.Invoke(this, EventArgs.Empty);
     }
 
@@ -92,7 +97,9 @@ public sealed partial class DanmakuRenderViewModel : ViewModelBase
         => RequestResetStyle?.Invoke(this, EventArgs.Empty);
 
     public void AddDanmaku(string text)
-        => RequestAddSingleDanmaku?.Invoke(this, text);
+    {
+        if (!IsSponsorCategoryHidden(_position)) RequestAddSingleDanmaku?.Invoke(this, text);
+    }
 
     private void ResetOptions()
     {

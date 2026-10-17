@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorNoticeStrip"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    MaxWidth="400"
+    HorizontalAlignment="Left"
+    VerticalAlignment="Bottom"
+    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasOverlayContent), Mode=OneWay, FallbackValue=Collapsed}"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <local:SponsorResources />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!--
+        播放器浮层上的紧凑提示条。宿主放在已接受的浮层/弹出层所有权内（不是普通外层 XAML，避免原生视频覆盖）。
+        只显示一条最重要的提示、最近一次实际效果和第一条待确认的恢复项；完整列表在面板中。
+    -->
+    <Border Style="{StaticResource SponsorOverlayStyle}">
+        <StackPanel Spacing="8">
+            <!--  当前提示  -->
+            <Grid ColumnSpacing="10" Visibility="{x:Bind local:SponsorXaml.ShowObject(ViewModel.PrimaryNotice), Mode=OneWay, FallbackValue=Collapsed}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Background="{x:Bind local:SponsorXaml.Brush(ViewModel.PrimaryNotice.CategoryColor), Mode=OneWay}" Style="{StaticResource SponsorRailStyle}" />
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Spacing="0">
+                    <TextBlock Style="{StaticResource SponsorTitleStyle}" Text="{x:Bind ViewModel.PrimaryNotice.Title, Mode=OneWay}" />
+                    <TextBlock
+                        MaxLines="2"
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind ViewModel.PrimaryNotice.Detail, Mode=OneWay}" />
+                </StackPanel>
+                <StackPanel
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <Button
+                        AutomationProperties.Name="{x:Bind ViewModel.PrimaryNotice.PrimaryText, Mode=OneWay}"
+                        Command="{x:Bind ViewModel.PrimaryNotice.PrimaryCommand, Mode=OneWay}"
+                        Content="{x:Bind ViewModel.PrimaryNotice.PrimaryText, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.PrimaryNotice.IsPrimaryEnabled, Mode=OneWay}"
+                        Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                        ToolTipService.ToolTip="{x:Bind ViewModel.PrimaryNotice.PrimaryToolTip, Mode=OneWay}"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.PrimaryNotice.HasPrimary), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <!--  “立即跳过”= Skip now：独立的直接跳转意图，不是加速失败后的静默回退  -->
+                    <Button
+                        AutomationProperties.Name="立即跳过（Skip now）"
+                        Command="{x:Bind ViewModel.PrimaryNotice.SkipNowCommand, Mode=OneWay}"
+                        Content="立即跳过"
+                        IsEnabled="{x:Bind ViewModel.PrimaryNotice.IsSkipNowEnabled, Mode=OneWay}"
+                        Style="{StaticResource SponsorCompactButtonStyle}"
+                        ToolTipService.ToolTip="Skip now：不加速，直接跳到片段结尾"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.PrimaryNotice.HasSkipNow), Mode=OneWay, FallbackValue=Collapsed}" />
+                </StackPanel>
+            </Grid>
+
+            <!--  最近一次实际效果（来自回执，不是请求）  -->
+            <Grid ColumnSpacing="10" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasApplied), Mode=OneWay, FallbackValue=Collapsed}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ic:SymbolIcon
+                    VerticalAlignment="Center"
+                    FontSize="16"
+                    Foreground="{x:Bind local:SponsorXaml.Brush(ViewModel.AppliedColor), Mode=OneWay}"
+                    Symbol="CheckmarkCircle" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    MaxLines="2"
+                    Text="{x:Bind ViewModel.AppliedText, Mode=OneWay}"
+                    TextWrapping="WrapWholeWords" />
+                <StackPanel
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        Command="{x:Bind ViewModel.UndoCommand, Mode=OneWay}"
+                        Content="撤销"
+                        Style="{StaticResource SponsorCompactButtonStyle}"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanUndo), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <Button
+                        Command="{x:Bind ViewModel.ReleaseMuteCommand, Mode=OneWay}"
+                        Content="取消静音"
+                        Style="{StaticResource SponsorCompactButtonStyle}"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanReleaseMute), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <Button
+                        AutomationProperties.Name="关闭提示"
+                        Command="{x:Bind ViewModel.DismissAppliedCommand, Mode=OneWay}"
+                        Style="{StaticResource SponsorIconButtonStyle}"
+                        ToolTipService.ToolTip="关闭">
+                        <ic:SymbolIcon FontSize="12" Symbol="Dismiss" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!--  第一条需要确认的恢复项：只在用户点击后执行  -->
+            <Grid ColumnSpacing="10" Visibility="{x:Bind local:SponsorXaml.ShowObject(ViewModel.PrimaryRecovery), Mode=OneWay, FallbackValue=Collapsed}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ic:SymbolIcon
+                    VerticalAlignment="Center"
+                    FontSize="16"
+                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                    Symbol="Info" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Text="{x:Bind ViewModel.PrimaryRecovery.Title, Mode=OneWay}"
+                    TextWrapping="WrapWholeWords"
+                    ToolTipService.ToolTip="{x:Bind ViewModel.PrimaryRecovery.Detail, Mode=OneWay}" />
+                <Button
+                    Grid.Column="2"
+                    Command="{x:Bind ViewModel.PrimaryRecovery.Command, Mode=OneWay}"
+                    Content="{x:Bind ViewModel.PrimaryRecovery.ActionText, Mode=OneWay}"
+                    Style="{StaticResource SponsorCompactButtonStyle}" />
+            </Grid>
+
+            <!--  操作反馈（已接纳 ≠ 已执行）  -->
+            <Grid ColumnSpacing="6" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasFeedback), Mode=OneWay, FallbackValue=Collapsed}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.FeedbackText, Mode=OneWay}" />
+                <HyperlinkButton
+                    Grid.Column="1"
+                    Padding="6,2"
+                    Command="{x:Bind ViewModel.DismissFeedbackCommand, Mode=OneWay}"
+                    Content="知道了"
+                    FontSize="12" />
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

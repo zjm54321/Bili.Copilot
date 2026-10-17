@@ -1,8 +1,6 @@
-using System;
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 
 namespace BiliCopilot.UI.SponsorBlock.Models;
 

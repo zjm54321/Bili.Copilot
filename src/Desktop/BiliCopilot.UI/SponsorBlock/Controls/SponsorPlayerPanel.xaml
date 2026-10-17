@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorPlayerPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    MinWidth="300"
+    MaxWidth="440"
+    mc:Ignorable="d">
+
+    <!--
+        播放侧栏 / 全屏弹出层的完整空降助手面板。宿主负责放置（侧栏分区或已接受的弹出层所有权），
+        本控件不创建窗口、不假设原生视频的层级。
+    -->
+    <Grid RowSpacing="4">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <SelectorBar
+            x:Name="Selector"
+            Margin="4,0"
+            SelectionChanged="OnSelectionChanged">
+            <SelectorBarItem
+                x:Name="SegmentsItem"
+                IsSelected="True"
+                Text="片段" />
+            <SelectorBarItem x:Name="EditorItem" Text="标注" />
+        </SelectorBar>
+        <local:SponsorSegmentPanel
+            x:Name="SegmentPanel"
+            Grid.Row="1"
+            ViewModel="{x:Bind PlaybackViewModel, Mode=OneWay}" />
+        <local:SponsorEditorPanel
+            x:Name="EditorPanel"
+            Grid.Row="1"
+            ViewModel="{x:Bind EditorViewModel, Mode=OneWay}"
+            Visibility="Collapsed" />
+    </Grid>
+</UserControl>

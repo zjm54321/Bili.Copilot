@@ -1,0 +1,1064 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorSettingsSection"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:base="using:Richasy.WinUIKernel.Share.Base"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:BiliCopilot.UI.SponsorBlock.ViewModels"
+    mc:Ignorable="d">
+
+    <!--
+        设置页中的“空降助手”分组。宿主（设置页）只需放置本控件并在界面线程上 Bind 视图模型。
+        层次：总开关 → 联网与隐私 → 分类处理 → 跳过方式 → 更多选项（折叠） → UP 主白名单 → 按内容过滤
+        → 动态和评论中的推广 → 统计与操作记录 → 贡献者身份 → 备份。
+        所有开关默认关闭；联网、观看上报、弹幕空降与内容/弹幕过滤彼此独立。
+        本机持久数据（白名单、过滤偏好、统计、操作记录）都来自门面快照；每次写入在点按时读取当前修订号，
+        过期只提示并提供重试按钮，不自动重放；操作记录只读，没有重发入口。
+    -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <local:SponsorResources />
+            </ResourceDictionary.MergedDictionaries>
+
+            <DataTemplate x:Key="CategoryTemplate" x:DataType="vm:SponsorCategoryPolicyItem">
+                <Grid
+                    Padding="16,10,16,10"
+                    AutomationProperties.Name="{x:Bind Title}"
+                    ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border
+                        Width="4"
+                        Margin="0,2"
+                        VerticalAlignment="Stretch"
+                        Background="{x:Bind local:SponsorXaml.Brush(CategoryColor)}"
+                        CornerRadius="{StaticResource SponsorRailCornerRadius}" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Title}" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind Description}"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            Opacity="0.8"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ActionsText}" />
+                    </StackPanel>
+                    <ComboBox
+                        Grid.Column="2"
+                        MinWidth="132"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="{x:Bind Title}"
+                        ItemsSource="{x:Bind PolicyLabels}"
+                        SelectedIndex="{x:Bind SelectedIndex, Mode=TwoWay}"
+                        ToolTipService.ToolTip="{x:Bind DefaultText}" />
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="WhitelistTemplate" x:DataType="vm:SponsorWhitelistItem">
+                <Grid
+                    Padding="16,6,16,6"
+                    AutomationProperties.Name="{x:Bind AutomationName}"
+                    ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        IsTextSelectionEnabled="True"
+                        Text="{x:Bind Uid}" />
+                    <Grid Grid.Column="1">
+                        <Button
+                            AutomationProperties.Name="{x:Bind AutomationName}"
+                            Command="{x:Bind RequestRemoveCommand}"
+                            Content="移除"
+                            Style="{StaticResource SponsorCompactButtonStyle}"
+                            Visibility="{x:Bind local:SponsorXaml.Hide(IsConfirmVisible), Mode=OneWay}" />
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Visibility="{x:Bind local:SponsorXaml.Show(IsConfirmVisible), Mode=OneWay}">
+                            <Button
+                                Command="{x:Bind CancelRemoveCommand}"
+                                Content="取消"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ConfirmRemoveCommand}"
+                                Content="确认移除"
+                                Style="{StaticResource SponsorCompactAccentButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="FilterCategoryTemplate" x:DataType="vm:SponsorFilterCategoryItem">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border
+                        Width="4"
+                        Height="16"
+                        VerticalAlignment="Center"
+                        Background="{x:Bind local:SponsorXaml.Brush(CategoryColor)}"
+                        CornerRadius="{StaticResource SponsorRailCornerRadius}" />
+                    <CheckBox
+                        Grid.Column="1"
+                        MinWidth="0"
+                        AutomationProperties.Name="{x:Bind Title}"
+                        Content="{x:Bind Title}"
+                        IsChecked="{x:Bind IsChecked, Mode=TwoWay}" />
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="JournalTemplate" x:DataType="vm:SponsorJournalItem">
+                <Grid Padding="16,6,16,6" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ic:SymbolIcon
+                        Margin="0,2,0,0"
+                        VerticalAlignment="Top"
+                        FontSize="14"
+                        Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                        Symbol="Info"
+                        Visibility="{x:Bind local:SponsorXaml.Show(NeedsAttention)}" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Title}" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind Detail}"
+                            TextWrapping="Wrap"
+                            Visibility="{x:Bind local:SponsorXaml.ShowText(Detail)}" />
+                        <TextBlock
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind StateText}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <StackPanel Spacing="4">
+        <!--  保存状态与错误：显式按钮，不自动重试  -->
+        <InfoBar
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasLoadWarning, Mode=OneWay}"
+            Message="{x:Bind ViewModel.LoadWarningText, Mode=OneWay}"
+            Severity="Warning" />
+        <InfoBar
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.HasSaveError, Mode=OneWay}"
+            Message="{x:Bind ViewModel.SaveStatusText, Mode=OneWay}"
+            Severity="Error">
+            <!--  InfoBar.ActionButton only accepts a single ButtonBase; the paired buttons sit in Content instead.  -->
+            <InfoBar.Content>
+                <StackPanel
+                    Margin="0,0,0,12"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button Command="{x:Bind ViewModel.RetrySaveCommand}" Content="重新保存" />
+                    <Button Command="{x:Bind ViewModel.DiscardChangesCommand}" Content="放弃修改" />
+                </StackPanel>
+            </InfoBar.Content>
+        </InfoBar>
+
+        <!--  1. 总开关  -->
+        <base:SettingsCard Description="在视频中提示、跳过或标注广告、片头片尾等片段。关闭后不读取也不处理任何片段。" Header="空降助手">
+            <base:SettingsCard.HeaderIcon>
+                <ic:SymbolIcon Symbol="SkipForwardTab" />
+            </base:SettingsCard.HeaderIcon>
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="12">
+                <ProgressRing
+                    Width="16"
+                    Height="16"
+                    IsActive="{x:Bind ViewModel.IsSaving, Mode=OneWay}"
+                    ToolTipService.ToolTip="正在保存" />
+                <ToggleSwitch
+                    MinWidth="0"
+                    AutomationProperties.Name="启用空降助手"
+                    IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                    IsOn="{x:Bind ViewModel.IsPlaybackEnabled, Mode=TwoWay}"
+                    OffContent="关"
+                    OnContent="开" />
+            </StackPanel>
+        </base:SettingsCard>
+
+        <!--  未就绪（未绑定/已关闭）时整体禁用，避免改动无法保存  -->
+        <ContentControl
+            HorizontalContentAlignment="Stretch"
+            IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+            IsTabStop="False">
+        <StackPanel
+            Opacity="{x:Bind local:SponsorXaml.DimUnless(ViewModel.IsPlaybackEnabled), Mode=OneWay}"
+            Spacing="4">
+
+            <!--  2. 联网与隐私（两个独立许可，默认关闭）  -->
+            <base:SettingsExpander Description="片段数据来自公共的空降助手服务。联网读取与观看上报分别授权，可随时关闭。" Header="联网与隐私">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="LockClosed" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Description="允许向空降助手服务读取当前视频的片段。不开启时只使用本机草稿，不发出任何网络请求。" Header="允许联网读取片段">
+                        <ToggleSwitch
+                            AutomationProperties.Name="允许联网读取片段"
+                            IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.IsNetworkEnabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="跳过片段后，可在播放页手动告知服务“这个片段被看到了”，帮助改进数据。只在你点按时发送。" Header="允许上报观看">
+                        <ToggleSwitch
+                            AutomationProperties.Name="允许上报观看"
+                            IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.IsViewedReportingEnabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  3. 分类处理（11 个分类，来自唯一分类表）  -->
+            <base:SettingsExpander Description="为每类片段选择：不处理、只提示、手动跳过或自动跳过。" Header="片段分类">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Tag" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <ItemsRepeater ItemTemplate="{StaticResource CategoryTemplate}" ItemsSource="{x:Bind ViewModel.Categories}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="2" />
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  4. 跳过方式  -->
+            <base:SettingsExpander Description="跳转到片段结尾，或在片段内加速播放。" Header="跳过方式">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Options" />
+                </base:SettingsExpander.HeaderIcon>
+                <ComboBox
+                    MinWidth="132"
+                    AutomationProperties.Name="跳过方式"
+                    IsEnabled="{x:Bind ViewModel.IsReady, Mode=OneWay}"
+                    ItemsSource="{x:Bind ViewModel.StrategyLabels}"
+                    SelectedIndex="{x:Bind ViewModel.StrategyIndex, Mode=TwoWay}" />
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard
+                        Description="加速时使用的倍速（1.1–16）。"
+                        Header="加速倍率"
+                        IsEnabled="{x:Bind ViewModel.IsSpeedUp, Mode=OneWay}">
+                        <NumberBox
+                            MinWidth="120"
+                            AutomationProperties.Name="加速倍率"
+                            LargeChange="1"
+                            Maximum="16"
+                            Minimum="1.1"
+                            SmallChange="0.1"
+                            SpinButtonPlacementMode="Compact"
+                            Value="{x:Bind ViewModel.SpeedRate, Mode=TwoWay}" />
+                    </base:SettingsCard>
+                    <base:SettingsCard
+                        Description="片段太短或临近结尾、加速来不及时的处理。"
+                        Header="加速不适用时"
+                        IsEnabled="{x:Bind ViewModel.IsSpeedUp, Mode=OneWay}">
+                        <ComboBox
+                            MinWidth="132"
+                            AutomationProperties.Name="加速不适用时"
+                            ItemsSource="{x:Bind ViewModel.FallbackLabels}"
+                            SelectedIndex="{x:Bind ViewModel.FallbackIndex, Mode=TwoWay}" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="只提示，不自动跳过或加速任何片段。" Header="暂停自动处理">
+                        <ToggleSwitch
+                            AutomationProperties.Name="暂停自动处理"
+                            IsOn="{x:Bind ViewModel.IsSkippingDisabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  5. 更多选项（默认折叠）  -->
+            <base:SettingsExpander Description="片段来源、时长下限、静音片段和整片标签等。" Header="更多选项">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Settings" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Description="短于该时长的片段不提示也不跳过。0 表示不限制。" Header="最短片段（秒）">
+                        <NumberBox
+                            MinWidth="120"
+                            AutomationProperties.Name="最短片段秒数"
+                            Maximum="3600"
+                            Minimum="0"
+                            SmallChange="1"
+                            SpinButtonPlacementMode="Compact"
+                            Value="{x:Bind ViewModel.MinDuration, Mode=TwoWay}" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="片段开始前多久显示提示。留空使用默认值。" Header="提前提示（秒）">
+                        <NumberBox
+                            MinWidth="120"
+                            AutomationProperties.Name="提前提示秒数"
+                            Maximum="60"
+                            Minimum="0.5"
+                            PlaceholderText="默认"
+                            SmallChange="1"
+                            SpinButtonPlacementMode="Compact"
+                            Value="{x:Bind ViewModel.NoticeLeadSeconds, Mode=TwoWay}" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="处理“静音”类型的片段（片段内自动静音）。" Header="静音片段">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeMute, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="视频整体被标注为某类内容时，在播放页显示标签。" Header="整片标签">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeFull, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="整片带有标签的视频，其中的片段只提示、需手动跳过。" Header="整片标签视频改为手动">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.ManualSkipOnFullVideo, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="关闭时，音乐视频中的“非音乐部分”片段不自动跳过。" Header="音乐视频也自动跳过">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.AutoSkipOnMusicVideos, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="拖动进度条落在片段内时也执行跳过。" Header="拖动进入片段时跳过">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.SkipOnSeekToSegment, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="确认 UP 主信息后再自动处理，避免误判。" Header="等待 UP 主信息确认">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.WaitForChannelVerification, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="同时读取 YouTube 搬运视频对应的片段。" Header="使用搬运来源片段">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeExternalSegments, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="把弹幕中的“空降”时间点作为参考片段。" Header="使用弹幕空降片段">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeDanmakuSegments, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="允许弹幕空降片段参与自动处理（否则只提示）。" Header="弹幕空降自动处理">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.EnableAutomaticDanmaku, Mode=TwoWay}" OffContent="关" OnContent="开" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.LocalExclusionText, Mode=OneWay}" Header="本机隐藏的片段">
+                        <Grid>
+                            <Button
+                                Command="{x:Bind ViewModel.RequestClearExclusionsCommand}"
+                                Content="全部恢复"
+                                IsEnabled="{x:Bind ViewModel.HasLocalExclusions, Mode=OneWay}"
+                                Visibility="{x:Bind local:SponsorXaml.Hide(ViewModel.IsClearExclusionsConfirmVisible), Mode=OneWay}" />
+                            <StackPanel
+                                Orientation="Horizontal"
+                                Spacing="8"
+                                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsClearExclusionsConfirmVisible), Mode=OneWay}">
+                                <Button Command="{x:Bind ViewModel.CancelClearExclusionsCommand}" Content="取消" />
+                                <Button
+                                    Command="{x:Bind ViewModel.ConfirmClearExclusionsCommand}"
+                                    Content="确认恢复"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                            </StackPanel>
+                        </Grid>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  6. UP 主白名单（只保存规范数字 UID；列表本身不证明任何视频属于该 UP 主）  -->
+            <base:SettingsExpander Description="{x:Bind ViewModel.WhitelistCountText, Mode=OneWay}" Header="UP 主白名单">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="CheckmarkCircle" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{x:Bind ViewModel.WhitelistNote, Mode=OneWay}"
+                        Severity="Informational" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasWhitelistError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.WhitelistStatusText, Mode=OneWay}"
+                        Severity="Warning">
+                        <!--  InfoBar.ActionButton only accepts a single ButtonBase; the paired buttons sit in Content instead.  -->
+                        <InfoBar.Content>
+                            <StackPanel
+                                Margin="0,0,0,12"
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <Button Command="{x:Bind ViewModel.RetryWhitelistCommand}" Content="重试" />
+                                <Button Command="{x:Bind ViewModel.DismissWhitelistErrorCommand}" Content="不再重试" />
+                            </StackPanel>
+                        </InfoBar.Content>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.WhitelistInputHint, Mode=OneWay}" Header="添加 UP 主">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsWhitelistBusy, Mode=OneWay}" />
+                            <TextBox
+                                Width="200"
+                                AutomationProperties.Name="UP 主 UID"
+                                InputScope="Number"
+                                IsEnabled="{x:Bind ViewModel.IsDurableReady, Mode=OneWay}"
+                                MaxLength="20"
+                                PlaceholderText="UP 主 UID"
+                                Text="{x:Bind ViewModel.WhitelistInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button
+                                Command="{x:Bind ViewModel.AddWhitelistCommand}"
+                                Content="添加"
+                                IsEnabled="{x:Bind ViewModel.CanAddWhitelist, Mode=OneWay}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <TextBlock
+                        Margin="16,4,16,4"
+                        Style="{StaticResource SponsorCaptionStyle}"
+                        Text="{x:Bind ViewModel.WhitelistFeedbackText, Mode=OneWay}"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.WhitelistFeedbackText), Mode=OneWay}" />
+                    </base:SettingsCard>
+                    <!--  长列表：限定高度，内部滚动  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <StackPanel Spacing="4" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasWhitelist), Mode=OneWay}">
+                        <TextBlock
+                            Margin="16,8,16,0"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.WhitelistLimitText}" />
+                        <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto">
+                            <ItemsRepeater ItemTemplate="{StaticResource WhitelistTemplate}" ItemsSource="{x:Bind ViewModel.Whitelist}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="0" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </ScrollViewer>
+                    </StackPanel>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  7. 按内容过滤（两项独立、默认关闭；适配器未接入时只保存偏好，不产生效果）  -->
+            <base:SettingsExpander Description="{x:Bind ViewModel.FilterSummaryText, Mode=OneWay}" Header="按内容过滤">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Filter" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{x:Bind ViewModel.FilterNote, Mode=OneWay}"
+                        Severity="Informational" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasFilterError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.FilterStatusText, Mode=OneWay}"
+                        Severity="Warning">
+                        <!--  InfoBar.ActionButton only accepts a single ButtonBase; the paired buttons sit in Content instead.  -->
+                        <InfoBar.Content>
+                            <StackPanel
+                                Margin="0,0,0,12"
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <Button Command="{x:Bind ViewModel.SaveFiltersCommand}" Content="重新保存" />
+                                <Button Command="{x:Bind ViewModel.DiscardFiltersCommand}" Content="放弃修改" />
+                            </StackPanel>
+                        </InfoBar.Content>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="按所选分类过滤视频列表。与联网读取片段分开设置，默认关闭。" Header="过滤视频列表">
+                        <ToggleSwitch
+                            AutomationProperties.Name="过滤视频列表"
+                            IsEnabled="{x:Bind ViewModel.IsDurableReady, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.IsContentFilterEnabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+                    <!--  ItemsRepeater 不是 Control：用 ContentControl 承载启用状态  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <ContentControl
+                        Margin="16,4,16,12"
+                        HorizontalContentAlignment="Stretch"
+                        IsEnabled="{x:Bind local:SponsorXaml.Both(ViewModel.IsDurableReady, ViewModel.IsContentFilterEnabled), Mode=OneWay}"
+                        IsTabStop="False"
+                        Opacity="{x:Bind local:SponsorXaml.DimUnless(ViewModel.IsContentFilterEnabled), Mode=OneWay}">
+                        <ItemsRepeater ItemTemplate="{StaticResource FilterCategoryTemplate}" ItemsSource="{x:Bind ViewModel.ContentFilterCategories}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout
+                                    ItemsStretch="Fill"
+                                    MinColumnSpacing="12"
+                                    MinItemWidth="150"
+                                    MinRowSpacing="0" />
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ContentControl>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="按所选分类过滤弹幕。与“使用弹幕空降片段”和“弹幕空降自动处理”无关，默认关闭。" Header="过滤弹幕">
+                        <ToggleSwitch
+                            AutomationProperties.Name="过滤弹幕"
+                            IsEnabled="{x:Bind ViewModel.IsDurableReady, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.IsDanmakuFilterEnabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+                    <!--  ItemsRepeater 不是 Control：用 ContentControl 承载启用状态  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <ContentControl
+                        Margin="16,4,16,12"
+                        HorizontalContentAlignment="Stretch"
+                        IsEnabled="{x:Bind local:SponsorXaml.Both(ViewModel.IsDurableReady, ViewModel.IsDanmakuFilterEnabled), Mode=OneWay}"
+                        IsTabStop="False"
+                        Opacity="{x:Bind local:SponsorXaml.DimUnless(ViewModel.IsDanmakuFilterEnabled), Mode=OneWay}">
+                        <ItemsRepeater ItemTemplate="{StaticResource FilterCategoryTemplate}" ItemsSource="{x:Bind ViewModel.DanmakuFilterCategories}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout
+                                    ItemsStretch="Fill"
+                                    MinColumnSpacing="12"
+                                    MinItemWidth="150"
+                                    MinRowSpacing="0" />
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ContentControl>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.FilterFeedbackText, Mode=OneWay}" Header="保存过滤偏好">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsFilterBusy, Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.DiscardFiltersCommand}"
+                                Content="放弃修改"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.IsFilterDirty, ViewModel.IsFilterBusy), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.SaveFiltersCommand}"
+                                Content="保存"
+                                IsEnabled="{x:Bind ViewModel.CanSaveFilters, Mode=OneWay}"
+                                Style="{StaticResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--
+                7b. 动态和评论中的推广（整组草稿，点“保存”才写入；默认关闭）。
+                只做标记或折叠，从不删除条目、不改变列表加载；“没有标记”不代表确认不是推广。
+                关键词表达式在后台有界检查；弹幕时间辅助在播放器能提供所需信息前只读显示并原样保留。
+            -->
+            <base:SettingsExpander Description="{x:Bind ViewModel.ContentSummaryText, Mode=OneWay}" Header="动态和评论中的推广">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Tag" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasContentError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.ContentErrorText, Mode=OneWay}"
+                        Severity="Warning">
+                        <InfoBar.ActionButton>
+                            <Button Command="{x:Bind ViewModel.DiscardContentCommand}" Content="放弃修改" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="在动态卡片和评论上标出带货或疑似推广的内容，可选择折叠。只在本机判断，不会为此联网。" Header="识别推广内容">
+                        <ToggleSwitch
+                            AutomationProperties.Name="识别推广内容"
+                            IsEnabled="{x:Bind ViewModel.IsContentReady, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.ContentFeatureEnabled, Mode=TwoWay}"
+                            OffContent="关"
+                            OnContent="开" />
+                    </base:SettingsCard>
+
+                    <!--  其余选项在总开关关闭时变暗但仍可预先设置  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <ContentControl
+                        HorizontalContentAlignment="Stretch"
+                        IsEnabled="{x:Bind ViewModel.IsContentReady, Mode=OneWay}"
+                        IsTabStop="False"
+                        Opacity="{x:Bind local:SponsorXaml.DimUnless(ViewModel.ContentFeatureEnabled), Mode=OneWay}">
+                        <StackPanel Spacing="2">
+                            <base:SettingsCard Header="动态">
+                                <ToggleSwitch
+                                    AutomationProperties.Name="处理动态"
+                                    IsOn="{x:Bind ViewModel.ContentDynamicEnabled, Mode=TwoWay}"
+                                    OffContent="关"
+                                    OnContent="开" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="浏览某位 UP 主的个人空间时也处理其动态" Header="在 UP 主空间中也生效">
+                                <ToggleSwitch
+                                    AutomationProperties.Name="在 UP 主空间中也生效"
+                                    IsEnabled="{x:Bind ViewModel.ContentDynamicEnabled, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.ContentAuthorSpaceEnabled, Mode=TwoWay}"
+                                    OffContent="关"
+                                    OnContent="开" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Header="评论">
+                                <ToggleSwitch
+                                    AutomationProperties.Name="处理评论"
+                                    IsOn="{x:Bind ViewModel.ContentCommentEnabled, Mode=TwoWay}"
+                                    OffContent="关"
+                                    OnContent="开" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="被折叠的评论，其回复入口也一并收起；随时可以点开" Header="同时收起回复">
+                                <ToggleSwitch
+                                    AutomationProperties.Name="同时收起回复"
+                                    IsEnabled="{x:Bind ViewModel.ContentCommentEnabled, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.ContentBlockReplies, Mode=TwoWay}"
+                                    OffContent="关"
+                                    OnContent="开" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="默认不处理白名单中 UP 主的内容" Header="白名单 UP 主也处理">
+                                <ToggleSwitch
+                                    AutomationProperties.Name="白名单 UP 主也处理"
+                                    IsOn="{x:Bind ViewModel.ContentIgnoreWhitelist, Mode=TwoWay}"
+                                    OffContent="关"
+                                    OnContent="开" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="动态或评论中带有商品卡片、商品链接" Header="带货">
+                                <ComboBox
+                                    MinWidth="120"
+                                    AutomationProperties.Name="带货的处理方式"
+                                    ItemsSource="{x:Bind ViewModel.ContentActionLabels}"
+                                    SelectedIndex="{x:Bind ViewModel.GoodsActionIndex, Mode=TwoWay}" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="转发的原动态带有商品" Header="转发的带货">
+                                <ComboBox
+                                    MinWidth="120"
+                                    AutomationProperties.Name="转发带货的处理方式"
+                                    ItemsSource="{x:Bind ViewModel.ContentActionLabels}"
+                                    SelectedIndex="{x:Bind ViewModel.ForwardedGoodsActionIndex, Mode=TwoWay}" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="文字命中下方关键词表达式（只是疑似，可能误判）" Header="疑似推广文字">
+                                <ComboBox
+                                    MinWidth="120"
+                                    AutomationProperties.Name="疑似推广文字的处理方式"
+                                    ItemsSource="{x:Bind ViewModel.ContentActionLabels}"
+                                    SelectedIndex="{x:Bind ViewModel.SuspicionActionIndex, Mode=TwoWay}" />
+                            </base:SettingsCard>
+                            <base:SettingsCard Description="命中多少个关键词才折叠；少于这个数只标记" Header="折叠所需关键词数">
+                                <NumberBox
+                                    MinWidth="120"
+                                    AutomationProperties.Name="折叠所需关键词数"
+                                    Minimum="0"
+                                    SmallChange="1"
+                                    SpinButtonPlacementMode="Compact"
+                                    Value="{x:Bind ViewModel.SuspicionThreshold, Mode=TwoWay}" />
+                            </base:SettingsCard>
+
+                            <!--  高级：关键词表达式与匹配限制（默认折叠）  -->
+                            <Expander
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Header="关键词表达式（高级）">
+                                <StackPanel Spacing="10">
+                                    <TextBlock
+                                        Style="{StaticResource SponsorCaptionStyle}"
+                                        Text="使用 /表达式/标记 的写法，标记仅限 g、i、m、s。保存前会自动检查。"
+                                        TextWrapping="WrapWholeWords" />
+                                    <TextBox
+                                        MaxHeight="160"
+                                        AcceptsReturn="True"
+                                        AutomationProperties.Name="关键词表达式"
+                                        FontFamily="Consolas"
+                                        IsSpellCheckEnabled="False"
+                                        MaxLength="4096"
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                        Text="{x:Bind ViewModel.DynamicRegex, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        TextWrapping="Wrap" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox
+                                            AutomationProperties.Name="示例文本"
+                                            MaxLength="2000"
+                                            PlaceholderText="输入一段示例文字来试一试（可选）"
+                                            Text="{x:Bind ViewModel.RegexSample, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button
+                                            Grid.Column="1"
+                                            Command="{x:Bind ViewModel.CheckContentRegexCommand}"
+                                            Content="检查" />
+                                        <Button
+                                            Grid.Column="2"
+                                            Command="{x:Bind ViewModel.UseDefaultRegexCommand}"
+                                            Content="恢复默认表达式" />
+                                    </Grid>
+                                    <TextBlock
+                                        Style="{StaticResource SponsorCaptionStyle}"
+                                        Text="{x:Bind ViewModel.RegexCheckText, Mode=OneWay}"
+                                        TextWrapping="WrapWholeWords"
+                                        Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.RegexCheckText), Mode=OneWay}" />
+                                    <Grid ColumnSpacing="12" RowSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <NumberBox
+                                            Header="表达式最长字符数"
+                                            Maximum="4096"
+                                            Minimum="1"
+                                            SpinButtonPlacementMode="Compact"
+                                            Value="{x:Bind ViewModel.RegexPatternLength, Mode=TwoWay}" />
+                                        <NumberBox
+                                            Grid.Column="1"
+                                            Header="检查文字最长字符数"
+                                            Maximum="32768"
+                                            Minimum="1"
+                                            SpinButtonPlacementMode="Compact"
+                                            Value="{x:Bind ViewModel.RegexInputLength, Mode=TwoWay}" />
+                                        <NumberBox
+                                            Grid.Row="1"
+                                            Header="最多匹配次数"
+                                            Maximum="256"
+                                            Minimum="1"
+                                            SpinButtonPlacementMode="Compact"
+                                            Value="{x:Bind ViewModel.RegexMatches, Mode=TwoWay}" />
+                                        <NumberBox
+                                            Grid.Row="1"
+                                            Grid.Column="1"
+                                            Header="匹配时限（毫秒）"
+                                            Maximum="100"
+                                            Minimum="1"
+                                            SpinButtonPlacementMode="Compact"
+                                            Value="{x:Bind ViewModel.RegexTimeout, Mode=TwoWay}" />
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ContentControl>
+                    </base:SettingsCard>
+
+                    <!--  弹幕时间辅助：播放器未提供弹幕出现时间与点击信息前只读  -->
+                    <base:SettingsCard Description="{x:Bind ViewModel.DanmakuAidNote, Mode=OneWay}" Header="弹幕时间辅助">
+                        <base:SettingsCard.HeaderIcon>
+                            <ic:SymbolIcon Symbol="Info" />
+                        </base:SettingsCard.HeaderIcon>
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <ContentControl
+                        Margin="16,0,16,8"
+                        HorizontalContentAlignment="Stretch"
+                        AutomationProperties.Name="已保存的弹幕时间辅助选项（只读）"
+                        IsEnabled="False"
+                        IsTabStop="False"
+                        Opacity="0.62">
+                        <StackPanel Spacing="0">
+                            <CheckBox Content="点按弹幕中的时间跳转" IsChecked="{x:Bind ViewModel.DanmakuAidTimestamp, Mode=OneWay}" />
+                            <CheckBox Content="根据弹幕提示跳过" IsChecked="{x:Bind ViewModel.DanmakuAidSkip, Mode=OneWay}" />
+                            <CheckBox Content="自动处理弹幕提示" IsChecked="{x:Bind ViewModel.DanmakuAidAuto, Mode=OneWay}" />
+                            <CheckBox Content="弹幕菜单中提供“提交片段”" IsChecked="{x:Bind ViewModel.DanmakuAidSubmissionMenu, Mode=OneWay}" />
+                            <CheckBox Content="对照附近已有片段" IsChecked="{x:Bind ViewModel.DanmakuAidCheckNearby, Mode=OneWay}" />
+                            <CheckBox Content="只提示，不跳过" IsChecked="{x:Bind ViewModel.DanmakuAidDisableSkipping, Mode=OneWay}" />
+                        </StackPanel>
+                    </ContentControl>
+                    </base:SettingsCard>
+
+                    <!--  恢复默认需确认  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.IsContentResetConfirmVisible, Mode=OneWay}"
+                        Message="这一组选项（包括关键词表达式和弹幕时间辅助）都会恢复默认，并立即保存。"
+                        Severity="Warning"
+                        Title="恢复默认？">
+                        <!--  InfoBar.ActionButton only accepts a single ButtonBase; the paired buttons sit in Content instead.  -->
+                        <InfoBar.Content>
+                            <StackPanel
+                                Margin="0,0,0,12"
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <Button Command="{x:Bind ViewModel.ConfirmResetContentCommand}" Content="恢复默认" />
+                                <Button Command="{x:Bind ViewModel.CancelResetContentCommand}" Content="取消" />
+                            </StackPanel>
+                        </InfoBar.Content>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.ContentFeedbackText, Mode=OneWay}" Header="保存推广内容设置">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsContentBusy, Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.RequestResetContentCommand}"
+                                Content="恢复默认…"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.IsContentReady, ViewModel.IsContentBusy), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.DiscardContentCommand}"
+                                Content="放弃修改"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.IsContentDirty, ViewModel.IsContentBusy), Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.SaveContentCommand}"
+                                Content="保存"
+                                IsEnabled="{x:Bind ViewModel.CanSaveContent, Mode=OneWay}"
+                                Style="{StaticResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  8. 统计与操作记录（已保存 / 较新但未保存 / 结果不确定 分开显示；只读，无重发入口）  -->
+            <base:SettingsExpander Description="{x:Bind ViewModel.JournalSummaryText, Mode=OneWay}" Header="统计与操作记录">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="History" />
+                </base:SettingsExpander.HeaderIcon>
+                <base:SettingsExpander.Items>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasJournalWarning, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.JournalWarningText, Mode=OneWay}"
+                        Severity="Warning" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.StatsNoteText, Mode=OneWay}" Header="本机统计">
+                        <StackPanel HorizontalAlignment="Right" Spacing="2">
+                            <TextBlock
+                                HorizontalAlignment="Right"
+                                Text="{x:Bind ViewModel.SeekStatsText, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource SponsorCaptionStyle}"
+                                Text="{x:Bind ViewModel.RateStatsText, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasRateStats), Mode=OneWay}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.PersistedStatsText, Mode=OneWay}" Header="保存状态">
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsStatisticsDirty), Mode=OneWay}">
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsStatisticsSaving, Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.SaveStatisticsCommand}"
+                                Content="保存统计"
+                                IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.IsDurableReady, ViewModel.IsStatisticsSaving), Mode=OneWay}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasStatisticsError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.StatisticsErrorText, Mode=OneWay}"
+                        Severity="Warning">
+                        <InfoBar.ActionButton>
+                            <Button Command="{x:Bind ViewModel.SaveStatisticsCommand}" Content="重试保存" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <base:SettingsCard
+                        Description="{x:Bind ViewModel.UnsavedOutcomesText, Mode=OneWay}"
+                        Header="未写入本机的操作结果"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasUnsavedOutcomes), Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                IsActive="{x:Bind ViewModel.IsJournalSaving, Mode=OneWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.SavePendingMutationsCommand}"
+                                Content="写入本机"
+                                IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsJournalSaving), Mode=OneWay}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="{x:Bind ViewModel.HasJournalError, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.JournalErrorText, Mode=OneWay}"
+                        Severity="Warning">
+                        <InfoBar.ActionButton>
+                            <Button Command="{x:Bind ViewModel.SavePendingMutationsCommand}" Content="重试写入" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    </base:SettingsCard>
+                    <!--  最近的操作记录：只读，最多 50 条，限定高度  -->
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <StackPanel Spacing="4" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasJournal), Mode=OneWay}">
+                        <TextBlock
+                            Margin="16,8,16,0"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="最近的操作（最多显示 50 条）。结果不确定的操作不会自动重发。"
+                            TextWrapping="Wrap" />
+                        <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                            <ItemsRepeater ItemTemplate="{StaticResource JournalTemplate}" ItemsSource="{x:Bind ViewModel.JournalItems}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Spacing="0" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </ScrollViewer>
+                    </StackPanel>
+                    </base:SettingsCard>
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+
+            <!--  9. 贡献者身份  -->
+            <base:SettingsExpander Description="{x:Bind ViewModel.IdentityStatusText, Mode=OneWay}" Header="贡献者身份">
+                <base:SettingsExpander.HeaderIcon>
+                    <ic:SymbolIcon Symbol="Person" />
+                </base:SettingsExpander.HeaderIcon>
+                <Grid>
+                    <ProgressRing
+                        Width="16"
+                        Height="16"
+                        IsActive="{x:Bind ViewModel.IsIdentityBusy, Mode=OneWay}" />
+                    <Button
+                        Command="{x:Bind ViewModel.RequestCreateIdentityCommand}"
+                        Content="创建身份"
+                        Visibility="{x:Bind local:SponsorXaml.AndNotVisible(ViewModel.CanCreateIdentity, ViewModel.IsCreateIdentityConfirmVisible), Mode=OneWay}" />
+                </Grid>
+                <base:SettingsExpander.Items>
+                    <!--  创建确认：只在本机生成，不联网  -->
+                    <base:SettingsCard
+                        Description="将在本机生成一个新的贡献者身份，用于提交和投票。私密部分只保存在本机，不会显示、复制或写入备份。"
+                        Header="创建新的贡献者身份？"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsCreateIdentityConfirmVisible), Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.CancelCreateIdentityCommand}" Content="取消" />
+                            <Button
+                                Command="{x:Bind ViewModel.ConfirmCreateIdentityCommand}"
+                                Content="创建"
+                                Style="{StaticResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </base:SettingsCard>
+                    <base:SettingsCard
+                        Description="{x:Bind ViewModel.PublicIdShort, Mode=OneWay}"
+                        Header="公开 ID"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasIdentity), Mode=OneWay}">
+                        <Button
+                            AutomationProperties.Name="复制公开 ID"
+                            Command="{x:Bind ViewModel.CopyPublicIdCommand}"
+                            ToolTipService.ToolTip="复制公开 ID">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <ic:SymbolIcon FontSize="14" Symbol="Copy" />
+                                <TextBlock Text="复制" />
+                            </StackPanel>
+                        </Button>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.UserStatsStatusText, Mode=OneWay}" Header="我的贡献">
+                        <Button
+                            Command="{x:Bind ViewModel.RefreshUserStatsCommand}"
+                            Content="查询"
+                            IsEnabled="{x:Bind ViewModel.CanRefreshUserStats, Mode=OneWay}"
+                            ToolTipService.ToolTip="需要允许联网，并已有贡献者身份" />
+                    </base:SettingsCard>
+                    <base:SettingsCard Padding="0" MinHeight="0" MinWidth="0" HorizontalContentAlignment="Stretch"
+                        Background="Transparent" BorderThickness="0" ContentAlignment="Vertical" IsClickEnabled="False">
+                    <Grid
+                        Padding="16,8,16,12"
+                        ColumnSpacing="24"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasUserStats), Mode=OneWay}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="用户名" />
+                            <TextBlock
+                                IsTextSelectionEnabled="True"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind ViewModel.UserName, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="提交片段" />
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.SegmentCountText, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="被跳过" />
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.ViewCountText, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3">
+                            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="为他人节省" />
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.MinutesSavedText, Mode=OneWay}" />
+                        </StackPanel>
+                    </Grid>
+                    </base:SettingsCard>
+                    <base:SettingsCard Description="{x:Bind ViewModel.UsernameNote, Mode=OneWay}" Header="用户名" />
+                </base:SettingsExpander.Items>
+            </base:SettingsExpander>
+        </StackPanel>
+        </ContentControl>
+
+        <!--  10. 备份（不含身份私密信息）  -->
+        <base:SettingsExpander Description="导出或恢复空降助手的本机设置、草稿、白名单、过滤偏好、统计和操作记录（单个备份最大 4 MiB）。备份不包含贡献者身份的私密部分。" Header="备份与恢复">
+            <base:SettingsExpander.HeaderIcon>
+                <ic:SymbolIcon Symbol="Save" />
+            </base:SettingsExpander.HeaderIcon>
+            <base:SettingsExpander.Items>
+                <base:SettingsCard Description="{x:Bind local:SponsorXaml.Pick(ViewModel.BackupStatusText, ViewModel.FileUnavailableText), Mode=OneWay}" Header="导出与导入">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ProgressRing
+                            Width="16"
+                            Height="16"
+                            IsActive="{x:Bind ViewModel.IsBackupBusy, Mode=OneWay}" />
+                        <Button
+                            Command="{x:Bind ViewModel.ExportBackupCommand}"
+                            Content="导出"
+                            IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanUseFiles, ViewModel.IsBackupBusy), Mode=OneWay}" />
+                        <Button
+                            Command="{x:Bind ViewModel.PickImportCommand}"
+                            Content="导入…"
+                            IsEnabled="{x:Bind local:SponsorXaml.AndNot(ViewModel.CanUseFiles, ViewModel.IsBackupBusy), Mode=OneWay}" />
+                    </StackPanel>
+                </base:SettingsCard>
+                <!--  导入确认：会替换本机设置与草稿；需先关闭所有播放页  -->
+                <base:SettingsCard
+                    Description="{x:Bind ViewModel.ImportSummaryText, Mode=OneWay}"
+                    Header="用备份替换当前设置？"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsImportConfirmVisible), Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Command="{x:Bind ViewModel.CancelImportCommand}" Content="取消" />
+                        <Button
+                            Command="{x:Bind ViewModel.ConfirmImportCommand}"
+                            Content="替换"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </base:SettingsCard>
+            </base:SettingsExpander.Items>
+        </base:SettingsExpander>
+    </StackPanel>
+</UserControl>

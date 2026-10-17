@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorSegmentPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:BiliCopilot.UI.SponsorBlock.ViewModels"
+    MinWidth="280"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <local:SponsorResources />
+            </ResourceDictionary.MergedDictionaries>
+
+            <DataTemplate x:Key="NoticeTemplate" x:DataType="vm:SponsorNoticeItem">
+                <Grid
+                    Padding="10,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    ColumnSpacing="10"
+                    CornerRadius="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{x:Bind local:SponsorXaml.Brush(CategoryColor), Mode=OneWay}" Style="{StaticResource SponsorRailStyle}" />
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SponsorTitleStyle}" Text="{x:Bind Title, Mode=OneWay}" />
+                            <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind Detail, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            Visibility="{x:Bind local:SponsorXaml.Show(HasPrimary), Mode=OneWay}">
+                            <Button
+                                Command="{x:Bind PrimaryCommand}"
+                                Content="{x:Bind PrimaryText, Mode=OneWay}"
+                                IsEnabled="{x:Bind IsPrimaryEnabled, Mode=OneWay}"
+                                Style="{StaticResource SponsorCompactAccentButtonStyle}"
+                                ToolTipService.ToolTip="{x:Bind PrimaryToolTip, Mode=OneWay}" />
+                            <Button
+                                AutomationProperties.Name="立即跳过（Skip now）"
+                                Command="{x:Bind SkipNowCommand}"
+                                Content="立即跳过"
+                                IsEnabled="{x:Bind IsSkipNowEnabled, Mode=OneWay}"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="Skip now：不加速，直接跳到片段结尾"
+                                Visibility="{x:Bind local:SponsorXaml.Show(HasSkipNow), Mode=OneWay}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="RecoveryTemplate" x:DataType="vm:SponsorRecoveryItem">
+                <Grid
+                    Padding="12,10"
+                    Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                    ColumnSpacing="10"
+                    CornerRadius="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ic:SymbolIcon
+                        Margin="0,2,0,0"
+                        VerticalAlignment="Top"
+                        FontSize="16"
+                        Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                        Symbol="Info" />
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <TextBlock Style="{StaticResource SponsorTitleStyle}" Text="{x:Bind Title, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource SponsorCaptionStyle}" Text="{x:Bind Detail, Mode=OneWay}" />
+                        <Button
+                            Command="{x:Bind Command}"
+                            Content="{x:Bind ActionText, Mode=OneWay}"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="SegmentTemplate" x:DataType="vm:SponsorSegmentItem">
+                <Grid
+                    Padding="10,8,4,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    ColumnSpacing="10"
+                    CornerRadius="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border
+                        Background="{x:Bind local:SponsorXaml.Brush(CategoryColor), Mode=OneWay}"
+                        Opacity="{x:Bind local:SponsorXaml.Dim(IsDimmed), Mode=OneWay}"
+                        Style="{StaticResource SponsorRailStyle}" />
+                    <StackPanel
+                        Grid.Column="1"
+                        Opacity="{x:Bind local:SponsorXaml.Dim(IsDimmed), Mode=OneWay}"
+                        Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Style="{StaticResource SponsorTitleStyle}" Text="{x:Bind Title, Mode=OneWay}" />
+                            <Border Style="{StaticResource SponsorChipStyle}">
+                                <TextBlock Style="{StaticResource SponsorChipTextStyle}" Text="{x:Bind ActionText, Mode=OneWay}" />
+                            </Border>
+                            <ic:SymbolIcon
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="已锁定"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Symbol="LockClosed"
+                                ToolTipService.ToolTip="已被管理员锁定"
+                                Visibility="{x:Bind local:SponsorXaml.Show(IsLocked), Mode=OneWay}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource SponsorCaptionStyle}">
+                            <Run Text="{x:Bind RangeText, Mode=OneWay}" />
+                            <Run Text=" · " />
+                            <Run Text="{x:Bind SourceText, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind StatusText, Mode=OneWay}" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="2"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="片段操作"
+                        Style="{StaticResource SponsorIconButtonStyle}"
+                        ToolTipService.ToolTip="更多操作">
+                        <ic:SymbolIcon FontSize="16" Symbol="MoreHorizontal" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuFlyoutItem
+                                    Command="{x:Bind JumpCommand}"
+                                    Text="跳转到精彩时刻"
+                                    Visibility="{x:Bind local:SponsorXaml.Show(CanJump), Mode=OneWay}" />
+                                <MenuFlyoutItem Command="{x:Bind ToggleHiddenCommand}" Text="{x:Bind HiddenMenuText, Mode=OneWay}" />
+                                <MenuFlyoutItem Command="{x:Bind ToggleDownvoteCommand}" Text="{x:Bind DownvoteMenuText, Mode=OneWay}" />
+                                <MenuFlyoutItem
+                                    Command="{x:Bind ToggleExternalCommand}"
+                                    Text="{x:Bind ExternalMenuText, Mode=OneWay}"
+                                    Visibility="{x:Bind local:SponsorXaml.Show(IsExternal), Mode=OneWay}" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem
+                                    Command="{x:Bind VoteUpCommand}"
+                                    IsEnabled="{x:Bind CanUseRemote, Mode=OneWay}"
+                                    Text="投赞同票…" />
+                                <MenuFlyoutItem
+                                    Command="{x:Bind VoteDownCommand}"
+                                    IsEnabled="{x:Bind CanUseRemote, Mode=OneWay}"
+                                    Text="投反对票…" />
+                                <MenuFlyoutItem
+                                    Command="{x:Bind ChangeCategoryCommand}"
+                                    IsEnabled="{x:Bind CanUseRemote, Mode=OneWay}"
+                                    Text="建议更改分类…" />
+                                <MenuFlyoutItem
+                                    IsEnabled="False"
+                                    Text="{x:Bind RemoteUnavailableText, Mode=OneWay}"
+                                    Visibility="{x:Bind local:SponsorXaml.Hide(CanUseRemote), Mode=OneWay}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  状态与获取  -->
+        <Grid Padding="12,4,12,0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+                VerticalAlignment="Center"
+                Style="{StaticResource SponsorCaptionStyle}"
+                Text="{x:Bind ViewModel.StatusText, Mode=OneWay, FallbackValue='空降助手未连接'}" />
+            <ProgressRing
+                Grid.Column="1"
+                Width="16"
+                Height="16"
+                IsActive="{x:Bind ViewModel.IsFetching, Mode=OneWay, FallbackValue=False}" />
+            <Button
+                Grid.Column="2"
+                Command="{x:Bind ViewModel.FetchCommand, Mode=OneWay}"
+                Content="{x:Bind ViewModel.FetchButtonText, Mode=OneWay, FallbackValue='获取片段'}"
+                IsEnabled="{x:Bind ViewModel.CanFetch, Mode=OneWay, FallbackValue=False}"
+                Style="{StaticResource SponsorCompactButtonStyle}" />
+        </Grid>
+
+        <ScrollViewer
+            Grid.Row="1"
+            Padding="12,0,12,12"
+            HorizontalScrollMode="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="8">
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="{x:Bind ViewModel.HasProblem, Mode=OneWay, FallbackValue=False}"
+                    Message="{x:Bind ViewModel.ProblemText, Mode=OneWay}"
+                    Severity="Warning" />
+
+                <InfoBar
+                    IsClosable="True"
+                    IsOpen="{x:Bind ViewModel.HasFeedback, Mode=OneWay, FallbackValue=False}"
+                    Message="{x:Bind ViewModel.FeedbackText, Mode=OneWay}"
+                    Severity="Informational">
+                    <InfoBar.ActionButton>
+                        <HyperlinkButton Command="{x:Bind ViewModel.DismissFeedbackCommand, Mode=OneWay}" Content="知道了" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+
+                <!--  远程操作确认：发送前必须显式确认  -->
+                <Border
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                    Style="{StaticResource SponsorCardStyle}"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsRemoteConfirmVisible), Mode=OneWay, FallbackValue=Collapsed}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.RemoteConfirmTitle, Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.RemoteConfirmText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                        <ComboBox
+                            MinWidth="160"
+                            ItemsSource="{x:Bind ViewModel.RemoteCategoryLabels, Mode=OneWay}"
+                            SelectedIndex="{x:Bind ViewModel.RemoteCategoryIndex, Mode=TwoWay}"
+                            Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsRemoteCategoryVisible), Mode=OneWay, FallbackValue=Collapsed}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                Command="{x:Bind ViewModel.ConfirmRemoteCommand, Mode=OneWay}"
+                                Content="确认发送"
+                                Style="{StaticResource SponsorCompactAccentButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ViewModel.CancelRemoteCommand, Mode=OneWay}"
+                                Content="取消"
+                                Style="{StaticResource SponsorCompactButtonStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!--  整片标签  -->
+                <Border Style="{StaticResource SponsorSubtleCardStyle}" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasFullLabel), Mode=OneWay, FallbackValue=Collapsed}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse
+                            Width="10"
+                            Height="10"
+                            VerticalAlignment="Center"
+                            Fill="{x:Bind local:SponsorXaml.Brush(ViewModel.FullLabelColor), Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.FullLabelText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                    </StackPanel>
+                </Border>
+
+                <!--  当前视频 UP 主白名单：仅在播放页已确认 UP 主 UID 时出现  -->
+                <Border Style="{StaticResource SponsorSubtleCardStyle}" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasCurrentUp), Mode=OneWay, FallbackValue=Collapsed}">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ic:SymbolIcon
+                            VerticalAlignment="Center"
+                            FontSize="14"
+                            Symbol="Person" />
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SponsorCaptionStyle}"
+                            Text="{x:Bind ViewModel.CurrentUpText, Mode=OneWay}"
+                            TextWrapping="WrapWholeWords" />
+                        <Button
+                            Grid.Column="2"
+                            AutomationProperties.Name="{x:Bind ViewModel.CurrentUpActionText, Mode=OneWay}"
+                            Command="{x:Bind ViewModel.ToggleCurrentUpWhitelistCommand, Mode=OneWay}"
+                            Content="{x:Bind ViewModel.CurrentUpActionText, Mode=OneWay}"
+                            IsEnabled="{x:Bind local:SponsorXaml.Not(ViewModel.IsCurrentUpBusy), Mode=OneWay, FallbackValue=False}"
+                            Style="{StaticResource SponsorCompactButtonStyle}" />
+                    </Grid>
+                </Border>
+
+                <!--  需要确认的恢复项  -->
+                <ItemsRepeater ItemTemplate="{StaticResource RecoveryTemplate}" ItemsSource="{x:Bind ViewModel.Recoveries, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="8" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+
+                <!--  最近一次实际效果  -->
+                <Border Style="{StaticResource SponsorCardStyle}" Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasApplied), Mode=OneWay, FallbackValue=Collapsed}">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ic:SymbolIcon
+                                FontSize="16"
+                                Foreground="{x:Bind local:SponsorXaml.Brush(ViewModel.AppliedColor), Mode=OneWay}"
+                                Symbol="CheckmarkCircle" />
+                            <TextBlock Text="{x:Bind ViewModel.AppliedText, Mode=OneWay}" TextWrapping="WrapWholeWords" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button
+                                Command="{x:Bind ViewModel.UndoCommand, Mode=OneWay}"
+                                Content="撤销"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanUndo), Mode=OneWay, FallbackValue=Collapsed}" />
+                            <Button
+                                Command="{x:Bind ViewModel.ReleaseMuteCommand, Mode=OneWay}"
+                                Content="取消静音"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="{x:Bind ViewModel.ReleaseMuteHint, Mode=OneWay}"
+                                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanReleaseMute), Mode=OneWay, FallbackValue=Collapsed}" />
+                            <Button
+                                Command="{x:Bind ViewModel.ReportViewedCommand, Mode=OneWay}"
+                                Content="计入观看次数"
+                                Style="{StaticResource SponsorCompactButtonStyle}"
+                                ToolTipService.ToolTip="告诉空降助手这个片段被跳过了一次（需在设置中允许上报）"
+                                Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanReportViewed), Mode=OneWay, FallbackValue=Collapsed}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.PendingText, Mode=OneWay}"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasPending), Mode=OneWay, FallbackValue=Collapsed}" />
+
+                <!--  当前提示  -->
+                <ItemsRepeater ItemTemplate="{StaticResource NoticeTemplate}" ItemsSource="{x:Bind ViewModel.Notices, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="8" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+
+                <!--  片段列表  -->
+                <TextBlock
+                    Style="{StaticResource SponsorSectionHeaderStyle}"
+                    Text="本视频的片段"
+                    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.HasSegments), Mode=OneWay, FallbackValue=Collapsed}" />
+                <ItemsRepeater ItemTemplate="{StaticResource SegmentTemplate}" ItemsSource="{x:Bind ViewModel.Segments, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="6" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+                <TextBlock
+                    Style="{StaticResource SponsorCaptionStyle}"
+                    Text="{x:Bind ViewModel.SegmentSummaryText, Mode=OneWay}"
+                    Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.SegmentSummaryText), Mode=OneWay, FallbackValue=Collapsed}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

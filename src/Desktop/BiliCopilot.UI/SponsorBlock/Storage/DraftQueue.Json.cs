@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Text.Json;
 using BiliCopilot.UI.SponsorBlock.Models;
 using BiliCopilot.UI.SponsorBlock.Rules;

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="BiliCopilot.UI.SponsorBlock.Controls.SponsorCloseRecoveryBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:BiliCopilot.UI.SponsorBlock.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    MaxWidth="720"
+    HorizontalAlignment="Stretch"
+    VerticalAlignment="Top"
+    Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.IsVisible), Mode=OneWay, FallbackValue=Collapsed}"
+    mc:Ignorable="d">
+
+    <!--
+        Local-save recovery during quit (app-wide; does not depend on the settings page).
+        Collapsed until there is an actual close result. The host gives it a dedicated Auto row OUTSIDE the
+        content/video area (RootLayout Row 2), so it does not cover the page or the native video, and takes
+        no height while collapsed. Height is capped at about 40% of the window (see code), and anything beyond
+        that scrolls, so a small window keeps most of its content. Not modal; it intercepts no input elsewhere.
+        Only one action, "保存到本机". No "discard", "force quit" or automatic retry.
+    -->
+    <ScrollViewer
+        x:Name="BarScroll"
+        HorizontalScrollMode="Disabled"
+        IsTabStop="False"
+        VerticalScrollBarVisibility="Auto"
+        VerticalScrollMode="Auto">
+        <InfoBar
+            Title="{x:Bind ViewModel.Title, Mode=OneWay}"
+            AutomationProperties.LiveSetting="Polite"
+            Background="{ThemeResource SolidBackgroundFillColorTertiaryBrush}"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsVisible, Mode=OneWay, FallbackValue=False}"
+            Message="{x:Bind ViewModel.Message, Mode=OneWay}"
+            Severity="{x:Bind local:SponsorCloseRecoveryBar.SeverityOf(ViewModel.IsError), Mode=OneWay, FallbackValue=Warning}">
+            <InfoBar.Content>
+                <StackPanel Margin="0,0,0,12" Spacing="8">
+                    <TextBlock
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="{x:Bind ViewModel.ResultText, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords"
+                        Visibility="{x:Bind local:SponsorXaml.ShowText(ViewModel.ResultText), Mode=OneWay, FallbackValue=Collapsed}" />
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="{x:Bind local:SponsorXaml.Show(ViewModel.CanRetry), Mode=OneWay, FallbackValue=Collapsed}">
+                        <Button
+                            AutomationProperties.Name="保存到本机"
+                            Command="{x:Bind ViewModel.RetryCommand}"
+                            Content="保存到本机"
+                            Style="{StaticResource AccentButtonStyle}" />
+                        <ProgressRing
+                            Width="16"
+                            Height="16"
+                            IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </InfoBar.Content>
+        </InfoBar>
+    </ScrollViewer>
+</UserControl>
