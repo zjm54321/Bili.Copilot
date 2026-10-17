@@ -313,12 +313,21 @@ public sealed partial class RootLayout : RootLayoutBase
         }
     }
 
+    private async Task CloseEmbeddedLiveForNavigationAsync()
+    {
+        if (_embeddedLiveOwner is not BiliCopilot.UI.Live.Hosting.LiveWindow owner) return;
+        RequestLiveBack(owner);
+        // RequestLiveBack already starts this cached close via EmbeddedLiveBackRequested. Join
+        // that exact owner, never a replacement, before the navigation barrier may continue.
+        await owner.CloseAsync();
+    }
+
     /// <inheritdoc/>
     protected override void OnControlLoaded()
     {
         if (_navigationInitialized) return;
         _navigationInitialized = true;
-        ViewModel.Initialize(NavView, MainFrame, OverlayFrame);
+        ViewModel.Initialize(NavView, MainFrame, OverlayFrame, CloseEmbeddedLiveForNavigationAsync);
 
         var selectedItem = ViewModel.MenuItems.FirstOrDefault(p => p.IsSelected);
         var navigation = ViewModel;
@@ -840,7 +849,7 @@ public sealed partial class RootLayout : RootLayoutBase
 
         if (_embeddedLiveOwner is { } liveOwner && EmbeddedLiveHost.Visibility == Visibility.Visible)
         {
-            if (HideEmbeddedLive(liveOwner)) EmbeddedLiveBackRequested?.Invoke(this, liveOwner);
+            RequestLiveBack(liveOwner);
             return;
         }
 

@@ -24,6 +24,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     private MainFrame? _navFrame;
     private OverlayFrame? _overFrame;
     private long _navigationSequence;
+    private Func<Task>? _closeEmbeddedLive;
 
     /// <summary>Observable completion/failure for the legacy void navigation interface.</summary>
     public Task LastNavigationTask { get; private set; } = Task.CompletedTask;
@@ -50,14 +51,18 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     public void SearchInRegion(string keyword) => QueueNavigation(() => SearchInRegionCore(keyword));
     public void Back()
     {
-        var returningFromPlayer = this.Get<AppViewModel>().HasEmbeddedWork;
+        var app = this.Get<AppViewModel>();
+        var returningFromPlayer = app.HasEmbeddedWork || app.HasLiveWork;
         QueueNavigation(() => { if (!returningFromPlayer) BackCore(); });
     }
 
     private void QueueNavigation(Action navigate)
     {
         var previous = LastNavigationTask;
-        var close = this.Get<AppViewModel>().CloseEmbeddedPlayerAsync();
+        // All navigation entry points share the video close barrier, including search and Back.
+        // Root supplies the same identity-scoped Live back/close path as its exit button.
+        var close = Task.WhenAll(this.Get<AppViewModel>().CloseEmbeddedPlayerAsync(),
+            _closeEmbeddedLive?.Invoke() ?? Task.CompletedTask);
         _navigationSequence++;
         LastNavigationTask = NavigateAfterCloseAsync(previous, close, navigate);
         OnPropertyChanged(nameof(LastNavigationTask));
@@ -273,7 +278,8 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
     /// <summary>
     /// 初始化导航视图模型.
     /// </summary>
-    public void Initialize(NavigationView view, MainFrame navFrame, OverlayFrame overFrame)
+    public void Initialize(NavigationView view, MainFrame navFrame, OverlayFrame overFrame,
+        Func<Task>? closeEmbeddedLive = null)
     {
         if (_navFrame is not null && _overFrame is not null)
         {
@@ -283,6 +289,7 @@ public sealed partial class NavigationViewModel : ViewModelBase, INavServiceView
         _navFrame = navFrame;
         _overFrame = overFrame;
         _navigationView = view;
+        _closeEmbeddedLive = closeEmbeddedLive;
         IsTopNavBarShown = SettingsToolkit.ReadLocalSetting(SettingNames.IsTopNavBarShown, true);
 
         MenuItems = [.. GetMenuItems()];

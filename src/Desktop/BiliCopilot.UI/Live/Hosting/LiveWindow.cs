@@ -115,6 +115,7 @@ public sealed partial class LiveWindow : ILivePresentation, IAsyncDisposable
             linked.Token.ThrowIfCancellationRequested();
             _view = new LiveView(_session, Surface.Anchor, this); // Real designer implementation, not a stub.
             Surface.AttachOverlay(_view.DanmakuOverlay);
+            _view.AttachTransportOverlay(Surface.TransportOverlayHost);
             AttachPresentationInput();
             if (!_mainWindow.TryShowEmbeddedLive(this, _view))
                 throw new InvalidOperationException("The embedded Live presentation is owned by another view.");

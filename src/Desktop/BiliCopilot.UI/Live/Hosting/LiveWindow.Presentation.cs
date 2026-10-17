@@ -202,8 +202,7 @@ public sealed partial class LiveWindow
                 BeginCompactMove, ExitFullScreenFromInput, keyboardRoot: _mainWindow.Content as UIElement);
         }
         Surface.AttachPresentationInput(() => CanUsePresentation && IsCompactOverlay,
-            BeginCompactMove, ExitFullScreenFromInput, () => _view?.RevealTransport(),
-            (position, size) => _view?.OnVideoPointerMoved(position, size));
+            BeginCompactMove, ExitFullScreenFromInput, () => _view?.RevealTransport());
     }
 
     private void OnVideoLayoutChanged(object? sender, EventArgs args) => RefreshNativeBounds();

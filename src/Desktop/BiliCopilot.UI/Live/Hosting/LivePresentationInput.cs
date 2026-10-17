@@ -17,15 +17,15 @@ internal sealed class LivePresentationInput
     private readonly Action _move;
     private readonly Func<bool> _exitFullScreen;
     private readonly Action? _pointerActivity;
-    private readonly Action<Point, Size>? _pointerMoved;
     private readonly PointerEventHandler _pressed;
     private readonly PointerEventHandler _moved;
     private readonly KeyEventHandler _keyDown;
     private uint? _pointerId;
     private System.Drawing.Point _pressPoint;
+    private Point? _lastActivityPosition;
 
     public LivePresentationInput(UIElement root, Func<bool> canDrag, Action move, Func<bool> exitFullScreen,
-        Action? pointerActivity = null, Action<Point, Size>? pointerMoved = null, bool exitFullScreenOnDoubleTap = false,
+        Action? pointerActivity = null, bool exitFullScreenOnDoubleTap = false,
         UIElement? keyboardRoot = null)
     {
         _root = root;
@@ -34,7 +34,6 @@ internal sealed class LivePresentationInput
         _move = move;
         _exitFullScreen = exitFullScreen;
         _pointerActivity = pointerActivity;
-        _pointerMoved = pointerMoved;
         _pressed = OnPressed;
         _moved = OnMoved;
         _keyDown = OnKeyDown;
@@ -49,7 +48,6 @@ internal sealed class LivePresentationInput
 
     private void OnPressed(object sender, PointerRoutedEventArgs args)
     {
-        _pointerActivity?.Invoke();
         CancelDrag();
         // The picture's transparent input control owns island keyboard focus even in full screen.
         if (_root is ContentControl focusTarget) focusTarget.Focus(FocusState.Pointer);
@@ -69,9 +67,13 @@ internal sealed class LivePresentationInput
 
     private void OnMoved(object sender, PointerRoutedEventArgs args)
     {
-        _pointerActivity?.Invoke();
-        if (args.Pointer.PointerDeviceType == PointerDeviceType.Mouse && _root is FrameworkElement element)
-            _pointerMoved?.Invoke(args.GetCurrentPoint(_root).Position, new Size(element.ActualWidth, element.ActualHeight));
+        var position = args.GetCurrentPoint(_root).Position;
+        if (!args.IsGenerated && args.Pointer.PointerDeviceType == PointerDeviceType.Mouse
+            && _lastActivityPosition?.Equals(position) != true)
+        {
+            _lastActivityPosition = position;
+            _pointerActivity?.Invoke();
+        }
         if (_pointerId != args.Pointer.PointerId) return;
         if (!_canDrag() || !args.GetCurrentPoint(_root).Properties.IsLeftButtonPressed)
         {

@@ -17,8 +17,8 @@
         - Danmaku box       = IslandDanmakuBox ("弹" 36px round toggle + input in the middle column).
         - Quality           = IslandFormatButton (Hd glyph, caption + 220px ItemsView, 40px card rows).
         - Side panel toggle = SideSplitButton (36px transparent, filled 14px PanelRight glyph) at the header's right edge.
-        Airspace: the native video child covers VideoHost only. The transport therefore floats on the black stage directly
-        below the picture (never over it) and auto-hides by opacity so the picture never resizes.
+        Airspace: the native video child covers VideoHost only. Normal/compact transport stays below the picture.
+        Full screen moves this SAME card into the video island: no second controls, no reserved bottom row.
     -->
     <UserControl.Resources>
         <ResourceDictionary>
@@ -266,7 +266,7 @@
                 Grid.Row="0"
                 Background="{StaticResource LiveVideoBackdropBrush}" />
 
-            <!--  IslandTransportControls card. Opacity-only auto-hide keeps the row height, so the picture never resizes.  -->
+            <!--  One shared card: below the picture normally, reparented over it inside the full-screen island.  -->
             <Grid
                 x:Name="TransportCard"
                 Grid.Row="1"
@@ -401,8 +401,9 @@
                             <ic:SymbolIcon FontSize="14" Symbol="Hd" />
                             <Button.Flyout>
                                 <Flyout
-                                    x:Name="QualityFlyout"
-                                    Closed="OnTransportFlyoutClosed"
+                                        x:Name="QualityFlyout"
+                                        Closed="OnTransportFlyoutClosed"
+                                        Opening="OnTransportFlyoutOpening"
                                     FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
                                     Opened="OnQualityFlyoutOpened"
                                     Placement="Top"
@@ -454,6 +455,7 @@
                                     <Flyout
                                         x:Name="VolumeFlyout"
                                         Closed="OnTransportFlyoutClosed"
+                                        Opening="OnTransportFlyoutOpening"
                                         FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
                                         Opened="OnTransportFlyoutOpened"
                                         Placement="Top"

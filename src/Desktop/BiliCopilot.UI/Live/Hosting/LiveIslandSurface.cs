@@ -19,6 +19,7 @@ public sealed class LiveIslandSurface
     private nint _handle;
     private DesktopWindowXamlSource? _source;
     private LivePresentationInput? _presentationInput;
+    private ContentControl? _pictureInput;
     private XamlRoot? _root;
     private TaskCompletionSource? _ready;
     private bool _initialized;
@@ -36,9 +37,11 @@ public sealed class LiveIslandSurface
     {
         _report = report ?? throw new ArgumentNullException(nameof(report));
         Anchor = new Grid();
+        TransportOverlayHost = new Grid(); // No background: only the transport card claims input.
     }
 
     public Grid Anchor { get; }
+    internal Grid TransportOverlayHost { get; }
     public nint RenderHwnd => _handle != 0 ? _handle : throw new InvalidOperationException("Live render child is unavailable.");
     public bool ReleaseConfirmed => _released;
 
@@ -77,7 +80,7 @@ public sealed class LiveIslandSurface
         // assumption that a sibling in the outer XAML tree can paint above a native video HWND.
         // Keep input inside the same child island as the picture; an outer XAML sibling cannot
         // receive pointer events over the native HWND. The danmaku itself remains non-interactive.
-        var root = new ContentControl
+        _pictureInput = new ContentControl
         {
             Background = new SolidColorBrush(Colors.Transparent),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -85,18 +88,24 @@ public sealed class LiveIslandSurface
             IsTabStop = true,
             Content = overlay,
         };
+        var root = new Grid(); // Transparent outside its children; never an opaque video backdrop.
+        root.Children.Add(_pictureInput);
+        root.Children.Add(TransportOverlayHost); // Top layer; empty space passes through to the picture.
         _source.Content = root;
         UpdateBounds();
     }
 
     internal void AttachPresentationInput(Func<bool> canDrag, Action move, Func<bool> exitFullScreen,
-        Action pointerActivity, Action<Point, Size> pointerMoved)
+        Action pointerActivity)
     {
         CheckUi();
-        if (_source?.Content is not UIElement root) throw new InvalidOperationException("Live island input is unavailable.");
+        if (_source?.Content is not UIElement root || _pictureInput is null)
+            throw new InvalidOperationException("Live island input is unavailable.");
         DetachPresentationInput();
-        _presentationInput = new LivePresentationInput(root, canDrag, move, exitFullScreen,
-            pointerActivity, pointerMoved, exitFullScreenOnDoubleTap: true);
+        // Only the picture handles double-click/drag. Buttons/flyouts in the sibling transport
+        // layer keep their own input; Esc is observed across the entire island, including them.
+        _presentationInput = new LivePresentationInput(_pictureInput, canDrag, move, exitFullScreen,
+            pointerActivity, exitFullScreenOnDoubleTap: true, keyboardRoot: root);
     }
 
     internal void CancelPresentationInput() => _presentationInput?.CancelDrag();

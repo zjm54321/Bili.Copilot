@@ -66,6 +66,8 @@ public sealed partial class LiveView : UserControl
     private int _openTransportFlyouts;
     private bool _fullScreenLayout;
     private bool _fullScreenTransportShown;
+    private Grid? _transportOverlayHost;
+    private bool _changingTransport;
 
     private ScrollViewer? _scroller;
     private bool _followLatest = true;
@@ -115,6 +117,9 @@ public sealed partial class LiveView : UserControl
         TransportCard.PointerExited += OnTransportPointerExited;
         TransportCard.GotFocus += OnTransportFocusChanged;
         TransportCard.LostFocus += OnTransportFocusChanged;
+        TransportCard.AddHandler(PointerMovedEvent, new PointerEventHandler(OnStagePointerActivity), true);
+        TransportCard.AddHandler(PointerPressedEvent, new PointerEventHandler(OnStagePointerActivity), true);
+        TransportCard.Loaded += OnTransportLoaded;
 
         MessageList.ContainerContentChanging += OnMessageContainerChanging;
         MessageList.Loaded += OnMessageListLoaded;
@@ -148,14 +153,11 @@ public sealed partial class LiveView : UserControl
         if (_attached) ShowTransport();
     }
 
-    /// <summary>Native-island coordinates are DIPs, just like the outer layout anchor.</summary>
-    internal void OnVideoPointerMoved(Point position, Size surfaceSize)
+    /// <summary>One transport instance, with the same commands and event handlers in either XamlRoot.</summary>
+    internal void AttachTransportOverlay(Grid host)
     {
-        if (!_attached || !_presentation.IsFullScreen || surfaceSize.Height <= 0
-            || position.Y < Math.Max(0, surfaceSize.Height - 32) || position.Y > surfaceSize.Height) return;
-        _fullScreenTransportShown = true;
-        SetTransportRowVisible(true);
-        ShowTransport();
+        ArgumentNullException.ThrowIfNull(host);
+        _transportOverlayHost = host;
     }
 
     private void ApplyStaticCopy()
@@ -294,6 +296,7 @@ public sealed partial class LiveView : UserControl
         HeaderDivider.Visibility = hideHeader ? Visibility.Collapsed : Visibility.Visible;
         RootGrid.RowDefinitions[0].Height = new GridLength(hideHeader ? 0 : 56);
         ApplyLayout();
+        if (fullScreenChanged) MoveTransport(fullScreen);
         if (fullScreen)
         {
             // Both state properties notify: the second notification must not reveal the row again.
@@ -302,9 +305,55 @@ public sealed partial class LiveView : UserControl
         else
         {
             _fullScreenTransportShown = false;
-            SetTransportRowVisible(true);
+            TransportCard.Visibility = Visibility.Visible;
+            TransportCard.IsHitTestVisible = true;
             ShowTransport();
         }
+    }
+
+    private void MoveTransport(bool intoIsland)
+    {
+        var target = intoIsland ? _transportOverlayHost
+            ?? throw new InvalidOperationException("Live transport island is unavailable.") : StageGrid;
+        if (ReferenceEquals(VisualTreeHelper.GetParent(TransportCard), target)) return;
+        if (VisualTreeHelper.GetParent(TransportCard) is not Panel previous)
+            throw new InvalidOperationException("Live transport has no movable layout parent.");
+        // A popup must be closed before its target changes XamlRoot. The next Loaded/Opening
+        // binds both flyouts to the actual target root, not to the outer LiveView root.
+        _changingTransport = true;
+        try
+        {
+            QualityFlyout.Hide();
+            VolumeFlyout.Hide();
+            QualityFlyout.XamlRoot = null;
+            VolumeFlyout.XamlRoot = null;
+            _idleTimer.Stop();
+            _pointerOverTransport = false;
+            _openTransportFlyouts = 0;
+            previous.Children.Remove(TransportCard);
+            Grid.SetRow(TransportCard, intoIsland ? 0 : 1);
+            try { target.Children.Add(TransportCard); }
+            catch
+            {
+                Grid.SetRow(TransportCard, ReferenceEquals(previous, StageGrid) ? 1 : 0);
+                previous.Children.Add(TransportCard);
+                throw;
+            }
+            StageGrid.RowDefinitions[1].Height = intoIsland ? new GridLength(0) : GridLength.Auto;
+        }
+        finally { _changingTransport = false; }
+        VideoLayoutChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnTransportLoaded(object sender, RoutedEventArgs args) => BindTransportFlyoutRoots();
+
+    private void OnTransportFlyoutOpening(object sender, object args) => BindTransportFlyoutRoots();
+
+    private void BindTransportFlyoutRoots()
+    {
+        if (TransportCard.XamlRoot is not { } root) return;
+        if (!ReferenceEquals(QualityFlyout.XamlRoot, root)) QualityFlyout.XamlRoot = root;
+        if (!ReferenceEquals(VolumeFlyout.XamlRoot, root)) VolumeFlyout.XamlRoot = root;
     }
 
     private void RefreshAll()
@@ -866,12 +915,15 @@ public sealed partial class LiveView : UserControl
 
     private void ShowTransport()
     {
+        if (_changingTransport) return;
         if (_presentation.IsFullScreen)
         {
-            if (!_fullScreenTransportShown) return;
+            _fullScreenTransportShown = true;
+            TransportCard.Visibility = Visibility.Visible;
+            TransportCard.IsHitTestVisible = true;
             TransportCard.Opacity = 1;
             _idleTimer.Stop();
-            _idleTimer.Start();
+            if (!MustKeepFullScreenTransport()) _idleTimer.Start();
             return;
         }
 
@@ -883,9 +935,13 @@ public sealed partial class LiveView : UserControl
     /// <summary>Called from RefreshAll: never restarts a running countdown, so frequent session updates cannot keep it alive.</summary>
     private void EvaluateTransport()
     {
-        // Session messages, a paused stream, drafts and retained keyboard focus are not pointer
-        // activity. They must neither reveal the full-screen row nor pin it open indefinitely.
-        if (_presentation.IsFullScreen) return;
+        // Session messages must not reveal or restart the full-screen transport's idle timer.
+        if (_presentation.IsFullScreen)
+        {
+            if (MustKeepFullScreenTransport()) ShowTransport();
+            else if (_fullScreenTransportShown && !_idleTimer.IsRunning) _idleTimer.Start();
+            return;
+        }
         if (MustKeepTransport())
         {
             TransportCard.Opacity = 1;
@@ -901,7 +957,7 @@ public sealed partial class LiveView : UserControl
     {
         if (_presentation.IsFullScreen)
         {
-            HideFullScreenTransport();
+            if (!MustKeepFullScreenTransport()) HideFullScreenTransport();
             return;
         }
 
@@ -914,21 +970,19 @@ public sealed partial class LiveView : UserControl
     {
         _fullScreenTransportShown = false;
         _idleTimer.Stop();
-        QualityFlyout.Hide();
-        VolumeFlyout.Hide();
         _pointerOverTransport = false;
-        SetTransportRowVisible(false);
+        _changingTransport = true;
+        try
+        {
+            TransportCard.IsHitTestVisible = false;
+            TransportCard.Opacity = 0;
+            TransportCard.Visibility = Visibility.Collapsed;
+        }
+        finally { _changingTransport = false; }
     }
 
-    private void SetTransportRowVisible(bool visible)
-    {
-        var visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        var height = visible ? GridLength.Auto : new GridLength(0);
-        if (TransportCard.Visibility == visibility && StageGrid.RowDefinitions[1].Height.Equals(height)) return;
-        TransportCard.Visibility = visibility;
-        StageGrid.RowDefinitions[1].Height = height;
-        VideoLayoutChanged?.Invoke(this, EventArgs.Empty);
-    }
+    private bool MustKeepFullScreenTransport()
+        => _pointerOverTransport || _openTransportFlyouts > 0 || IsFocusWithin(TransportCard);
 
     private void OnStagePointerActivity(object sender, PointerRoutedEventArgs e) => ShowTransport();
 
@@ -941,10 +995,13 @@ public sealed partial class LiveView : UserControl
     private void OnTransportPointerExited(object sender, PointerRoutedEventArgs e)
     {
         _pointerOverTransport = false;
-        ShowTransport();
+        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
     }
 
-    private void OnTransportFocusChanged(object sender, RoutedEventArgs e) => ShowTransport();
+    private void OnTransportFocusChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
+    }
 
     private void OnTransportFlyoutOpened(object sender, object e)
     {
@@ -955,12 +1012,13 @@ public sealed partial class LiveView : UserControl
     private void OnTransportFlyoutClosed(object sender, object e)
     {
         _openTransportFlyouts = Math.Max(0, _openTransportFlyouts - 1);
-        ShowTransport();
+        if (!_presentation.IsFullScreen || _fullScreenTransportShown) ShowTransport();
     }
 
     private bool IsFocusWithin(DependencyObject container)
     {
-        if (XamlRoot is null || FocusManager.GetFocusedElement(XamlRoot) is not DependencyObject focused) return false;
+        if (container is not FrameworkElement element || element.XamlRoot is not { } root
+            || FocusManager.GetFocusedElement(root) is not DependencyObject focused) return false;
         for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
         {
             if (ReferenceEquals(node, container)) return true;
