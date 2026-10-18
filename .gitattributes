@@ -3,6 +3,11 @@
 ###############################################################################
 * text=auto
 
+# release-artifacts.json hashes the exact bytes of these scripts (LF).
+# Keep Windows core.autocrlf=true checkouts identical to the release manifest.
+scripts/local-release/Install.ps1 text eol=lf
+scripts/local-release/Trust-Certificate.ps1 text eol=lf
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
