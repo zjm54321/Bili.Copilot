@@ -1,0 +1,22 @@
+<Project>
+  <ItemGroup>
+    <KnownFrameworkReference Update="@(KnownFrameworkReference)">
+      <LatestRuntimeFrameworkVersion Condition="'%(KnownFrameworkReference.TargetFramework)' == 'net9.0'">9.0.20</LatestRuntimeFrameworkVersion>
+    </KnownFrameworkReference>
+    <KnownILLinkPack Update="@(KnownILLinkPack)">
+      <ILLinkPackVersion Condition="'%(KnownILLinkPack.TargetFramework)' == 'net9.0'">9.0.20</ILLinkPackVersion>
+    </KnownILLinkPack>
+    <KnownCrossgen2Pack Update="@(KnownCrossgen2Pack)">
+      <Crossgen2PackVersion Condition="'%(KnownCrossgen2Pack.TargetFramework)' == 'net9.0'">9.0.20</Crossgen2PackVersion>
+    </KnownCrossgen2Pack>
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp' And '$(TargetFrameworkVersion)' == 'v9.0'">
+    <FrameworkReference Update="Microsoft.NETCore.App">
+      <RuntimeFrameworkVersion>9.0.20</RuntimeFrameworkVersion>
+    </FrameworkReference>
+  </ItemGroup>
+  <Target Name="RecordReleaseSettings" BeforeTargets="CoreCompile" Condition="'$(MSBuildProjectName)' == 'BiliCopilot.UI'">
+    <WriteLinesToFile File="$(BuildOutDir)effective-compile-properties.txt" Overwrite="true"
+      Lines="Configuration=$(Configuration);Platform=$(Platform);Optimize=$(Optimize);PublishReadyToRun=$(PublishReadyToRun);PublishAot=$(PublishAot);PublishTrimmed=$(PublishTrimmed);RunAnalyzers=$(RunAnalyzers);RunAnalyzersDuringBuild=$(RunAnalyzersDuringBuild);EnableNETAnalyzers=$(EnableNETAnalyzers);TreatWarningsAsErrors=$(TreatWarningsAsErrors);AnalysisLevel=$(AnalysisLevel);AnalysisMode=$(AnalysisMode);EnableAotAnalyzer=$(EnableAotAnalyzer);EnableTrimAnalyzer=$(EnableTrimAnalyzer);EnableSingleFileAnalyzer=$(EnableSingleFileAnalyzer);RuntimeFrameworkVersion=$(RuntimeFrameworkVersion)" />
+  </Target>
+</Project>

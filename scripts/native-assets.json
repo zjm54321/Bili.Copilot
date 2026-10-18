@@ -1,0 +1,10 @@
+{
+  "url": "https://github.com/zjm54321/Bili.Copilot/releases/download/v2.2611.3.0/native-assets-2611.3.zip",
+  "sha256": "476124f2626ad2e8d99ea73062bc62fa686919c9c063230dea6db1425bb9f440",
+  "files": {
+    "ffmpeg/x64/ffmpeg.exe": "97cba10ab56e0ed7b3fc09004f1caedd8468924fd5fb39db126383a053da9c5e",
+    "libmpv/x64/libmpv-2.dll": "d10d0994bd1398813da87fdb299961b378c71561bae1d135cb2b641b5864d7eb",
+    "visor/arm64/BiliCopilot.Visor.exe": "6a12b535defb12f35b6abaaba12fe0dcd21a2e40db14aeb4921f5ccdb46e9d14",
+    "visor/x64/BiliCopilot.Visor.exe": "cbf75e0cd2ff7f5ff0bdce0b89ad47cd4c4cc154b93d89f602463c1cb33dbedb"
+  }
+}

@@ -358,6 +358,13 @@ FodyWeavers.xsd
 tools/Prompt.txt
 
 # Plugin package
+/artifacts/
+/.nuget-clean/
+/.nuget-http-clean/
+/src/_build/
+/src/Desktop/BiliCopilot.UI/Assets/libmpv/
+/src/Desktop/BiliCopilot.UI/Assets/ffmpeg/
+/src/Desktop/BiliCopilot.UI/Assets/visor/
 /src/App/Assets/AppCenterSecret.txt
 /src/Desktop/BiliCopilot.UI/Assets/libmpv/libmpv-2.dll
 /src/Desktop/BiliCopilot.UI/Assets/ffmpeg/ffmpeg.exe

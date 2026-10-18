@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <!-- THIS PROPERTY GROUP MUST COME FIRST -->
+    <AssemblyName>Richasy.BiliKernel.Services.Media</AssemblyName>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <NoWarn>NU1507</NoWarn>
+    <Platforms>AnyCPU</Platforms>
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net7.0'))">true</IsAotCompatible>
+  </PropertyGroup>
+
+  <Import Project="$(RepoRoot)/src/nuget-package.props" />
+
+  <PropertyGroup>
+    <!-- NuGet Package Settings -->
+    <PackageVersion>0.0.2-preview2-bilicopilot.2611.2.sb2</PackageVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Title>哔哩核心 - 多媒体</Title>
+    <Description>用于获取 UGC / PGC 视频/直播等流媒体内容的哔哩核心子模块</Description>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Richasy.BiliKernel.Abstractions" />
+    <PackageReference Include="Richasy.BiliKernel.Core" />
+  </ItemGroup>
+  
+</Project>
