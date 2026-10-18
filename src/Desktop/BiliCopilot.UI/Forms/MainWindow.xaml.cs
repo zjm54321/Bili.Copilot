@@ -196,7 +196,11 @@ public sealed partial class MainWindow : WindowBase, ITipWindow
         {
             if (!_isTerminalClosePermitted)
             {
-                this.Get<ILogger<App>>().LogInformation($"App version: {this.Get<IAppToolkit>().GetPackageVersion()}");
+                var logger = this.Get<ILogger<App>>();
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("App version: {Version}", this.Get<IAppToolkit>().GetPackageVersion());
+                }
             }
         });
     }

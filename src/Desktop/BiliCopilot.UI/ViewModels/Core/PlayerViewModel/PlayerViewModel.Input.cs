@@ -276,8 +276,10 @@ public sealed partial class PlayerViewModel
     private static bool IsAltKey(VirtualKey key)
         => key is VirtualKey.Menu or VirtualKey.LeftMenu or VirtualKey.RightMenu;
 
+    private static readonly int[] NonAltModifierKeys = [0x10, 0x11, 0x5B, 0x5C];
+
     private static bool HasNonAltModifier()
-        => new[] { 0x10, 0x11, 0x5B, 0x5C }.Any(key => (PInvoke.GetAsyncKeyState(key) & 0x8000) != 0);
+        => NonAltModifierKeys.Any(key => (PInvoke.GetAsyncKeyState(key) & 0x8000) != 0);
 
     private async void OnPlayerKeyDown(object sender, KeyRoutedEventArgs args)
     {

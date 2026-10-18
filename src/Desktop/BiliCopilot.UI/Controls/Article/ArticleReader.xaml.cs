@@ -186,7 +186,10 @@ public sealed partial class ArticleReader : LayoutUserControlBase
             return ArticleReaderRenderResult.Superseded;
         }
 
+        // Awaiting HTML generation allows detach/reinitialization to clear the subscription.
+        #pragma warning disable CA1508
         var core = _subscriptions?.Core;
+        #pragma warning restore CA1508
         if (!IsInitialized || core is null)
         {
             return ArticleReaderRenderResult.ReaderUnavailable;

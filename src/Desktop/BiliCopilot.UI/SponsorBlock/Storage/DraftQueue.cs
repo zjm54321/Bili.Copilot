@@ -6,6 +6,7 @@ namespace BiliCopilot.UI.SponsorBlock.Storage;
 
 /// <summary>Single-owner synchronous domain. No callbacks, player actions, automatic intent or replay.
 /// Limits: 256 total retained drafts (including confirmed history), 16 media, 100 per submission.</summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "DraftQueue is the existing draft workflow aggregate, not a FIFO collection contract; retain its public name.")]
 public sealed partial class DraftQueue
 {
     public const int MaximumDrafts = 256, MaximumMedia = 16, MaximumJsonBytes = 1024 * 1024;

@@ -19,4 +19,4 @@ namespace BiliCopilot.UI.SponsorBlock.Models;
 [JsonSerializable(typeof(SegmentDraft[]))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(int))]
-internal partial class SponsorJsonContext : JsonSerializerContext;
+internal sealed partial class SponsorJsonContext : JsonSerializerContext;

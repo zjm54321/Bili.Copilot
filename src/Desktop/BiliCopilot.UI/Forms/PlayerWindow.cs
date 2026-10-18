@@ -217,15 +217,15 @@ public sealed partial class PlayerWindow : IPlayerHost
     /// <summary>
     /// 设置标题栏按钮的可见性.
     /// </summary>
-    /// <param name="isVisible"></param>
-    public void SetCaptionButtonVisibility(bool isVisible)
+    /// <param name="visible"></param>
+    public void SetCaptionButtonVisibility(bool visible)
     {
         if (!_isReady || IsClosed || IsDisposed || _isDisposing) return;
-        _rootWindow.TitleBar?.ButtonForegroundColor = isVisible ? Colors.White : "#111111".ToColor();
+        _rootWindow.TitleBar?.ButtonForegroundColor = visible ? Colors.White : "#111111".ToColor();
     }
 
-    public void SetActiveAction(Action<bool>? activeChangedAction)
-        => _activeChangedAction = activeChangedAction;
+    public void SetActiveAction(Action<bool>? action)
+        => _activeChangedAction = action;
 
     /// <summary>
     /// 关闭窗口.
@@ -426,7 +426,7 @@ public sealed partial class PlayerWindow : IPlayerHost
             size.Height));
     }
 
-    public void SetTopMost(bool isTopMost)
+    public void SetTopMost(bool value)
     {
         CheckReady();
         // 全屏和小窗模式下不处理置顶.
@@ -435,7 +435,7 @@ public sealed partial class PlayerWindow : IPlayerHost
             return;
         }
 
-        PInvoke.SetWindowPos(new(Handle), isTopMost ? new(-1) : new(-2), 0, 0, 0, 0, SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW);
+        PInvoke.SetWindowPos(new(Handle), value ? new(-1) : new(-2), 0, 0, 0, 0, SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW);
     }
 
     public bool IsTopMost()

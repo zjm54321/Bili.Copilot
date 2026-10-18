@@ -372,6 +372,7 @@ public sealed partial class SponsorPlaybackViewModel : ObservableObject
         _ => "暂时无法操作",
     };
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Maintainability", "CA1508", Justification = "Receipts are populated by the controller and record with-expressions; they are not limited to their null initializers.")]
     private void ProjectApplied(SponsorControllerResult controller, PlaybackOwner owner)
     {
         var applied = controller.AppliedId > _dismissedAppliedId && controller.Applied is { } a && a.Owner == owner && !a.WasPreview ? a : null;

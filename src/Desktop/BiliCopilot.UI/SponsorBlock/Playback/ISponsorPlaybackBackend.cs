@@ -58,7 +58,7 @@ internal sealed class NativeAdmission
         private long lastOperationId;
         internal Issuer(long nativeGeneration)
         {
-            if (nativeGeneration < 0) throw new ArgumentOutOfRangeException(nameof(nativeGeneration));
+            ArgumentOutOfRangeException.ThrowIfNegative(nativeGeneration);
             NativeGeneration = nativeGeneration;
         }
         internal long NativeGeneration { get; }

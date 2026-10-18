@@ -91,24 +91,31 @@ public sealed partial class ClassicIslandSurface : ContentControl, IDisposable
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate nint SubclassProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     private static extern nint CreateWindowExW(uint extendedStyle, string className, string title, uint style,
         int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyWindow(nint window);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShowWindow(nint window, int command);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("comctl32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowSubclass(nint window, SubclassProcedure procedure, nuint id, nuint data);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("comctl32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool RemoveWindowSubclass(nint window, SubclassProcedure procedure, nuint id);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("comctl32.dll")]
     private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
 }

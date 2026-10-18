@@ -63,7 +63,10 @@ public sealed partial class AccountViewModel : ViewModelBase
         catch (Exception ex)
         {
             if (generation != AccountGeneration || _isSigningOut || cancellationToken.IsCancellationRequested) return;
-            _logger.LogCritical("无法获取登录用户的资料 ({ErrorType})", ex.GetType().Name);
+            if (_logger.IsEnabled(LogLevel.Critical))
+            {
+                _logger.LogCritical("无法获取登录用户的资料 ({ErrorType})", ex.GetType().Name);
+            }
 
             // 用户可能更改了密码，提醒用户是否需要重新登录.
             var dialog = new ContentDialog()

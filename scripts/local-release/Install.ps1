@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 $script:ReleaseFixed = @{
     Name                 = 'BiliCopilot.LocalRelease'
     Publisher            = 'CN=BiliCopilot Local Release'
-    Version              = '2.2611.1.0'
+    Version              = '2.2611.3.0'
     Architecture         = 'x64'
     CodeSigningEku       = '1.3.6.1.5.5.7.3.3'
     ManifestFileName     = 'release-artifacts.json'

@@ -31,6 +31,7 @@ public sealed record UserSpaceOpusRow(string Id, string? Content, Uri? Cover, Ur
     public string? ArticleId { get; init; }
 }
 public sealed record UserSpaceAudioRow(string Id, Uri OriginalUri);
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Collection is the existing domain name of a remote user-space collection, not a CLR collection contract.")]
 public sealed record UserSpaceCollection(UserCollectionKind Kind, string Id, string OwnerId, string? Name, Uri? Cover, long? Count);
 public sealed record UserSpacePage<T>(IReadOnlyList<T> Items, bool HasMore, int NextPage = 1, string? NextOffset = null);
 

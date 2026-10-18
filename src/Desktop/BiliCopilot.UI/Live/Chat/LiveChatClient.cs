@@ -322,7 +322,10 @@ internal sealed class LiveChatClient : ILiveChatClient, ILiveAudienceSource
                 owner.ReleaseFailed = true;
                 lock (_gate) _poisoned = true;
                 // Keep owner.Attempt/socket strongly owned and reject all replacement.
+                // A failed release must override an earlier transport failure: replacement is unsafe.
+                #pragma warning disable CA2219
                 throw new LiveChatFailure("Live chat transport could not be released.", false);
+                #pragma warning restore CA2219
             }
             finally
             {

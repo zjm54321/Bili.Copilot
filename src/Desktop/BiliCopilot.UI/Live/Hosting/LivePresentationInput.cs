@@ -132,13 +132,17 @@ internal sealed class LivePresentationInput
         SendMessageW(window, 0x00A1, 2, position); // MAIN HWND: WM_NCLBUTTONDOWN, HTCAPTION.
     }
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int key);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ReleaseCapture();
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern nint SendMessageW(nint window, uint message, nuint parameter, nint position);
 }

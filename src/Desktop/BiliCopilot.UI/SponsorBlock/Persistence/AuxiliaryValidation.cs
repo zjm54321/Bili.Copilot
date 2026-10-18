@@ -53,7 +53,7 @@ internal static class AuxiliaryValidation
             || !Enum.IsDefined(r.Vote) || r.Service != "https://www.bsbsb.top/"
             || r.Text is not null && !Text(r.Text, 128) || r.Duration is not null && (!Number(r.Duration.Value) || r.Duration <= 0)
             || r.PublicUserId is not null && !Hex(r.PublicUserId) || !Enum.IsDefined(entry.Phase)) return false;
-        MediaIdentity.TryParse(s.MediaKey, out var media);
+        if (!MediaIdentity.TryParse(s.MediaKey, out var media)) return false;
         if (r.Operation is not (ManualOperation.ReportViewed or ManualOperation.UpdatePort) && !Hex(r.PublicUserId)) return false;
         if (r.Target is { } key && (key.MediaKey != s.MediaKey || !Text(key.Uuid, 256) || !SponsorRules.IsKnownSource(key.Source))) return false;
         if (r.Operation is ManualOperation.Vote or ManualOperation.ChangeCategory or ManualOperation.ReportViewed && r.Target is null) return false;

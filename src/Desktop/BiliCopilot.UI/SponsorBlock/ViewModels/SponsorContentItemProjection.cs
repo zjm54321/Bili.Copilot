@@ -160,7 +160,10 @@ internal sealed class SponsorContentItemProjection
             return;
         }
 
+        // Ownership transfers to _work; Complete/Cancel release it, not this stack frame.
+        #pragma warning disable CA2025
         _ = RunAsync(state, input, work, generation, state.LocalRevision, state.IsBodyRevealed, state.ManuallyRevealedReplies);
+        #pragma warning restore CA2025
     }
 
     private async Task RunAsync(SponsorContentCardState state, ContentPromotionInput input, CancellationTokenSource work,

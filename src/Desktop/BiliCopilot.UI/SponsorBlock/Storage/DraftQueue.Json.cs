@@ -43,7 +43,7 @@ public sealed partial class DraftQueue
             if (entry.State is DraftState.Confirmed or DraftState.AcceptedUnconfirmed or DraftState.Unknown or DraftState.SubmissionInFlight
                 && entry.LastSubmission is null) return Fail("MissingSubmissionHistory");
             if (entry.State == DraftState.Confirmed && entry.ServerUuid is null) return Fail("MissingServerUuid");
-            MediaIdentity.TryParse(entry.Draft.MediaKey, out var media);
+            if (!MediaIdentity.TryParse(entry.Draft.MediaKey, out var media)) return Fail("InvalidOrDuplicateDraft");
             var valid = SponsorRules.ValidateDraft(entry.Draft, media!, entry.Duration) is null;
             var incomplete = SponsorRules.Allows(entry.Draft.Segment.Category, entry.Draft.Segment.ActionType)
                 && entry.Draft.Segment.ActionType is "skip" or "mute" && entry.Draft.Segment.Segment.Length == 1;

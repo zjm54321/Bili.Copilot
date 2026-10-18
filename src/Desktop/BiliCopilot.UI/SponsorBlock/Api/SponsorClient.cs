@@ -10,7 +10,9 @@ namespace BiliCopilot.UI.SponsorBlock.Api;
 /// <summary>Typed opt-in protocol only. No cookies, arbitrary endpoints, retries, UI, or player ownership.</summary>
 public sealed partial class SponsorClient : IDisposable
 {
-    public const string UserAgent = "BiliCopilot/2.2611.2.0";
+    public const string UserAgent = "BiliCopilot/2.2611.3.0";
+    private static readonly string[] FullActions = ["full"];
+    private static readonly string[] UserInfoFields = ["userName", "viewCount", "minutesSaved", "vip", "permissions", "segmentCount"];
     public static Uri Service { get; } = new("https://www.bsbsb.top/");
     private readonly SponsorNetworkConsent consent;
     private readonly SponsorTransport transport;
@@ -67,7 +69,7 @@ public sealed partial class SponsorClient : IDisposable
         if (!consent.NetworkEnabled) return new(ReadStatus.Disabled);
         var categories = SponsorRules.Categories.Where(c => c.AllowedActions.Contains("full")).Select(c => c.Id).ToArray();
         var path = "api/skipSegments/" + media.VideoPrefix + "?" + JsonQuery("categories", categories, SponsorJsonContext.Default.StringArray)
-            + "&" + JsonQuery("actionTypes", new[] { "full" }, SponsorJsonContext.Default.StringArray);
+            + "&" + JsonQuery("actionTypes", FullActions, SponsorJsonContext.Default.StringArray);
         var wire = await transport.ReadAsync(path, media.Combined + "|full", true, refresh,
             b => Schema(b, SponsorJsonContext.Default.SegmentBucketArray, a => a.All(v => v is not null && v.VideoId is not null
                 && !v.Segments.IsDefault && v.Segments.All(ValidRaw))), cancellationToken).ConfigureAwait(false);
@@ -112,7 +114,7 @@ public sealed partial class SponsorClient : IDisposable
         if (publicUserId.Length != 64 || publicUserId.Any(c => !char.IsAsciiHexDigit(c)))
             return new(ReadStatus.SchemaFailure, Reason: "InvalidPublicIdentity");
         var path = "api/userInfo?" + StringQuery("publicUserID", publicUserId) + "&"
-            + JsonQuery("values", new[] { "userName", "viewCount", "minutesSaved", "vip", "permissions", "segmentCount" }, SponsorJsonContext.Default.StringArray);
+            + JsonQuery("values", UserInfoFields, SponsorJsonContext.Default.StringArray);
         var wire = await transport.ReadAsync(path, publicUserId, false, refresh,
             b => Schema(b, SponsorJsonContext.Default.SponsorUserInfo, _ => true), cancellationToken).ConfigureAwait(false);
         return wire.Status == ReadStatus.Success

@@ -19,6 +19,7 @@ namespace BiliCopilot.UI.SponsorBlock.Platform;
 internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAsyncDisposable
 {
     internal const int MaximumBackupBytes = SponsorBackupStreamIO.MaximumBackupBytes;
+    private static readonly string[] JsonFileExtensions = [".json"];
 
     private readonly Window _owner;
     private readonly DispatcherQueue _queue;
@@ -106,10 +107,7 @@ internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAs
     private void EnsureNotStopping()
     {
         EnsureOwnerThread();
-        if (_stopping)
-        {
-            throw new ObjectDisposedException(nameof(WindowsSponsorBackupFilePort));
-        }
+        ObjectDisposedException.ThrowIf(_stopping, typeof(WindowsSponsorBackupFilePort));
     }
 
     private void EnsureAdmission()
@@ -171,7 +169,7 @@ internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAs
             SuggestedFileName = safeName,
             DefaultFileExtension = ".json",
         };
-        picker.FileTypeChoices.Add("JSON", new[] { ".json" });
+        picker.FileTypeChoices.Add("JSON", JsonFileExtensions);
         InitializeWithWindow.Initialize(picker, _ownerHwnd);
         EnsureNotStopping(); // Interop may reenter the owner's Closed handler.
 
@@ -265,8 +263,7 @@ internal sealed class WindowsSponsorBackupFilePort : ISponsorBackupFilePort, IAs
         using var nativeStream = await openTask.ConfigureAwait(false);
         // Disable adapter read-ahead: at most limit + one probe byte is consumed.
         using var stream = nativeStream.AsStreamForRead(bufferSize: 0);
-        var readTask = SponsorBackupStreamIO.ReadBoundedAsync(stream);
-        return await readTask.ConfigureAwait(false);
+        return await SponsorBackupStreamIO.ReadBoundedAsync(stream).ConfigureAwait(false);
     }
 
     internal static string CleanSuggestedFileName(string? suggestedFileName)

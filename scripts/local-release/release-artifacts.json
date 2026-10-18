@@ -1,32 +1,34 @@
 {
-  "schemaVersion": 1,
-  "package": {
-    "relativePath": "__PENDING_PACKAGE_RELATIVE_PATH__",
-    "sha256": "__PENDING_PACKAGE_SHA256__",
-    "name": "BiliCopilot.LocalRelease",
-    "publisher": "CN=BiliCopilot Local Release",
-    "version": "2.2611.1.0",
-    "architecture": "x64",
-    "packageFamilyName": "__PENDING_PACKAGE_FAMILY_NAME__",
-    "packageFullName": "__PENDING_PACKAGE_FULL_NAME__",
-    "applicationId": "__PENDING_APPLICATION_ID__",
-    "minOsVersion": "__PENDING_MIN_OS_VERSION__"
-  },
-  "certificate": {
-    "relativePath": "__PENDING_CERTIFICATE_RELATIVE_PATH__",
-    "sha256": "__PENDING_CERTIFICATE_SHA256__",
-    "derSha256": "__PENDING_CERTIFICATE_DER_SHA256__",
-    "thumbprint": "__PENDING_CERTIFICATE_SHA1_THUMBPRINT__",
-    "subject": "CN=BiliCopilot Local Release",
-    "notBeforeUtc": "__PENDING_CERTIFICATE_NOT_BEFORE_UTC__",
-    "notAfterUtc": "__PENDING_CERTIFICATE_NOT_AFTER_UTC__",
-    "codeSigningEku": "1.3.6.1.5.5.7.3.3",
-    "digitalSignature": true,
-    "isCertificateAuthority": false
-  },
-  "dependencies": "__PENDING_DEPENDENCIES_ARRAY__",
-  "scripts": {
-    "installSha256": "__PENDING_INSTALL_PS1_SHA256__",
-    "trustSha256": "__PENDING_TRUST_CERTIFICATE_PS1_SHA256__"
-  }
+    "schemaVersion":  1,
+    "package":  {
+                    "relativePath":  "payload/BiliCopilot_2.2611.3.0_x64.msix",
+                    "sha256":  "9b7becc364f320da74c71273eb6fe0c5530d1c202de44612edefd22e393808bf",
+                    "name":  "BiliCopilot.LocalRelease",
+                    "publisher":  "CN=BiliCopilot Local Release",
+                    "version":  "2.2611.3.0",
+                    "architecture":  "x64",
+                    "packageFamilyName":  "BiliCopilot.LocalRelease_p8tmrechhd89c",
+                    "packageFullName":  "BiliCopilot.LocalRelease_2.2611.3.0_x64__p8tmrechhd89c",
+                    "applicationId":  "App",
+                    "minOsVersion":  "10.0.19041.0"
+                },
+    "certificate":  {
+                        "relativePath":  "payload/BiliCopilot.LocalRelease.cer",
+                        "sha256":  "8730c43babe7384650df2c282c72e9267e727ee95dd6cd54b9fed49a6040fce2",
+                        "derSha256":  "8730c43babe7384650df2c282c72e9267e727ee95dd6cd54b9fed49a6040fce2",
+                        "thumbprint":  "0460A4224C301235C30B6D89287AFA7F2ACE2A21",
+                        "subject":  "CN=BiliCopilot Local Release",
+                        "notBeforeUtc":  "2026-10-10T17:15:28Z",
+                        "notAfterUtc":  "2031-10-10T17:25:28Z",
+                        "codeSigningEku":  "1.3.6.1.5.5.7.3.3",
+                        "digitalSignature":  true,
+                        "isCertificateAuthority":  false
+                    },
+    "dependencies":  [
+
+                     ],
+    "scripts":  {
+                    "installSha256":  "f41327839425a0d135df45eba89e08dafbcca1abb1a542dd2c3dd661e75ed5f3",
+                    "trustSha256":  "c1da0842d34537d1548e84089b9db003073bfa5069c6babdd66b906b3c32f757"
+                }
 }

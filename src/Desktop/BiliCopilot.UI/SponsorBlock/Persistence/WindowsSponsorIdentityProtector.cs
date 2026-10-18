@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 
 namespace BiliCopilot.UI.SponsorBlock.Persistence;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1819", Justification = "This binary protection result intentionally transfers the owned DPAPI byte buffer to its caller.")]
 public sealed record IdentityProtectionResult(PersistenceStatus Status, byte[]? Bytes = null);
 
 /// <summary>Trusted injected seam. Production must use OS-backed protection, never a plaintext fallback.

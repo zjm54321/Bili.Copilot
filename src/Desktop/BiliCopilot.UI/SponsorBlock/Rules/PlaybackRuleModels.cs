@@ -39,9 +39,9 @@ public sealed record PlaybackPolicy(long Revision)
     public bool DisableSkipping { get; init; }
     public bool IncludeMute { get; init; }
     public bool IncludeFull { get; init; }
-    public double MinDuration { get; init; } = 0;
-    public bool AutoSkipOnMusicVideos { get; init; } = false;
-    public bool ManualSkipOnFullVideo { get; init; } = false;
+    public double MinDuration { get; init; }
+    public bool AutoSkipOnMusicVideos { get; init; }
+    public bool ManualSkipOnFullVideo { get; init; }
     public bool WaitForChannelVerification { get; init; }
     public bool SkipOnSeekToSegment { get; init; }
     public SponsorSkipStrategy SkipStrategy { get; init; } = SponsorSkipStrategy.Seek;

@@ -313,13 +313,13 @@ public sealed partial class UserSpaceService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
         if (text.StartsWith("//", StringComparison.Ordinal)) text = "https:" + text;
-        else if (text.StartsWith("/", StringComparison.Ordinal)) text = "https://www.bilibili.com" + text;
+        else if (text.StartsWith('/')) text = "https://www.bilibili.com" + text;
         if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || uri.Scheme != "https"
             || uri.Host is not ("www.bilibili.com" or "bilibili.com" or "m.bilibili.com")
             || uri.Port != 443 || uri.UserInfo.Length != 0) return null;
 
         var path = uri.AbsolutePath;
-        if (path.EndsWith("/", StringComparison.Ordinal)) path = path[..^1];
+        if (path.EndsWith('/')) path = path[..^1];
         if (path.StartsWith("/read/cv", StringComparison.Ordinal))
         {
             var articleId = path[8..];

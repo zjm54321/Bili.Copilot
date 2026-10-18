@@ -169,7 +169,7 @@ public sealed class ClassicInputBridge : IDisposable
         try
         {
             if (_captured is null) { ShowForMouseActivity(e); return; }
-            if (_captured?.PointerId != e.Pointer.PointerId) return;
+            if (_captured.PointerId != e.Pointer.PointerId) return;
             e.Handled = true;
             var point = e.GetCurrentPoint(_view.InputSurface);
             await _input.PointerMovedAsync(e.Pointer.PointerId, point.Position.X, point.Position.Y, _view.InputSurface.ActualWidth);
