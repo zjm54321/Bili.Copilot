@@ -1,49 +1,34 @@
-# Release 构建：干净克隆检查
-
-## 当前阻塞（2026-10-18）
-
-**目前不能仅用仓库源码和 `nuget.config` 中的公开源完成 Release 构建。**
-在 Windows 上从提交 `74f83b94f91f75710c547916cdc01b722def4f0a` 执行
-`git clone --recurse-submodules`，使用克隆目录内全新的 `NUGET_PACKAGES`，
-按已知成功版本的参数执行 restore，结果为 **0 warnings / 5 errors (NU1102)**。
-没有使用参考构建的本地 packages 缓存。
-
-`src/Directory.Packages.props` 引用以下四个私有构建版本；所有已声明源均找不到它们：
-
-- `Richasy.BiliKernel.Abstractions`
-- `Richasy.BiliKernel.Services.Comment`
-- `Richasy.BiliKernel.Services.Media`
-- `Richasy.BiliKernel.Services.Moment`
-
-版本均为 `0.0.2-preview2-bilicopilot.2611.2.sb2`；nuget.org 的最近版本是
-`0.0.2-preview2`。Abstractions 被两个项目引用，因此共有五个错误。
-不能降级到公开版本来绕过此问题：该版本承载本地修改，降级可能改变应用功能。
-需要先将对应修改后的 SDK 源码及构建流程纳入版本管理，或明确提供可长期访问的固定版本包源。
-复制开发机缓存不能满足“只用 git 仓库源码”的验收条件。
+# Release x64 MSIX：从干净克隆构建
 
 ## Windows 前置条件与克隆
 
-参考成功构建使用 Visual Studio 18 Community 的 MSBuild、.NET SDK 和
-Windows SDK `10.0.26100.0` 的 x64 MakeAppx/SignTool。此次机器上的 .NET SDK 是
-`10.0.402`；目标框架仍为 .NET 9，参考构建固定运行时、ILLink、Crossgen2 为 `9.0.20`。
-需要 Windows 桌面/WinUI 构建工具。若还要从源码发布 NativeAOT Visor，需要 C++ 工具链。
+需要 Windows、Git、PowerShell 5.1 或更新版本、Visual Studio 的 Windows 桌面/WinUI
+构建工具及 Windows SDK `10.0.26100.0`（x64 MakeAppx/SignTool）。验证环境为
+Visual Studio 18 Community、.NET SDK `10.0.402`；`global.json` 固定该 SDK。
+目标框架仍为 .NET 9，运行时、ILLink、Crossgen2 固定 `9.0.20`。
+NuGet 网络访问必需；不要求预先存在的本地包缓存。WSL 下请用 Windows PowerShell
+执行构建，不要使用 Linux dotnet。手动提供预编译 Visor 时不需要 NativeAOT C++ 工具链。
 
 ```powershell
 git clone --recurse-submodules <repository-url> Bili.Copilot
 cd Bili.Copilot
 $env:NUGET_PACKAGES = Join-Path $PWD '.nuget-clean'
 $env:NUGET_HTTP_CACHE_PATH = Join-Path $PWD '.nuget-http-clean'
-# 必须显式指定仓库配置，避免用户级包源或 fallback 隐式补齐缺失包。
-dotnet msbuild src/Desktop/BiliCopilot.UI/BiliCopilot.UI.csproj /t:Restore `
-  /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 `
-  /p:RestoreConfigFile="$PWD/nuget.config" /p:RestorePackagesPath="$env:NUGET_PACKAGES" `
-  /p:RestoreFallbackFolders= /p:RestoreAdditionalProjectFallbackFolders= `
-  /p:RestoreAdditionalProjectSources= /p:RestoreIgnoreFailedSources=false
+# 若之前 clone 时未递归：git submodule update --init --recursive
+./scripts/Build-BiliKernel.ps1
+# 按下一节手动放入四个原生文件，然后：
+./scripts/Build-Release.ps1
+# 产物：artifacts/release/BiliCopilot_2.2611.3.0_x64.msix
 ```
 
-**上述命令目前会遇到所述私有包阻塞，不是完整的可用构建教程。**
-完整验收还必须恢复下面的运行时文件，开启分析器和 warnings-as-errors 完成 publish，
-最后检查 MSIX 内容；restore 成功或 C# 编译成功均不足以证明包可用。
+SDK 是固定提交的 `src/Libs/BiliKernel` submodule，源为
+<https://github.com/zjm54321/BiliKernel>，基于上游 `0.0.2-preview2`，保留原始 LICENSE。
+`Build-BiliKernel.ps1` 只构建 Abstractions 和 Services.Comment/Media/Moment，
+版本 `0.0.3-bilicopilot.1`，写入 `artifacts/bilikernel-feed`。
+`nuget.config` 用精确 packageSourceMapping 将这四个包限制到本地 feed；其他源保留，
+Core/Grpc 等未修改模块仍来自公开包。构建显式使用仓库 NuGet 配置。
+`artifacts/`、`.nuget-clean/`、`.nuget-http-clean/`、原生资产目录均被忽略。
+重新构建 MSIX 前删除生成的 `artifacts/release/`；不要修改 submodule 的固定提交。
 
 ## 手动补齐原生运行时文件
 
@@ -113,22 +98,42 @@ ARM64 Visor 虽保留以完整记录参考资产，但不随 x64 包一起使用
 不是本次克隆缺失项。未签名打包不需要 PFX；launchSettings 用于调试，不是发布依赖。
 本次未修改、导入或导出任何证书，也未安装包。
 
-## 还需纳入仓库的参考构建设置
+## Release 设置与签名
 
-成功构建并非只运行上游 workflow：它另外传入了仓库外的 `release.props`、
-`isolation.props` 和 `runtime-pin.targets`。
-前两者隔离各项目的 `BaseIntermediateOutputPath`、`MSBuildProjectExtensionsPath`、
-`BaseOutputPath`，并为 UI 开启 AOT/Trim/SingleFile 分析器；后者固定 .NET 9 运行时、
-ILLink 和 Crossgen2 至 `9.0.20`。复现脚本应使用仓库相对路径移植这些设置。
-参考发布参数为 Release/x64/win-x64、Optimize/SelfContained/PublishReadyToRun=true、
+`Build-Release.ps1` 使用已纳入仓库的 `scripts/build-config/release.props` 和
+`runtime-pin.targets`，隔离各项目的 obj/bin，开启 UI 的 AOT/Trim/SingleFile 分析器，
+固定 .NET 9 运行时、ILLink、Crossgen2 至 `9.0.20`，不再读取参考构建目录的配置。
+发布参数为 Release/x64/win-x64、Optimize/SelfContained/PublishReadyToRun=true、
 PublishAot/PublishTrimmed=false，RunAnalyzers、RunAnalyzersDuringBuild、EnableNETAnalyzers、
 TreatWarningsAsErrors 全部为 true，AnalysisLevel=latest、AnalysisMode=AllEnabledByDefault。
 沿用现有 NoWarn，不能通过关闭分析器或扩充抑制列表取得成功。
 
-参考打包从 `BiliCopilot.UI.build.appxrecipe` 建立 layout，同名文件优先采用 publish
-输出，然后用 MakeAppx 打包。移植时不要保留临时目录绝对路径或读取旧的身份 JSON；
-应从仓库中的 manifest 检查身份和 COM executable，并检查 MSIX 中上述 x64 运行时文件的哈希。
-本次 restore 失败，未进入 publish/打包，不能报告新的 MSIX 已通过。
+脚本从 `BiliCopilot.UI.build.appxrecipe` 建立 layout，同名文件优先采用 publish 输出，
+核对 manifest 身份、COM executable 和三个 x64 原生文件的哈希，然后用 MakeAppx 打包。
+日志、binlog、有效编译参数和结果保存在 `artifacts/release/`。默认输出未签名包。
+自动发现 Visual Studio MSBuild；其他工具安装位置可用 `-MSBuildPath`、`-WindowsSdkBin` 指定。
+
+签名使用 Windows 当前用户证书库中的本地私钥，不从 Git 中的旧 TemporaryKey PFX
+导入私钥。已有匹配 Publisher 的证书时：
+
+```powershell
+./scripts/Build-Release.ps1 -CertificateThumbprint '<证书指纹>'
+```
+
+没有私钥时，可创建仅用于本机测试的证书，再把指纹传给脚本：
+
+```powershell
+$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=BiliCopilot Local Release' `
+  -KeyUsage DigitalSignature -FriendlyName 'BiliCopilot local build' `
+  -CertStoreLocation 'Cert:\CurrentUser\My' -HashAlgorithm SHA256 `
+  -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3','2.5.29.19={text}')
+./scripts/Build-Release.ps1 -CertificateThumbprint $cert.Thumbprint
+```
+
+证书 Subject 必须和 manifest 的 Publisher 完全一致。安装签名包前需由用户主动信任
+导出的公钥证书；私钥不要提交 Git。未签名 MSIX 可以用于内容和构建验证，不能承诺
+开发者模式直接安装任意未签名 MSIX；安装测试请先自行签名并信任证书。
+本任务不安装或修改已安装应用。
 
 ## 安装脚本的字节哈希
 

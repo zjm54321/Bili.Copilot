@@ -22,7 +22,7 @@ $native = Get-Content (Join-Path $PSScriptRoot 'native-assets.json') -Raw | Conv
 foreach ($file in $native.files.PSObject.Properties) {
     $path = Join-Path $root ('src/Desktop/BiliCopilot.UI/Assets/' + $file.Name)
     if (-not (Test-Path $path) -or (Get-FileHash $path -Algorithm SHA256).Hash -ine $file.Value) {
-        throw "Missing or changed native asset: $($file.Name). Run Restore-NativeAssets.ps1."
+        throw "Missing or changed native asset: $($file.Name). Follow scripts/README.md to supply it manually."
     }
 }
 if (Test-Path $layout) { throw "Existing release layout: $layout. Remove artifacts/release before rebuilding." }

@@ -3,9 +3,11 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $root 'src/Libs/BiliKernel'
+if (-not (Test-Path (Join-Path $source '.git'))) { throw 'Initialize the pinned SDK: git submodule update --init --recursive' }
 $feed = Join-Path $root 'artifacts/bilikernel-feed'
 $logs = Join-Path $root 'artifacts/bilikernel-logs'
 New-Item -ItemType Directory -Force -Path $feed, $logs | Out-Null
+$env:DOTNET_CLI_UI_LANGUAGE = 'en-US'
 if (-not $env:NUGET_PACKAGES) { $env:NUGET_PACKAGES = Join-Path $root '.nuget-clean' }
 $projects = @('BiliKernel.Abstractions/BiliKernel.Abstractions.csproj',
     'Services/Services.Moment/Services.Moment.csproj',
