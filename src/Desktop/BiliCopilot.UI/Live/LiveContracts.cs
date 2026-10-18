@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Richasy.BiliKernel.Models.Media;
+using Richasy.BiliKernel.Models.User;
 
 namespace BiliCopilot.UI.Live;
 
@@ -51,6 +52,8 @@ public interface ILiveSession : INotifyPropertyChanged, IAsyncDisposable
     string Title { get; }
     string AnchorName { get; }
     Uri? AnchorAvatar { get; }
+    /// <summary>The room owner's profile (in-app user space target); null while the room has not reported one.</summary>
+    UserProfile? Anchor { get; }
     bool? IsFollowing { get; }
     long? AudienceCount { get; }
     string AudienceLabel { get; }

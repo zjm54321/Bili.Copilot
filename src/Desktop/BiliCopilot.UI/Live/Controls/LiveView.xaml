@@ -11,41 +11,120 @@
     <!--
         Visual contract: the embedded VOD player.
         - Page header       = EmbeddedPlayerView HeaderRow (56, CardBackgroundFillColorDefaultBrush, divider row).
-        - Transport         = IslandTransportControls card (bottom, Margin 12, MaxWidth 800, OverlayCornerRadius,
-                              CardStrokeColorDefaultBrush, Padding 12,8, ColumnSpacing 8, CircleIconButtonStyle, 14px glyphs,
-                              Margin 0,0,8,0 between right-hand commands, Placement=Top flyouts, Show/Hide fade).
+        - Transport         = normal: IslandTransportControls card (bottom, Margin 12, MaxWidth 800, OverlayCornerRadius,
+                              TransportBackground, CardStrokeColorDefaultBrush, Padding 12,8, CircleIconButtonStyle, 14px glyphs,
+                              8px between commands, Placement=Top flyouts, fade);
+                              full screen / compact: OverlayTransportControls bar (edge to edge, 160/120 black gradient,
+                              Padding 16,0,8,0, 52px primary play, 40px player icon buttons, fade + 80px slide).
         - Danmaku box       = IslandDanmakuBox ("弹" 36px round toggle + input in the middle column).
         - Quality           = IslandFormatButton (Hd glyph, caption + 220px ItemsView, 40px card rows).
         - Side panel toggle = SideSplitButton (36px transparent, filled 14px PanelRight glyph) at the header's right edge.
-        Airspace: the native video child covers VideoHost only. The transport card lives in the video island above it
+        Airspace: the native video child covers VideoHost only. The transport lives in the video island above it
         in every presentation mode (the VOD PlayerOverlay model): no reserved bottom row, no cross-root moves.
     -->
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.ThemeDictionaries>
                 <!--  LiveState* keys are read by code-behind (LocalBrush): Fluent status palette, per theme.  -->
+                <!--  LiveTransportBackground = IslandTransportControls "TransportBackground" (same values per theme).  -->
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemFillColorSuccess}" />
                     <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemFillColorCaution}" />
                     <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemFillColorCritical}" />
                     <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemFillColorNeutral}" />
+                    <SolidColorBrush
+                        x:Key="LiveTransportBackground"
+                        Opacity="0.67"
+                        Color="Black" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemFillColorSuccess}" />
                     <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemFillColorCaution}" />
                     <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemFillColorCritical}" />
                     <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemFillColorNeutral}" />
+                    <SolidColorBrush
+                        x:Key="LiveTransportBackground"
+                        Opacity="0.78"
+                        Color="White" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="LiveStateLiveBrush" Color="{ThemeResource SystemColorHighlightColor}" />
                     <SolidColorBrush x:Key="LiveStateWarnBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
                     <SolidColorBrush x:Key="LiveStateErrorBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
                     <SolidColorBrush x:Key="LiveStateIdleBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+                    <SolidColorBrush x:Key="LiveTransportBackground" Color="{ThemeResource SystemColorWindowColor}" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
             <!--  Player stage stays black in every theme (same as the VOD video area).  -->
             <SolidColorBrush x:Key="LiveVideoBackdropBrush" Color="Black" />
+
+            <!--  Normal mode: IslandTransportControls card (bottom, Margin 12, MaxWidth 800, 1px card stroke, OverlayCornerRadius).  -->
+            <Style x:Key="LiveIslandTransportCardStyle" TargetType="Grid">
+                <Setter Property="MaxWidth" Value="800" />
+                <Setter Property="Margin" Value="12" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="VerticalAlignment" Value="Bottom" />
+                <Setter Property="Background" Value="{ThemeResource LiveTransportBackground}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource OverlayCornerRadius}" />
+            </Style>
+
+            <!--  Full screen / compact: OverlayTransportControls root (edge to edge, no stroke/corners, #00→#FF black gradient).  -->
+            <Style x:Key="LiveOverlayTransportCardStyle" TargetType="Grid">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="VerticalAlignment" Value="Bottom" />
+                <Setter Property="Background">
+                    <Setter.Value>
+                        <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                            <GradientStop Offset="0.0" Color="#00000000" />
+                            <GradientStop Offset="1" Color="#FF000000" />
+                        </LinearGradientBrush>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!--  Island commands: CircleIconButtonStyle; play/pause adds ButtonBackground (IslandTransportControls PlayPauseButton).  -->
+            <Style
+                x:Key="LiveIslandPlayButtonStyle"
+                BasedOn="{StaticResource CircleIconButtonStyle}"
+                TargetType="Button">
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Background" Value="{ThemeResource ButtonBackground}" />
+            </Style>
+            <Style
+                x:Key="LiveIslandIconButtonStyle"
+                BasedOn="{StaticResource CircleIconButtonStyle}"
+                TargetType="Button" />
+            <!--  IslandDanmakuBox "弹" toggle: 36px round.  -->
+            <Style
+                x:Key="LiveIslandDanmakuToggleStyle"
+                BasedOn="{StaticResource DefaultToggleButtonStyle}"
+                TargetType="ToggleButton">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="CornerRadius" Value="18" />
+            </Style>
+
+            <!--  Overlay commands: OverlayTransportControls styles (40px BasicPlayerIcon / 52px PrimaryPlayer / TogglePlayerIcon).  -->
+            <Style
+                x:Key="LiveOverlayPlayButtonStyle"
+                BasedOn="{StaticResource PrimaryPlayerButtonStyle}"
+                TargetType="Button" />
+            <Style
+                x:Key="LiveOverlayIconButtonStyle"
+                BasedOn="{StaticResource BasicPlayerIconButtonStyle}"
+                TargetType="Button" />
+            <Style
+                x:Key="LiveOverlayDanmakuToggleStyle"
+                BasedOn="{StaticResource TogglePlayerIconButtonStyle}"
+                TargetType="ToggleButton" />
 
             <!--
                 The VOD controls each declare this presenter style locally (IslandTransportControls / IslandFormatButton /
@@ -105,42 +184,35 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <PersonPicture
-                x:Name="AnchorPicture"
+            <!--  Anchor avatar opens the in-app user space (app AvatarButtonStyle: scale feedback on hover/press).  -->
+            <Button
+                x:Name="AnchorButton"
                 Width="32"
                 Height="32"
+                HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                AutomationProperties.AccessibilityView="Raw"
-                IsTabStop="False" />
+                Click="OnAnchorClick"
+                CornerRadius="16"
+                IsEnabled="False"
+                Style="{StaticResource AvatarButtonStyle}">
+                <PersonPicture
+                    x:Name="AnchorPicture"
+                    Width="32"
+                    Height="32"
+                    AutomationProperties.AccessibilityView="Raw"
+                    IsTabStop="False" />
+            </Button>
 
             <!--  Title: same type as the VOD main header title (Bold, single line, trimmed).  -->
-            <Grid Grid.Column="1" ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border
-                    Padding="6,0,6,1"
-                    VerticalAlignment="Center"
-                    AutomationProperties.AccessibilityView="Raw"
-                    Background="{ThemeResource SystemFillColorCriticalBrush}"
-                    CornerRadius="{ThemeResource ControlCornerRadius}">
-                    <TextBlock
-                        x:Name="BadgeText"
-                        FontWeight="SemiBold"
-                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
-                        Style="{StaticResource CaptionTextBlockStyle}" />
-                </Border>
-                <TextBlock
-                    x:Name="TitleText"
-                    Grid.Column="1"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    FontWeight="Bold"
-                    MaxLines="1"
-                    TextTrimming="CharacterEllipsis"
-                    TextWrapping="NoWrap" />
-            </Grid>
+            <TextBlock
+                x:Name="TitleText"
+                Grid.Column="1"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                FontWeight="Bold"
+                MaxLines="1"
+                TextTrimming="CharacterEllipsis"
+                TextWrapping="NoWrap" />
 
             <!--  Anchor meta (secondary caption, like the VOD header's right-hand info). Parts collapse while unknown.  -->
             <StackPanel
@@ -260,23 +332,21 @@
         </Grid>
 
         <!--
-            Floating transport card (VOD IslandTransportControls look). Declared here only so its names and handlers are
-            generated with this view: the constructor removes it before the first layout and LiveWindow places it once in
-            the video island's overlay layer, where it stays for normal, full-screen and compact modes alike.
+            Transport (one instance). Declared here only so its names and handlers are generated with this view: the
+            constructor removes it before the first layout and LiveWindow places it once in the video island's overlay
+            layer, where it stays for every presentation mode. Code-behind only switches styles/layout:
+            - Normal                = VOD IslandTransportControls card (LiveIslandTransportCardStyle, CircleIconButtonStyle).
+            - Full screen / compact = VOD OverlayTransportControls bar (LiveOverlayTransportCardStyle: edge-to-edge,
+                                      160/120 tall black bottom gradient, BasicPlayerIconButtonStyle, primary 52px play).
+            Command order is identical in every mode: play · refresh | danmaku box | quality · volume · compact · full screen.
         -->
-        <Grid
-            x:Name="TransportCard"
-            MaxWidth="800"
-            Margin="12"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Bottom"
-            Background="{ThemeResource AcrylicInAppFillColorCustomBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="{StaticResource OverlayCornerRadius}">
+        <Grid x:Name="TransportCard" Style="{StaticResource LiveIslandTransportCardStyle}">
             <Grid.OpacityTransition>
                 <ScalarTransition Duration="0:0:0.2" />
             </Grid.OpacityTransition>
+            <Grid.TranslationTransition>
+                <Vector3Transition Duration="0:0:0.25" />
+            </Grid.TranslationTransition>
             <Grid
                 x:Name="TransportContent"
                 Padding="12,8"
@@ -313,44 +383,50 @@
                         Visibility="Collapsed" />
                 </Grid>
 
-                <Grid Grid.Row="1" ColumnSpacing="8">
+                <!--  Normal: Auto | * | Auto (island card). Full screen / compact: * | Auto | * (overlay bar, play centred).  -->
+                <Grid
+                    x:Name="CommandRow"
+                    Grid.Row="1"
+                    ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition x:Name="CommandLeftColumn" Width="Auto" />
+                        <ColumnDefinition x:Name="CommandMiddleColumn" Width="*" />
+                        <ColumnDefinition x:Name="CommandRightColumn" Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <!--  Play/pause: CircleIconButtonStyle + ButtonBackground + filled 14px glyph (VOD PlayPauseButton).  -->
-                    <Button
-                        x:Name="PlayPauseButton"
-                        HorizontalAlignment="Center"
+                    <!--  Core playback: play/pause, then back to the live edge (VOD: play + next / step).  -->
+                    <StackPanel
+                        x:Name="PlaybackGroup"
                         VerticalAlignment="Center"
-                        Background="{ThemeResource ButtonBackground}"
-                        Click="OnPlayPauseClick"
-                        Style="{StaticResource CircleIconButtonStyle}">
-                        <ic:SymbolIcon
-                            x:Name="PlayPauseIcon"
-                            FontSize="14"
-                            IconVariant="Filled"
-                            Symbol="Play" />
-                    </Button>
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <Button
+                            x:Name="PlayPauseButton"
+                            Click="OnPlayPauseClick"
+                            Style="{StaticResource LiveIslandPlayButtonStyle}">
+                            <ic:SymbolIcon
+                                x:Name="PlayPauseIcon"
+                                FontSize="14"
+                                IconVariant="Filled"
+                                Symbol="Play" />
+                        </Button>
+                        <Button
+                            x:Name="RefreshButton"
+                            VerticalAlignment="Center"
+                            Click="OnRefreshClick"
+                            Style="{StaticResource CircleIconButtonStyle}">
+                            <ic:SymbolIcon
+                                x:Name="RefreshIcon"
+                                FontSize="14"
+                                Symbol="ArrowSync" />
+                        </Button>
+                    </StackPanel>
 
-                    <!--  Left slot (VOD: next video) → back to the live edge.  -->
-                    <Button
-                        x:Name="RefreshButton"
-                        Grid.Column="1"
-                        VerticalAlignment="Center"
-                        Click="OnRefreshClick"
-                        Style="{StaticResource CircleIconButtonStyle}">
-                        <ic:SymbolIcon FontSize="14" Symbol="ArrowSync" />
-                    </Button>
-
-                    <!--  Middle slot = IslandDanmakuBox: "弹" toggle + input (+ send, the live chat needs an explicit action).  -->
+                    <!--  Danmaku box = IslandDanmakuBox: "弹" toggle + input (+ send, the live chat needs an explicit action).  -->
                     <Grid
                         x:Name="ComposerGroup"
-                        Grid.Column="2"
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
                         ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -359,18 +435,12 @@
                         </Grid.ColumnDefinitions>
                         <ToggleButton
                             x:Name="OverlayToggle"
-                            Width="36"
-                            Height="36"
-                            Padding="0"
-                            HorizontalContentAlignment="Center"
-                            VerticalAlignment="Center"
-                            VerticalContentAlignment="Center"
                             Click="OnOverlayToggleClick"
                             Content="弹"
-                            CornerRadius="18"
                             FontSize="12"
                             FontWeight="Black"
-                            IsChecked="True" />
+                            IsChecked="True"
+                            Style="{StaticResource LiveIslandDanmakuToggleStyle}" />
                         <TextBox
                             x:Name="ComposerBox"
                             Grid.Column="1"
@@ -393,57 +463,60 @@
                         </Button>
                     </Grid>
 
-                    <!--  Right slot = IslandFormatButton (quality).  -->
-                    <Button
-                        x:Name="QualityButton"
-                        Grid.Column="3"
+                    <!--  Right stack, same order in every mode: quality, volume, compact overlay, full screen (rightmost).  -->
+                    <StackPanel
+                        x:Name="WindowGroup"
+                        Grid.Column="2"
                         VerticalAlignment="Center"
-                        Style="{StaticResource CircleIconButtonStyle}"
-                        Visibility="Collapsed">
-                        <ic:SymbolIcon FontSize="14" Symbol="Hd" />
-                        <Button.Flyout>
-                            <Flyout
-                                x:Name="QualityFlyout"
-                                Closed="OnTransportFlyoutClosed"
-                                FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
-                                Opened="OnQualityFlyoutOpened"
-                                Placement="Top"
-                                ShouldConstrainToRootBounds="False">
-                                <StackPanel Spacing="4">
-                                    <TextBlock
-                                        x:Name="QualityCaption"
-                                        HorizontalAlignment="Left"
-                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                        Style="{StaticResource CaptionTextBlockStyle}" />
-                                    <ItemsView
-                                        x:Name="QualityView"
-                                        Width="220"
-                                        IsItemInvokedEnabled="True"
-                                        ItemInvoked="OnQualityItemInvoked"
-                                        SelectionMode="Single">
-                                        <ItemsView.ItemTemplate>
-                                            <DataTemplate x:DataType="media:PlayerFormatInformation">
-                                                <ItemContainer Style="{StaticResource AppItemContainerStyle}">
-                                                    <Grid
-                                                        MinHeight="40"
-                                                        Padding="12,0"
-                                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Description}" />
-                                                    </Grid>
-                                                </ItemContainer>
-                                            </DataTemplate>
-                                        </ItemsView.ItemTemplate>
-                                        <ItemsView.Layout>
-                                            <StackLayout Spacing="4" />
-                                        </ItemsView.Layout>
-                                    </ItemsView>
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-
-                    <!--  VOD right stack: volume and window presentation.  -->
-                    <StackPanel Grid.Column="4" Orientation="Horizontal">
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <!--  IslandFormatButton (quality).  -->
+                        <Button
+                            x:Name="QualityButton"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CircleIconButtonStyle}"
+                            Visibility="Collapsed">
+                            <ic:SymbolIcon FontSize="14" Symbol="Hd" />
+                            <Button.Flyout>
+                                <Flyout
+                                    x:Name="QualityFlyout"
+                                    Closed="OnTransportFlyoutClosed"
+                                    FlyoutPresenterStyle="{StaticResource TransportButtonFlyoutPresenterStyle}"
+                                    Opened="OnQualityFlyoutOpened"
+                                    Placement="Top"
+                                    ShouldConstrainToRootBounds="False">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock
+                                            x:Name="QualityCaption"
+                                            HorizontalAlignment="Left"
+                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                        <ItemsView
+                                            x:Name="QualityView"
+                                            Width="220"
+                                            IsItemInvokedEnabled="True"
+                                            ItemInvoked="OnQualityItemInvoked"
+                                            SelectionMode="Single">
+                                            <ItemsView.ItemTemplate>
+                                                <DataTemplate x:DataType="media:PlayerFormatInformation">
+                                                    <ItemContainer Style="{StaticResource AppItemContainerStyle}">
+                                                        <Grid
+                                                            MinHeight="40"
+                                                            Padding="12,0"
+                                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind Description}" />
+                                                        </Grid>
+                                                    </ItemContainer>
+                                                </DataTemplate>
+                                            </ItemsView.ItemTemplate>
+                                            <ItemsView.Layout>
+                                                <StackLayout Spacing="4" />
+                                            </ItemsView.Layout>
+                                        </ItemsView>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                         <Button
                             x:Name="VolumeButton"
                             VerticalAlignment="Center"
@@ -490,24 +563,22 @@
                             </Button.Flyout>
                         </Button>
                         <Button
-                            x:Name="FullScreenButton"
-                            Margin="8,0,0,0"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CircleIconButtonStyle}">
-                            <ic:SymbolIcon
-                                x:Name="FullScreenIcon"
-                                FontSize="14"
-                                Symbol="FullScreenMaximize" />
-                        </Button>
-                        <Button
                             x:Name="CompactOverlayButton"
-                            Margin="8,0,0,0"
                             VerticalAlignment="Center"
                             Style="{StaticResource CircleIconButtonStyle}">
                             <ic:SymbolIcon
                                 x:Name="CompactOverlayIcon"
                                 FontSize="14"
                                 Symbol="ContractUpRight" />
+                        </Button>
+                        <Button
+                            x:Name="FullScreenButton"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CircleIconButtonStyle}">
+                            <ic:SymbolIcon
+                                x:Name="FullScreenIcon"
+                                FontSize="14"
+                                Symbol="FullScreenMaximize" />
                         </Button>
                     </StackPanel>
                 </Grid>

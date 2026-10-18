@@ -4,7 +4,9 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using BiliCopilot.UI.Models.Constants;
+using BiliCopilot.UI.Pages.Overlay;
 using BiliCopilot.UI.Toolkits;
+using BiliCopilot.UI.ViewModels.Core;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -43,6 +45,9 @@ public sealed partial class LiveView : UserControl
     // A floating hint must not pin the card over the picture forever.
     private static readonly TimeSpan FeedbackLifetime = TimeSpan.FromSeconds(5);
 
+    // OverlayTransportControls hide animation: the bar slides 80px down while it fades.
+    private static readonly System.Numerics.Vector3 OverlayHiddenOffset = new(0, 80, 0);
+
     private readonly ILiveSession _session;
     private readonly ILivePresentation _presentation;
     private readonly LiveDanmakuOverlay _overlay;
@@ -72,6 +77,7 @@ public sealed partial class LiveView : UserControl
     private int _openTransportFlyouts;
     private bool _transportShown = true;
     private bool _compactLayout;
+    private bool _overlayLayout;
     private Grid? _transportOverlayHost;
 
     private ScrollViewer? _scroller;
@@ -178,7 +184,6 @@ public sealed partial class LiveView : UserControl
 
     private void ApplyStaticCopy()
     {
-        BadgeText.Text = LiveText.LiveBadge;
         QualityCaption.Text = QualityCopy;
         VolumeCaption.Text = LiveText.Volume;
         ChatHeaderText.Text = LiveText.ChatHeader;
@@ -311,18 +316,19 @@ public sealed partial class LiveView : UserControl
         HeaderDivider.Visibility = hideHeader ? Visibility.Collapsed : Visibility.Visible;
         RootGrid.RowDefinitions[0].Height = new GridLength(hideHeader ? 0 : 56);
         ApplyLayout();
-        ApplyTransportLayout(compact);
+        ApplyTransportLayout(fullScreen || compact, compact);
         ShowTransport(); // A mode switch is user activity: show, then the usual idle countdown.
     }
 
     /// <summary>
-    /// Layout state only — the card never changes parent. Compact keeps the VOD compact essentials
-    /// (play/pause, volume, exit compact) in a slimmer card; the danmaku composer, refresh, quality and
-    /// full-screen commands step aside.
+    /// Layout/style state only — the card never changes parent and the command order never changes.
+    /// Normal = the VOD IslandTransportControls card; full screen and compact = the VOD OverlayTransportControls bar
+    /// (edge-to-edge gradient, centred primary play, player icon buttons). Compact keeps the VOD compact essentials
+    /// (play/pause, volume, exit compact); the danmaku box, refresh, quality and full-screen commands step aside.
     /// </summary>
-    private void ApplyTransportLayout(bool compact)
+    private void ApplyTransportLayout(bool overlay, bool compact)
     {
-        if (_compactLayout != compact)
+        if (_compactLayout != compact || _overlayLayout != overlay)
         {
             // Anchored popups would float at the old card position after the window resizes.
             QualityFlyout.Hide();
@@ -330,11 +336,47 @@ public sealed partial class LiveView : UserControl
         }
 
         _compactLayout = compact;
+        _overlayLayout = overlay;
         var full = compact ? Visibility.Collapsed : Visibility.Visible;
         RefreshButton.Visibility = full;
         ComposerGroup.Visibility = full;
         FullScreenButton.Visibility = full;
-        TransportContent.Padding = compact ? new Thickness(8, 6, 8, 6) : new Thickness(12, 8, 12, 8);
+
+        TransportCard.Style = LocalStyle(overlay ? "LiveOverlayTransportCardStyle" : "LiveIslandTransportCardStyle");
+        if (overlay) TransportCard.Height = compact ? 120 : 160; // OverlayTransportControls NarrowState / default height.
+        else TransportCard.ClearValue(HeightProperty);
+        TransportContent.Padding = overlay ? new Thickness(16, 0, 8, 0) : new Thickness(12, 8, 12, 8);
+        TransportContent.VerticalAlignment = overlay ? VerticalAlignment.Center : VerticalAlignment.Stretch;
+
+        // Overlay: * | Auto | * keeps play centred (VOD Left / Middle / Right); island: Auto | * | Auto.
+        CommandLeftColumn.Width = overlay ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        CommandMiddleColumn.Width = overlay ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        CommandRightColumn.Width = overlay ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        CommandRow.ColumnSpacing = overlay ? 0 : 8;
+        Grid.SetColumn(ComposerGroup, overlay ? 0 : 1);
+        Grid.SetColumn(PlaybackGroup, overlay ? 1 : 0);
+        ComposerGroup.HorizontalAlignment = overlay ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+        ComposerGroup.Margin = overlay ? new Thickness(0, 0, 24, 0) : default; // VOD LeftPresenter margin.
+        ComposerGroup.MaxWidth = overlay ? 400 : double.PositiveInfinity;
+        WindowGroup.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        WindowGroup.Margin = overlay ? new Thickness(0, 0, 8, 0) : default; // VOD right commands keep 8px after the last one.
+
+        // The composer and hint text sit on the black gradient in overlay modes; keep them legible in light theme.
+        var overlayTheme = overlay ? ElementTheme.Dark : ElementTheme.Default;
+        ComposerGroup.RequestedTheme = overlayTheme;
+        FeedbackRow.RequestedTheme = overlayTheme;
+
+        PlayPauseButton.Style = LocalStyle(overlay ? "LiveOverlayPlayButtonStyle" : "LiveIslandPlayButtonStyle");
+        PlayPauseIcon.FontSize = overlay ? 22 : 14;
+        RefreshIcon.FontSize = overlay ? 16 : 14;
+        OverlayToggle.Style = LocalStyle(overlay ? "LiveOverlayDanmakuToggleStyle" : "LiveIslandDanmakuToggleStyle");
+        var iconStyle = LocalStyle(overlay ? "LiveOverlayIconButtonStyle" : "LiveIslandIconButtonStyle");
+        RefreshButton.Style = iconStyle;
+        SendButton.Style = iconStyle;
+        QualityButton.Style = iconStyle;
+        VolumeButton.Style = iconStyle;
+        CompactOverlayButton.Style = iconStyle;
+        FullScreenButton.Style = iconStyle;
         UpdateQuality();
     }
 
@@ -405,6 +447,11 @@ public sealed partial class LiveView : UserControl
         AnchorNameText.Text = hasAnchor ? anchor : string.Empty;
         AnchorNameText.Visibility = hasAnchor ? Visibility.Visible : Visibility.Collapsed;
         AnchorPicture.DisplayName = hasAnchor ? anchor : string.Empty; // Initials fallback while/if the image is unavailable.
+        AnchorButton.IsEnabled = !string.IsNullOrEmpty(_session.Anchor?.Id);
+        var spaceName = ResourceToolkit.GetLocalizedString(StringNames.UserSpace);
+        var anchorAction = hasAnchor ? $"{anchor}：{spaceName}" : spaceName;
+        AutomationProperties.SetName(AnchorButton, anchorAction);
+        ToolTipService.SetToolTip(AnchorButton, anchorAction);
 
         var avatar = _session.AnchorAvatar;
         if (!Equals(avatar, _shownAvatar))
@@ -530,6 +577,8 @@ public sealed partial class LiveView : UserControl
 
     private Brush LocalBrush(string key) => (Brush)Resources[key];
 
+    private Style LocalStyle(string key) => (Style)Resources[key];
+
     // ---------------------------------------------------------------- transport
 
     private async void OnPlayPauseClick(object sender, RoutedEventArgs e)
@@ -634,6 +683,16 @@ public sealed partial class LiveView : UserControl
     {
         // View-only: hides/clears overlay drawing. Playback and the chat connection are untouched.
         _overlay.IsDanmakuVisible = OverlayToggle.IsChecked == true;
+    }
+
+    /// <summary>
+    /// Same in-app route as the VOD publisher avatar (VideoConnectorViewModel.OpenUserSpace). The shared navigation
+    /// queue first closes this Live owner (navigation exits Live), then opens the user space overlay page.
+    /// </summary>
+    private void OnAnchorClick(object sender, RoutedEventArgs e)
+    {
+        if (_session.Anchor is { } anchor)
+            this.Get<NavigationViewModel>().NavigateToOver(typeof(UserSpacePage), anchor);
     }
 
     private void OnChatToggleClick(object sender, RoutedEventArgs e)
@@ -957,6 +1016,8 @@ public sealed partial class LiveView : UserControl
 
         TransportCard.IsHitTestVisible = shown;
         TransportCard.Opacity = shown ? 1 : 0;
+        // Overlay bar (full screen / compact) also slides like OverlayTransportControls; the island card only fades.
+        TransportCard.Translation = shown || !_overlayLayout ? System.Numerics.Vector3.Zero : OverlayHiddenOffset;
     }
 
     private void OnTransportPointerActivity(object sender, PointerRoutedEventArgs e)

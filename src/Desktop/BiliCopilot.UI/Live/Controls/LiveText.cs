@@ -11,7 +11,6 @@ namespace BiliCopilot.UI.Live.Controls;
 /// </summary>
 internal static class LiveText
 {
-    public const string LiveBadge = "直播";
     public const string UntitledRoom = "直播间";
 
     public const string Play = "播放";

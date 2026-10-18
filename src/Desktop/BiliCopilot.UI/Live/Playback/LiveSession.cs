@@ -89,6 +89,7 @@ public sealed class LiveSession : ILiveSession
     public string Title { get; private set; } = string.Empty;
     public string AnchorName { get; private set; } = string.Empty;
     public Uri? AnchorAvatar { get; private set; }
+    public UserProfile? Anchor { get; private set; }
     public bool? IsFollowing { get; private set; }
     public long? AudienceCount { get; private set; }
     public string AudienceLabel => _audienceMetric == LiveAudienceMetric.OnlineRank ? "高能在线" : "看过";
@@ -246,6 +247,7 @@ public sealed class LiveSession : ILiveSession
     {
         Title = information.Identifier.Title ?? string.Empty;
         var user = information.User ?? _live?.User;
+        Anchor = user;
         AnchorName = user?.Name ?? string.Empty;
         AnchorAvatar = user?.Avatar?.Uri;
         IsFollowing = information.Relation switch

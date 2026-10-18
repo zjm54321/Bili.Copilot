@@ -82,13 +82,18 @@ public sealed class LiveIslandSurface
         // assumption that a sibling in the outer XAML tree can paint above a native video HWND.
         // Keep input inside the same child island as the picture; an outer XAML sibling cannot
         // receive pointer events over the native HWND. The danmaku itself remains non-interactive.
+        // The ContentControl template never paints its Background and the danmaku is not hit-testable,
+        // so a transparent-filled layer must make the whole picture hit-testable (VOD PlayerOverlay:
+        // Background="Transparent"). Without it, movement reaches the island only while the transport
+        // card is shown, and a hidden card could never be revealed again.
+        var pictureSurface = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
+        pictureSurface.Children.Add(overlay);
         _pictureInput = new ContentControl
         {
-            Background = new SolidColorBrush(Colors.Transparent),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
             IsTabStop = true,
-            Content = overlay,
+            Content = pictureSurface,
         };
         var root = new Grid(); // Transparent outside its children; never an opaque video backdrop.
         root.Children.Add(_pictureInput);
