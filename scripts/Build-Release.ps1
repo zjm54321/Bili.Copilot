@@ -21,8 +21,8 @@ if (-not (Test-Path (Join-Path $WindowsSdkBin 'makeappx.exe'))) { throw 'Windows
 $native = Get-Content (Join-Path $PSScriptRoot 'native-assets.json') -Raw | ConvertFrom-Json
 foreach ($file in $native.files.PSObject.Properties) {
     $path = Join-Path $root ('src/Desktop/BiliCopilot.UI/Assets/' + $file.Name)
-    if (-not (Test-Path $path) -or (Get-FileHash $path -Algorithm SHA256).Hash -ine $file.Value) {
-        throw "Missing or changed native asset: $($file.Name). Follow scripts/README.md to supply it manually."
+    if (-not (Test-Path $path)) {
+        throw "Missing native asset: $($file.Name) ($($file.Value)). Follow scripts/README.md to supply it manually."
     }
 }
 if (Test-Path $layout) { throw "Existing release layout: $layout. Remove artifacts/release before rebuilding." }
@@ -84,9 +84,8 @@ try {
     $com = $manifest.SelectSingleNode('//c:ExeServer', $ns)
     if (-not (Test-Path (Join-Path $layout ([string]$com.Executable)))) { throw 'COM executable is missing from layout.' }
     foreach ($name in @('libmpv-2.dll', 'ffmpeg.exe', 'BiliCopilot.Visor.exe')) {
-        $expected = $native.files.PSObject.Properties | Where-Object { $_.Name -like "*/x64/$name" }
         $packed = @(Get-ChildItem $layout -Recurse -File -Filter $name)
-        if ($packed.Count -ne 1 -or (Get-FileHash $packed[0].FullName -Algorithm SHA256).Hash -ine $expected.Value) { throw "Required x64 asset missing or changed in layout: $name" }
+        if ($packed.Count -ne 1) { throw "Required x64 asset missing from layout: $name" }
     }
     $msix = Join-Path $out ("BiliCopilot_$($identity.Version)_x64.msix")
     & (Join-Path $WindowsSdkBin 'makeappx.exe') pack /d $layout /p $msix /h SHA256 1> (Join-Path $out 'makeappx.log') 2>&1

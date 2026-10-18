@@ -15,7 +15,7 @@ hero:
       link: /about
     - theme: alt
       text: Github
-      link: https://github.com/Richasy/Bili.Copilot
+      link: https://github.com/zjm54321/Bili.Copilot
   image:
     src: /logo-big.png
     alt: 哔哩助理

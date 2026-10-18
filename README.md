@@ -4,112 +4,84 @@
 
 <div align="center">
 
-# 哔哩助理
+# 哔哩助理 (Bili.Copilot)
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Richasy/Bili.Copilot)](https://github.com/Richasy/Bili.Copilot/releases) ![GitHub Release Date](https://img.shields.io/github/release-date/Richasy/Bili.Copilot) ![GitHub All Releases](https://img.shields.io/github/downloads/Richasy/Bili.Copilot/total) ![GitHub stars](https://img.shields.io/github/stars/Richasy/Bili.Copilot?style=flat) ![GitHub forks](https://img.shields.io/github/forks/Richasy/Bili.Copilot)
+`哔哩助理` 是基于 Windows App SDK (WinUI 3) 构建的哔哩哔哩第三方 Windows 桌面客户端。
 
-`哔哩助理` 是 [哔哩哔哩](https://www.bilibili.com) 的第三方桌面应用，适用于 Windows 11.
+本项目是 [Richasy/Bili.Copilot](https://github.com/Richasy/Bili.Copilot) 的二次开发 Fork 分支（维护者：[zjm54321](https://github.com/zjm54321)）。
 
 </div>
+
 <p align="center">
-<a href="#概述">概述</a> &nbsp;&bull;&nbsp;
-<a href="#开发">开发</a> &nbsp;&bull;&nbsp;
-<a href="#安装">安装</a> &nbsp;&bull;&nbsp;
-<a href="#使用">使用</a> &nbsp;&bull;&nbsp;
-<a href="#模块">模块</a> &nbsp;&bull;&nbsp;
-<a href="#交流讨论">交流</a> &nbsp;&bull;&nbsp;
+<a href="#本-fork-的改动">改动说明</a> &nbsp;&bull;&nbsp;
+<a href="#安装方式">安装方式</a> &nbsp;&bull;&nbsp;
+<a href="#从源码构建">从源码构建</a> &nbsp;&bull;&nbsp;
+<a href="#文档与链接">文档与链接</a> &nbsp;&bull;&nbsp;
 <a href="#鸣谢">鸣谢</a>
 </p>
 
-## 概述
+## 本 Fork 的改动
 
-哔哩助理在 [哔哩](https://github.com/Richasy/Bili.Uwp) 的基础上通过 Windows App SDK 进行了重构.
+- **BiliKernel SDK 定制与维护**：以 Git Submodule 形式引入了 fork 后的 [zjm54321/BiliKernel](https://github.com/zjm54321/BiliKernel)（位于 `src/Libs/BiliKernel`），修改并适配了 `Abstractions`、`Services.Comment`、`Services.Media` 和 `Services.Moment` 四个核心模块（版本号 `0.0.3-bilicopilot.1`）。通过本地包源与 `nuget.config` 源映射，确保优先使用本地定制包，未修改模块继续使用公开源。
+- **本地发布与测试通道支持**：
+  - **LocalRelease 通道**：正式发布版本（当前版本为 `2.2611.3.0`），启用 ReadyToRun 编译优化，提供配套的本地证书信任与侧加载安装脚本。
+  - **LocalTest 通道**：日常开发测试通道，使用独立包身份（`BiliCopilot.LocalTest`，显示为“哔哩助理（测试）”），与正式版本完全隔离，支持并存安装与升级验证。
+- **原生依赖解耦**：将 `libmpv`、`ffmpeg` 和 `BiliCopilot.Visor` 原生可执行文件解耦为构建前按需放入的独立资产，并提供明确的版本说明。
 
-哔哩助理将以更开放的态度进行开发，借助社区力量，共同构建一个有意思的 UGC 客户端。
+## 安装方式
 
-文档地址：[哔哩助理](https://bili.richasy.net)
+### 侧加载安装（推荐）
 
-## 安装
+1. 从 Release 页面下载发布包 ZIP 并完整解压到本地文件夹（请勿在压缩包内直接运行）。
+2. 打开 Windows PowerShell（普通用户权限即可），进入解压目录后运行：
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 -Install
+   ```
+3. 脚本会自动进行环境预检。如果当前设备尚未信任发布证书，脚本会通过 UAC 弹窗提示，自动调用 `Trust-Certificate.ps1` 将证书公钥安装至“受信任的人”（`TrustedPeople`）存储区，随后调用系统部署服务完成安装。
 
-### 商店下载（推荐）
+> **说明**：如果不加 `-Install` 参数直接运行 `.\Install.ps1`，脚本仅执行只读预检并显示依赖与签名状态，不会对系统做任何修改。
 
-[从 Microsoft Store 中获取](https://apps.microsoft.com/detail/9MVFJLPH517M?launch=true&mode=full)
+## 从源码构建
 
-### 侧加载
+详细的前置依赖、参数说明与自签名步骤请参考 [scripts/README.md](scripts/README.md)。
 
-1. 打开系统设置，依次选择 `系统` -> `开发者选项`，打开 `开发人员模式`。滚动到页面底部，展开 `PowerShell` 区块，开启 `更改执行策略...` 选项
-2. 打开 [Release](https://github.com/Richasy/Bili.Copilot/releases) 页面
-3. 在最新版本的 **Assets** 中找到应用包下载。命名格式为：`BiliCopilot_{version}_{platform}.zip`
-4. 下载应用包后解压，右键单击文件夹中的 `install.ps1` 脚本，选择 `使用 PowerShell 运行`
+### 快速构建步骤
 
-## 开发
+1. **克隆仓库及子模块**：
+   ```powershell
+   git clone --recurse-submodules https://github.com/zjm54321/Bili.Copilot.git
+   cd Bili.Copilot
+   ```
+   *若已有克隆未拉取子模块，可执行 `git submodule update --init --recursive`。*
 
-在开发哔哩助理的过程中，抽离出了多个单独组件，可以被其它开发者集成到自己的项目中：
+2. **编译 BiliKernel 本地包**：
+   ```powershell
+   .\scripts\Build-BiliKernel.ps1
+   ```
+   脚本将编译定制的 4 个 SDK 项目，打包并输出至 `artifacts/bilikernel-feed` 本地包源。
 
-- [bili-kernel](https://github.com/Richasy/bili-kernel)  
-  哔哩助理与 BiliBili API 交互的核心代码，是一层 .NET 包装器，基于 .NET Standard 2.0，完全的 AOT 支持，便于移植和二次开发。
-- [mpv-kernel](https://github.com/Richasy/mpv-kernel)  
-  哔哩助理的核心播放器之一，将 MPV 集成进 WinUI3 以实现良好的播放体验。
-- [winui-kernel](https://github.com/Richasy/winui-kernel)  
-  我在多个 WinAppSDK 项目之间共用的一些基础样式及实现。
+3. **放置原生运行时文件**：
+   将下列二进制文件手动放入 `src/Desktop/BiliCopilot.UI/Assets/` 下对应的目录：
+   - `libmpv/x64/libmpv-2.dll`（版本 `v0.41.0-1102-g6c092d978`，来自 [shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake/releases)）
+   - `ffmpeg/x64/ffmpeg.exe`（版本 `N-127218-g47313ad3f`，来自 shinchiro 构建）
+   - `visor/x64/BiliCopilot.Visor.exe`（由仓库中的 `src/Desktop/BiliCopilot.Visor` 项目通过 NativeAOT 发布生成）
 
-它们都以 nuget 形式集成在项目内
+4. **构建 Release MSIX 包**：
+   ```powershell
+   .\scripts\Build-Release.ps1
+   ```
+   产物输出于 `artifacts/release/BiliCopilot_2.2611.3.0_x64.msix`。如需签名，可传入 `-CertificateThumbprint <证书指纹>`。
 
-第一次克隆时可以运行下面的命令：
+## 文档与链接
 
-```shell
-git clone https://github.com/Richasy/Bili.Copilot.git
-```
-
-切换分支完成后，还需要下载 mpv / ffmpeg 到对应的目录：
-
-| 文件名       | 目录                                                     | 说明                                                                                                                                                                         |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| libmpv-2.dll | src\Desktop\BiliCopilot.UI\Assets\libmpv\x64(或者 arm64) | 可以在 [mpv-winbuild](https://github.com/zhongfly/mpv-winbuild) 下载最新的 dev 构建（x64 对应 x86_x64，arm64 对应 aarch64），把 libmpv-2.dll 放入对应文件夹中，用以 mpv 播放 |
-| ffmpeg.exe   | src\Desktop\BiliCopilot.UI\Assets\ffmpeg                 | 可以在 [mpv-winbuild](https://github.com/zhongfly/mpv-winbuild) 下载最新 ffmpeg x64 构建，将 ffmpeg.exe 放入对应文件夹中                               |
-
-## 使用
-
-### 登录
-
-哔哩助理优先使用扫码登录，如果你偏好其它的登录方式（比如手机/用户名密码），你可以选择网页登录。
-
-### 视频播放
-
-新版本的哔哩助理（V2）支持两种种播放方案：
-
-1. MPV
-2. 外部播放器（仅支持 MPV）
-
-下面是几种播放方案的具体比较，请根据自己的情况选择合适的播放方案：
-
-| 方案       | 优点                               | 缺点                       |
-| ---------- | ---------------------------------- | -------------------------- |
-| MPV        | 解码速度快，播放稳定               | 内存占用相对较高           |
-| 外部播放器 | 自定义程度高，可以获得最佳播放体验 | 需要额外安装配置，门槛较高 |
-
-## 交流讨论
-
-有兴趣一起交流的话，可以加 QQ 群，进群请注明正在使用哪款软件。
-
-<img src="./assets/qq_group.jpg" width="240px" />
-
-## 应用截图
-
-![截图](assets/screenshot.png)
-
-![截图](assets/player.png)
+- [从源码构建 Release 说明](scripts/README.md)
+- [LocalTest 测试通道说明](scripts/local-test/README.md)
+- [应用使用与功能文档](docs/index.md)
 
 ## 鸣谢
 
-- [Windows App SDK](https://github.com/microsoft/windowsappsdk)
-- [WinUI](https://github.com/microsoft/microsoft-ui-xaml)
-- [BiliBili](https://www.bilibili.com/)
-- [哔哩哔哩-API 收集整理](https://github.com/SocialSisterYi/bilibili-API-collect)
-- [BewlyBewly](https://github.com/BewlyBewly/BewlyBewly)
-- [寒霜弹幕使](https://github.com/cotaku/DanmakuFrostMaster)
-- [cnbluefire/WinUI3.Win2D](https://github.com/cnbluefire/WinUI3.Win2D)
-- [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows)
-- [FluentIcons](https://github.com/davidxuang/FluentIcons)
-- [ComputeSharp](https://github.com/Sergio0694/ComputeSharp)
-- 以及其他在开发过程中提供过助力的小伙伴
+- 上游原项目：[Richasy/Bili.Copilot](https://github.com/Richasy/Bili.Copilot)
+- [Windows App SDK](https://github.com/microsoft/windowsappsdk) & [WinUI 3](https://github.com/microsoft/microsoft-ui-xaml)
+- [mpv](https://mpv.io/) & [mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake)
+- [FFmpeg](https://ffmpeg.org/)
+- 以及其他为本项目提供支持的开源组件与社区贡献者。
