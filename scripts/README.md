@@ -45,9 +45,12 @@ dotnet msbuild src/Desktop/BiliCopilot.UI/BiliCopilot.UI.csproj /t:Restore `
 完整验收还必须恢复下面的运行时文件，开启分析器和 warnings-as-errors 完成 publish，
 最后检查 MSIX 内容；restore 成功或 C# 编译成功均不足以证明包可用。
 
-## Git 外运行时文件清单
+## 手动补齐原生运行时文件
 
-路径均相对于 `src/Desktop/BiliCopilot.UI/Assets/`；以下 SHA256 来自参考成功构建的源码树。
+这些大文件不提交 Git。克隆后、构建前手动取得下列固定版本，放入
+`src/Desktop/BiliCopilot.UI/Assets/` 下表所示的相对路径。
+**文件名相同或版本相近不够，必须匹配 SHA256。** 本流程不要求下载 ZIP，
+也不依赖尚未发布的 GitHub Release 附件。
 
 | 文件 | 对编译/运行的影响 | 参考 SHA256 |
 | --- | --- | --- |
@@ -59,15 +62,51 @@ dotnet msbuild src/Desktop/BiliCopilot.UI/BiliCopilot.UI.csproj /t:Restore `
 参考 libmpv 文件版本为 `v0.41.0-1102-g6c092d978`；FFmpeg 为
 `N-127218-g47313ad3f`（clang `22.1.8`）。
 
+| 文件 | 确切版本/构建标识 | 字节数 |
+| --- | --- | ---: |
+| `libmpv/x64/libmpv-2.dll` | 文件/产品版本 `v0.41.0-1102-g6c092d978` | 120868352 |
+| `ffmpeg/x64/ffmpeg.exe` | `ffmpeg -version`：`N-127218-g47313ad3f`，clang `22.1.8`；PE 不含文件版本资源 | 107600896 |
+| `visor/x64/BiliCopilot.Visor.exe` | 文件版本 `1.0.0.0`；产品版本 `1.0.0+6f8ae4dd80a8d56cbda241c50bd5b37fcb95312e`，NativeAOT x64 | 3308032 |
+| `visor/arm64/BiliCopilot.Visor.exe` | 文件版本 `1.0.0.0`；产品版本 `1.0.0+6f8ae4dd80a8d56cbda241c50bd5b37fcb95312e`，NativeAOT ARM64 | 3396096 |
+
 上游 `.github/workflows/build-release.yml` 调用
 `.github/actions/setup-env/action.yml`：从 `shinchiro/mpv-winbuild-cmake`
 的 **latest release** 下载 `mpv-dev-x86_64-*-git-*.7z`、
 `ffmpeg-x86_64-git-*.7z`，用 7-Zip 分别提取 `libmpv-2.dll` 和 `ffmpeg.exe`。
 这个浮动下载没有版本及哈希固定，不能保证得到表中相同字节。
 当前证据尚未确定这两个文件对应的 release tag、压缩包文件名及压缩包 SHA256；
-在这些信息查明前，不应编写一个用 latest 冒充固定版本的恢复脚本。
+可在 <https://github.com/shinchiro/mpv-winbuild-cmake/releases> 查找历史构建，
+但 latest 不能保证等价；不要把浮动下载当成上述固定文件的来源证明。
 Visor 有源码项目 `src/Desktop/BiliCopilot.Visor/BiliCopilot.Visor.csproj`，
-上述 workflow 没有生成或下载 Visor 的步骤，不能依赖 self-hosted runner 中的旧文件。
+对应上游 <https://github.com/Richasy/Bili.Copilot>；上述 workflow 没有生成或下载
+Visor 的步骤。自行 NativeAOT 发布得到的文件也必须核对哈希，不能只比较版本号。
+
+本次复现明确允许从已知成功的参考源码树手动复制这四个文件；这不是 NuGet 缓存复用。
+在本机 Windows PowerShell 中，从克隆根目录运行：
+
+```powershell
+$referenceAssets = 'C:\Users\Zhang\AppData\Local\Temp\BiliCopilot-setup\p7-final-consumer-20261012-578008fae33f\source\src\Desktop\BiliCopilot.UI\Assets'
+$assets = Join-Path $PWD 'src/Desktop/BiliCopilot.UI/Assets'
+$files = @{
+  'libmpv/x64/libmpv-2.dll' = 'd10d0994bd1398813da87fdb299961b378c71561bae1d135cb2b641b5864d7eb'
+  'ffmpeg/x64/ffmpeg.exe' = '97cba10ab56e0ed7b3fc09004f1caedd8468924fd5fb39db126383a053da9c5e'
+  'visor/x64/BiliCopilot.Visor.exe' = 'cbf75e0cd2ff7f5ff0bdce0b89ad47cd4c4cc154b93d89f602463c1cb33dbedb'
+  'visor/arm64/BiliCopilot.Visor.exe' = '6a12b535defb12f35b6abaaba12fe0dcd21a2e40db14aeb4921f5ccdb46e9d14'
+}
+foreach ($relative in $files.Keys) {
+  $from = Join-Path $referenceAssets $relative
+  $to = Join-Path $assets $relative
+  if ((Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -ine $files[$relative]) { throw "Source hash mismatch: $relative" }
+  New-Item -ItemType Directory -Force -Path (Split-Path $to -Parent) | Out-Null
+  Copy-Item -LiteralPath $from -Destination $to -Force
+  if ((Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash -ine $files[$relative]) { throw "Destination hash mismatch: $relative" }
+}
+```
+
+其他机器可把 `$referenceAssets` 改为保存了这些经核验文件的目录；没有这些文件时，
+需先找到上述相同构建，不能宣称只下载源码就已具备运行时依赖。
+参考树没有 ARM64 版 libmpv/FFmpeg，所以上述清单只支持本次 **x64 MSIX** 验证；
+ARM64 Visor 虽保留以完整记录参考资产，但不随 x64 包一起使用。
 
 `Assets/bbdown` 在参考源码树不存在，当前 csproj 和 C# 中也没有 BBDown 引用。
 `BiliCopilot.UI_TemporaryKey.pfx` 和 `Properties/launchSettings.json` 实际已经在 Git 中，
